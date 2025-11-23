@@ -1,0 +1,6 @@
+# Kubernetes secrets - never commit real secrets!
+**/secret.yaml
+
+# Allow template files
+!**/secret.yaml.template
+!**/secret.example.yaml

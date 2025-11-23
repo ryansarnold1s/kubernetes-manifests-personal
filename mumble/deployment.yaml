@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mumble
+  namespace: mumble
+  labels:
+    app: mumble
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mumble
+  template:
+    metadata:
+      labels:
+        app: mumble
+    spec:
+      securityContext:
+        fsGroup: 10000
+      containers:
+      - name: mumble
+        image: mumblevoip/mumble-server:v1.5.857
+        ports:
+        - name: mumble-tcp
+          containerPort: 64738
+          protocol: TCP
+        - name: mumble-udp
+          containerPort: 64738
+          protocol: UDP
+        envFrom:
+        - configMapRef:
+            name: mumble-config
+        env:
+        - name: MUMBLE_SUPERUSER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mumble-secrets
+              key: superuser-password
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        securityContext:
+          runAsUser: 10000
+          runAsGroup: 10000
+          runAsNonRoot: true
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: mumble-data

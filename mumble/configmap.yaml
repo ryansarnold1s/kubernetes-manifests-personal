@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mumble-config
+  namespace: mumble
+data:
+  # Server Registration - Set these if you want to list on public server list
+  # Leave empty/comment out for private server
+  MUMBLE_CONFIG_REGISTERNAME: "Arnold Voice Server"
+  MUMBLE_CONFIG_REGISTERPASSWORD: "Ridley"
+  # MUMBLE_CONFIG_REGISTERURL: "https://yourdomain.com"
+  # MUMBLE_CONFIG_REGISTERHOSTNAME: "mumble.yourdomain.com"
+
+  # Welcome message displayed when users connect
+  MUMBLE_CONFIG_WELCOMETEXT: "Welcome to the Mumble server!"
+
+  # Maximum users allowed on server
+  MUMBLE_CONFIG_USERS: "100"
+
+  # Bandwidth limit per user in bits/second (default: 558000 = ~558 kbps)
+  # Higher values allow better audio quality but use more bandwidth
+  MUMBLE_CONFIG_BANDWIDTH: "558000"
+
+  # Obfuscate IP addresses in logs for privacy
+  MUMBLE_CONFIG_OBFUSCATE: "true"
+
+  # Server password - leave empty for no password
+  # (If set, users must provide this password to connect)
+  MUMBLE_CONFIG_SERVERPASSWORD: ""
+
+  # Timeout for inactive users (seconds)
+  MUMBLE_CONFIG_TIMEOUT: "30"
+
+  # Allow HTML in messages
+  MUMBLE_CONFIG_ALLOWHTML: "true"
+
+  # Remember channel positions
+  MUMBLE_CONFIG_REMEMBERCHANNEL: "true"
+
+  # Text message length limit
+  MUMBLE_CONFIG_TEXTMESSAGELENGTH: "5000"
+
+  # Image message size limit (bytes)
+  MUMBLE_CONFIG_IMAGEMESSAGELENGTH: "131072"
+
+  # Send version information to clients
+  MUMBLE_CONFIG_SENDVERSION: "true"
+
+  # SSL/TLS Certificate settings
+  # The Docker container auto-generates a self-signed cert
+  # For production, consider providing your own:
+  # MUMBLE_CONFIG_SSLCERT: "/data/cert.pem"
+  # MUMBLE_CONFIG_SSLKEY: "/data/key.pem"
+
+  # ICE RPC interface - ONLY enable if you need remote administration
+  # SECURITY WARNING: Secure this properly or leave disabled
+  # MUMBLE_CONFIG_ICE: "tcp -h 127.0.0.1 -p 6502"
+  # MUMBLE_CONFIG_ICESECRETREAD: "your-read-secret"
+  # MUMBLE_CONFIG_ICESECRETWRITE: "your-write-secret"
