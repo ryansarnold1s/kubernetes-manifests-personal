@@ -19,6 +19,19 @@ data:
   BACKUPS_IF_IDLE: "false"
   BACKUPS_IDLE_GRACE_PERIOD: "3600"
   ADMINLIST_IDS: ""
+  # Extra launch args, appended unquoted to the server command line by the image
+  # (/usr/local/bin/valheim-server, "$valheim_server" ... $SERVER_ARGS), so space-separated
+  # args work but a value containing a space will not.
+  #
+  # -modifier resources more: native Valheim world modifier, one step above normal.
+  # This is a GLOBAL drop multiplier -- it scales ore veins, trees and foraging along with
+  # mob loot. There is no native way to boost mob drops alone; that would need a BepInEx mod.
+  # Native keys: Combat, DeathPenalty, Resources, Raids, Portals (verified in
+  # assembly_valheim.dll). There is NO native durability modifier -- also mod-only.
+  #
+  # Modifiers are saved into the world once set. A malformed -modifier arg logs a parse
+  # error and is otherwise silently ignored, so check the logs after changing this.
+  SERVER_ARGS: "-modifier resources more"
   BEPINEX: "true"
   PUID: "10000"
   PGID: "10000"

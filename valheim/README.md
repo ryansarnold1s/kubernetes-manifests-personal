@@ -108,6 +108,65 @@ tale in the plan.
   plan once more. Derive it from the `valheim-secrets` Secret at runtime instead, e.g.:
   `[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String((kubectl get secret valheim-secrets -n valheim -o jsonpath='{.data.server-password}')))`.
 
+## World modifiers (native — no mods needed)
+
+Currently set: **`SERVER_ARGS: "-modifier resources more"`** in `configmap.yaml` — one step
+above normal drop rates.
+
+Valheim has native difficulty/rate modifiers compiled into the server. Verified present in
+this build's `assembly_valheim.dll`:
+
+| Key | Values |
+|---|---|
+| `combat` | `veryeasy` `easy` `normal` `hard` `veryhard` |
+| `deathpenalty` | `casual` `veryeasy` `easy` `normal` `hard` `hardcore` |
+| `resources` | `muchless` `less` `normal` `more` `muchmore` |
+| `raids` | `none` `muchless` `less` `normal` `more` `muchmore` |
+| `portals` | `casual` `normal` `hard` `veryhard` |
+
+Global keys are separate: `-setkey nobuildcost | nomap | passivemobs | playerevents`.
+
+⚠️ **`resources` is a global drop multiplier**, not a mob-loot multiplier. It scales ore veins,
+trees and foraging along with kills. There is no native way to boost mob drops alone.
+
+⚠️ **There is no native durability modifier.** The only durability-related symbols in the
+assembly are internal item fields (`maxDurability`, `useDurabilityDrain`, `durabilityPerLevel`)
+— nothing exposed to the launch parser or the console. Adjusting durability requires a BepInEx
+mod, which means solving the DLL-delivery gap below first.
+
+### Changing a modifier
+
+`SERVER_ARGS` is appended **unquoted** to the launch line by the image
+(`/usr/local/bin/valheim-server`), so space-separated args work but a value containing a space
+will not. Edit `configmap.yaml`, then:
+
+```powershell
+kubectl apply -f configmap.yaml
+kubectl rollout restart deploy/valheim -n valheim
+```
+
+**A malformed `-modifier` arg logs a parse error and is otherwise silently ignored — the server
+starts normally and you get no in-game hint.** Always confirm the modifier was actually applied
+rather than assuming the restart worked:
+
+```powershell
+# want one "Setting world modifier: <key>-><value>" line per modifier
+kubectl logs -n valheim deploy/valheim --tail=500 | Select-String "Setting world modifier"
+# want nothing
+kubectl logs -n valheim deploy/valheim --tail=500 | Select-String "Failed to parse|couldn't be parsed"
+```
+
+**`SERVER_ARGS` is the source of truth on every boot — modifiers are not persisted into the
+world save.** Verified on this world: `TreeFellMeFirst.fwl` is 56 bytes (version, name, seed,
+uid — nothing else), and the 4.7MB `.db` contains no modifier or global-key state. So reverting
+is just removing the arg and restarting; there is nothing left behind in the world to clean up,
+and no need for the `resetworldkeys` console command.
+
+The practical consequence: **whatever is in `SERVER_ARGS` wins after any restart.** A modifier
+set at runtime via the `setworldmodifier` console command is a session-local change that the
+nightly `UPDATE_CRON` restart will silently overwrite with the ConfigMap value. If you want a
+change to stick, put it in `configmap.yaml`.
+
 ## Modding (BepInEx)
 
 `BEPINEX: "true"` is set in `configmap.yaml`. The framework is installed and
