@@ -1,0 +1,16 @@
+# This job does nothing until the Longhorn Volume backing valheim-data carries the label
+# recurring-job-group.longhorn.io/valheim=enabled — a new or recreated PVC's volume starts
+# unlabeled. If snapshots aren't appearing, check the label before anything else. See
+# valheim/README.md (Applying / Backups) for the labeling and verification commands.
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: valheim-daily-snapshot
+  namespace: longhorn-system
+spec:
+  cron: "0 11 * * *"
+  task: snapshot
+  groups:
+  - valheim
+  retain: 7
+  concurrency: 1

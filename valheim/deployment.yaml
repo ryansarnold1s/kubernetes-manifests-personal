@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: valheim
+  namespace: valheim
+  labels:
+    app: valheim
+spec:
+  replicas: 1
+  strategy:
+    # Recreate: RollingUpdate deadlocks on the ReadWriteOnce Longhorn volume (new pod can't mount while old pod holds it).
+    type: Recreate
+  selector:
+    matchLabels:
+      app: valheim
+  template:
+    metadata:
+      labels:
+        app: valheim
+    spec:
+      # Valheim needs ~2 minutes to flush the world on SIGTERM; a lower value corrupts the world on every restart.
+      terminationGracePeriodSeconds: 120
+      securityContext:
+        fsGroup: 10000
+      containers:
+      - name: valheim
+        image: lloesche/valheim-server:sha-732221f4d5b5
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: game
+          containerPort: 2456
+          protocol: UDP
+        - name: query
+          containerPort: 2457
+          protocol: UDP
+        envFrom:
+        - configMapRef:
+            name: valheim-config
+        env:
+        - name: SERVER_PASS
+          valueFrom:
+            secretKeyRef:
+              name: valheim-secrets
+              key: server-password
+        volumeMounts:
+        - name: config
+          mountPath: /config
+        - name: server
+          mountPath: /opt/valheim
+        # Deliberately no livenessProbe: it would SIGKILL the server mid-world-save and corrupt the world;
+        # supervisord restarts the game process internally, and the Deployment restarts the container if it exits.
+        startupProbe:
+          exec:
+            command: ["sh", "-c", "pgrep -f valheim_server > /dev/null"]
+          periodSeconds: 10
+          failureThreshold: 60
+        readinessProbe:
+          exec:
+            command: ["sh", "-c", "pgrep -f valheim_server > /dev/null"]
+          periodSeconds: 30
+          failureThreshold: 3
+        # No CPU limit: CFS throttling shows up in-game as rubber-banding, so CPU is deliberately left unbounded.
+        resources:
+          requests:
+            cpu: "2"
+            memory: "5Gi"
+          limits:
+            memory: "8Gi"
+      volumes:
+      - name: config
+        persistentVolumeClaim:
+          claimName: valheim-data
+      - name: server
+        persistentVolumeClaim:
+          claimName: valheim-server

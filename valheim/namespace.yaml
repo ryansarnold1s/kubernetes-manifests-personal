@@ -1,0 +1,10 @@
+# Deliberately no pod-security.kubernetes.io labels here. The cluster default is
+# baseline, which is the intended posture for this namespace — do not add
+# `enforce: privileged`. See README.md / the design spec for why (SYS_NICE was
+# dropped rather than widening the namespace).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: valheim
+  labels:
+    app: valheim

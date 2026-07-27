@@ -1,0 +1,33 @@
+# /config — worlds, adminlist, backups. The irreplaceable data. Deleting this PVC
+# destroys the world; see README.md Restore/Rollback before ever doing so.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: valheim-data
+  namespace: valheim
+  labels:
+    app: valheim
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi
+---
+# /opt/valheim — the ~2-3GB SteamCMD game install. Disposable: deleting this PVC only
+# forces a clean reinstall on next boot and does not affect the world.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: valheim-server
+  namespace: valheim
+  labels:
+    app: valheim
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi

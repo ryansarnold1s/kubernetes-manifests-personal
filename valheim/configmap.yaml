@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: valheim-config
+  namespace: valheim
+  labels:
+    app: valheim
+data:
+  SERVER_NAME: "Deathsquito Support Group"
+  WORLD_NAME: "TreeFellMeFirst"
+  SERVER_PUBLIC: "false"
+  SERVER_PORT: "2456"
+  TZ: "America/Phoenix"
+  UPDATE_CRON: "0 5 * * *"
+  BACKUPS: "true"
+  BACKUPS_ZIP: "true"
+  BACKUPS_CRON: "0 * * * *"
+  BACKUPS_MAX_AGE: "3"
+  BACKUPS_IF_IDLE: "false"
+  BACKUPS_IDLE_GRACE_PERIOD: "3600"
+  ADMINLIST_IDS: ""
+  BEPINEX: "true"
+  PUID: "10000"
+  PGID: "10000"
+  STATUS_HTTP: "false"
