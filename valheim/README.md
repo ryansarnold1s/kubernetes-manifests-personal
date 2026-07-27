@@ -60,11 +60,29 @@ tale in the plan.
   flush the world on SIGTERM. A shorter value corrupts the world on every restart.
 - **`strategy: Recreate` is required.** RollingUpdate deadlocks on the ReadWriteOnce volume.
 - **Startup and readiness probes only, deliberately no liveness probe.** Both run
-  `pgrep -f valheim_server` in-container: `startupProbe` (period 10s, failureThreshold 60)
-  covers the slow first boot/world load, `readinessProbe` (period 30s, failureThreshold 3)
-  tracks whether the game process is up. A liveness probe is deliberately omitted — it would
-  SIGKILL the server mid-save. Supervisord restarts the game process internally; the
-  Deployment restarts the container if the startup probe never succeeds.
+  `pgrep -f '[v]alheim_server'` in-container: `startupProbe` (period 10s, failureThreshold 120
+  = 20 min) covers the cold SteamCMD install and slow first world load, `readinessProbe`
+  (period 30s, failureThreshold 3) tracks whether the game process is up. A liveness probe is
+  deliberately omitted — it would SIGKILL the server mid-save. Supervisord restarts the game
+  process internally; the Deployment restarts the container if the startup probe never succeeds.
+- **Never unbracket the probe pattern.** `pgrep -f` matches full command lines, so the
+  unbracketed `pgrep -f valheim_server` matches the probe's *own* `sh -c` process and returns 0
+  no matter what — a probe that cannot fail. The `> /dev/null` is what causes it: with a
+  redirect, bash keeps the parent shell (argv and all) alive instead of exec-replacing itself.
+  That is why the bare form passes a manual "is the server up?" check and still never fails.
+  `[v]alheim_server` matches the real process but not the literal shell argv. Verify any change
+  against a name that does not exist, not just against a healthy server:
+
+  ```powershell
+  # want: exit=1
+  kubectl exec -n valheim deploy/valheim -- sh -c 'pgrep -f "[Z]ZZNOSUCH" > /dev/null; echo exit=$?'
+  ```
+
+  Note the single-quoted outer string — PowerShell would eat a `$?` inside double quotes. The
+  bracketed form is safe to test inline like this. Testing an **unbracketed** candidate is not:
+  your own test command's argv contains the pattern, so the test self-matches exactly the way
+  the probe does and reports success. For those, write the command to a script file inside the
+  container first and run the file, so no ancestor process argv carries the pattern.
 - **No CPU limit, deliberately.** CFS throttling shows up in-game as rubber-banding.
 - **Do not add `SYS_NICE` back, and do not label the namespace privileged.** The cluster
   enforces Pod Security Admission at `baseline` for any namespace without PSA labels, and
@@ -144,10 +162,18 @@ Expect `Chainloader startup complete` and `0 plugins to load` (BepInEx
 
 ### If the server goes unreachable after a framework change
 
-The readiness probe is `pgrep -f valheim_server`. BepInEx execs the game binary
+The readiness probe is `pgrep -f '[v]alheim_server'`. BepInEx execs the game binary
 through an `LD_PRELOAD` wrapper — if that ever stops matching, readiness never
 becomes true and the Service drops its endpoints while the pod still reports
-`Running`. Check endpoints, not pod status:
+`Running`. Under BepInEx today the match is on
+`/opt/valheim/bepinex/valheim_server.x86_64 -nographics -batchmode ...`, confirmed
+in the live container.
+
+⚠️ **This failure mode only became possible once the probe was fixed.** The
+originally committed probe was unbracketed and matched its own shell, so it always
+returned 0 — readiness could never go false and endpoints could never drop. Any
+"endpoints looked healthy" observation recorded before that fix proves nothing
+about this scenario. Check endpoints, not pod status:
 
 ```powershell
 kubectl get endpointslice -n valheim -l kubernetes.io/service-name=valheim -o jsonpath='{range .items[*]}{.endpoints[*].conditions.ready}{"\n"}{end}'

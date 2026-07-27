@@ -94,7 +94,9 @@ disconnected.
 
 ## 6. Primary risk: the readiness probe may break
 
-The readiness and startup probes are `pgrep -f valheim_server`.
+The readiness and startup probes are `pgrep -f valheim_server`. (Now
+`pgrep -f '[v]alheim_server'` — the unbracketed form shipped here was a no-op that
+always returned 0. See the correction at the end of this section.)
 
 BepInEx launches the server through a wrapper that sets `LD_PRELOAD` before
 exec'ing the game binary. The process should still match the pattern, but this
@@ -123,6 +125,23 @@ verification catches it, and the same rollback applies.
 complete`, `0 plugins to load`); `pgrep -f valheim_server` still matches under
 the `LD_PRELOAD` wrapper; EndpointSlice `ready=true`, pod `1/1`, 0 restarts.
 The risk did not materialize.
+
+**Correction — the evidence above was worthless at the time, though the conclusion
+happens to hold.** The probe as committed was `sh -c "pgrep -f valheim_server >
+/dev/null"`, which matches its own shell's argv and returns 0 unconditionally. So
+`ready=true` here was guaranteed regardless of whether BepInEx broke the match —
+this section's entire mitigation ("verification checks EndpointSlice readiness
+explicitly") was checking a signal that could not go false. The rollback trigger
+was inert.
+
+Re-verified independently after the probe fix: the live process is
+`/opt/valheim/bepinex/valheim_server.x86_64 -nographics -batchmode ...`, so the
+pattern genuinely does still match under the `LD_PRELOAD` wrapper. The conclusion
+stands — it just wasn't established by the check that claimed to establish it.
+
+The probes are now `pgrep -f '[v]alheim_server'` and can actually fail, which means
+the EndpointSlice check described above is a real gate from here on. See §8 of
+`2026-07-26-valheim-server-deployment-design.md`.
 
 ---
 

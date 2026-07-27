@@ -49,14 +49,25 @@ spec:
           mountPath: /opt/valheim
         # Deliberately no livenessProbe: it would SIGKILL the server mid-world-save and corrupt the world;
         # supervisord restarts the game process internally, and the Deployment restarts the container if it exits.
+        #
+        # The pattern MUST stay bracketed as '[v]alheim_server'. `pgrep -f` matches full command
+        # lines, so a bare `pgrep -f valheim_server` matches the probe's own `sh -c` process and
+        # returns 0 unconditionally — a probe that can never fail. (The `> /dev/null` is what keeps
+        # that shell alive: without a redirect bash exec-replaces itself and there is nothing to
+        # self-match, which is why the bare form passes a manual smoke test and still never fails.)
+        # '[v]alheim_server' matches the real process but not the literal shell argv. Verified in
+        # the live container against a process name that does not exist: bare form -> 0, bracketed
+        # form -> 1. Do not "simplify" the brackets away.
         startupProbe:
           exec:
-            command: ["sh", "-c", "pgrep -f valheim_server > /dev/null"]
+            command: ["sh", "-c", "pgrep -f '[v]alheim_server' > /dev/null"]
           periodSeconds: 10
-          failureThreshold: 60
+          # 120 x 10s = 20 min. A cold SteamCMD install on a fresh valheim-server PVC has to pull
+          # ~2-3GB and lay down BepInEx inside this window or the container is killed and crashloops.
+          failureThreshold: 120
         readinessProbe:
           exec:
-            command: ["sh", "-c", "pgrep -f valheim_server > /dev/null"]
+            command: ["sh", "-c", "pgrep -f '[v]alheim_server' > /dev/null"]
           periodSeconds: 30
           failureThreshold: 3
         # No CPU limit: CFS throttling shows up in-game as rubber-banding, so CPU is deliberately left unbounded.

@@ -463,6 +463,8 @@ metadata:
   labels:
     app: valheim
   annotations:
+    # CORRECTION: shipped as metallb.io/loadBalancerIPs — the universe.tf prefix below is
+    # deprecated and warns on every reconcile under MetalLB v0.16.1.
     metallb.universe.tf/loadBalancerIPs: 192.168.130.155
 spec:
   type: LoadBalancer
@@ -653,6 +655,37 @@ git -C "C:\Users\RyanArnold\Documents\GitHub\kubernetes-manifests-personal" comm
 - Produces: a readiness gate so MetalLB stops advertising the server during a multi-GB SteamCMD reinstall.
 
 **Why this is a separate, empirical task:** the usual health signal (`STATUS_HTTP` / `/status.json`) is documented as functional only when `SERVER_PUBLIC=true`, which this deployment sets to `false`. An exec probe whose command is missing from the image would leave readiness permanently false, drop the Service's endpoints, and make the server unreachable while looking healthy. So the command gets verified against the live container *before* it is committed.
+
+> 🛑 **CORRECTION — this task as written produced a broken probe. Do not copy the YAML below.**
+> Step 1's check is one-sided: it only asks whether the command returns 0 while the server is
+> up. `pgrep -f` matches full command lines, so `sh -c "pgrep -f valheim_server > /dev/null"`
+> matches its own shell's argv and returns 0 **unconditionally** — including when no server
+> exists. Step 1 therefore prints `PROBE_OK` no matter what, and the probe it approved could
+> never fail. Both probes were decorative from `c82acc9` until fixed.
+>
+> The `> /dev/null` is what does it: without a redirect bash exec-replaces the shell, leaving
+> nothing to self-match; with one, the shell survives.
+>
+> **Shipped fix** (see `valheim/deployment.yaml` and §8 of the design spec) — bracket the
+> pattern, and raise the startup threshold to 120 since the 10-minute budget below had never
+> actually been enforced:
+>
+> ```yaml
+>         startupProbe:
+>           exec:
+>             command: ["sh", "-c", "pgrep -f '[v]alheim_server' > /dev/null"]
+>           periodSeconds: 10
+>           failureThreshold: 120
+>         readinessProbe:
+>           exec:
+>             command: ["sh", "-c", "pgrep -f '[v]alheim_server' > /dev/null"]
+>           periodSeconds: 30
+>           failureThreshold: 3
+> ```
+>
+> **Lesson for any future exec probe: verify the negative case.** Run the candidate against a
+> process name that does not exist and require exit 1. Wrap it in a script file so no ancestor
+> process argv contains the pattern, or the test self-matches the same way the probe does.
 
 - [ ] **Step 1: Test the primary probe candidate against the running container**
 

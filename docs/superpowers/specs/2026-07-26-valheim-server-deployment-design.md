@@ -231,7 +231,9 @@ recurring schedule.
 `Service` type `LoadBalancer`, **UDP 2456 and 2457 only**. No 2458 (crossplay / RPC mods, not
 in use), no TCP.
 
-- IP pinned to **`192.168.130.155`** via the `metallb.universe.tf/loadBalancerIPs` annotation.
+- IP pinned to **`192.168.130.155`** via the `metallb.io/loadBalancerIPs` annotation. (Originally
+  written as `metallb.universe.tf/loadBalancerIPs`; that prefix is deprecated and logs a
+  `deprecatedAnnotation` warning on every reconcile under MetalLB v0.16.1.)
   Pinning matters more than usual: players type this address into Valheim's **Join IP** box, so
   a MetalLB reassignment would silently break every saved entry.
 - `externalTrafficPolicy: Local` — keeps game packets on the node running the pod rather than
@@ -300,6 +302,29 @@ verified follow-up. Verified, not guessed.
 **Resolved in `c82acc9`:** `pgrep -f valheim_server` was confirmed against the running
 container and added as both `startupProbe` and `readinessProbe` in `valheim/deployment.yaml`.
 No liveness probe was added, per above.
+
+**Correction — that verification was insufficient, and the probe it approved was a no-op.**
+The check only asked "does this return 0 while the server is up?" It never asked "does it
+return 1 when the server is down?" `pgrep -f` matches full command lines, so
+`sh -c "pgrep -f valheim_server > /dev/null"` matches its *own* shell — argv included — and
+returns 0 unconditionally. Both probes were therefore decorative from `c82acc9` until the fix:
+the startup probe passed on its first tick regardless of state, and readiness could never drop
+the Service's endpoints. That is the exact failure mode this section was written to prevent; it
+shipped anyway because the verification was one-sided.
+
+The `> /dev/null` is the active ingredient. Without a redirect bash exec-replaces the shell and
+there is no parent left to self-match; with one, the shell survives and matches. That is why the
+bare form looks correct under a manual smoke test.
+
+Fixed by bracketing the pattern to `'[v]alheim_server'`, which matches the real process but not
+the literal shell argv. Verified **both** directions in the live container — real process → 0,
+a name that does not exist → 1 — with the probe invoked from a script file so no ancestor
+process argv contained the pattern. `startupProbe.failureThreshold` was raised 60 → 120 at the
+same time: the 10-minute budget had never actually been enforced, and a cold SteamCMD install
+on a fresh `valheim-server` PVC can exceed it.
+
+**Standing rule for any future exec probe here: verify the negative case.** A probe that has
+only ever been observed passing has not been verified.
 
 ---
 

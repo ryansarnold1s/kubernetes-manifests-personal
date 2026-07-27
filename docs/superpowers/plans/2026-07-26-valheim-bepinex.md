@@ -134,6 +134,13 @@ Expected: PASS — one pod IP with `ready=true`
 
 **This is the gate for the whole task.** The probes are `pgrep -f valheim_server`, and BepInEx execs the game binary through an `LD_PRELOAD` wrapper. If that changes the matched command line, readiness never becomes true, the EndpointSlice empties, and **the server is unreachable while `kubectl get pods` still shows `Running`.**
 
+> 🛑 **CORRECTION — this gate was inert when the task ran.** The probe was unbracketed
+> (`pgrep -f valheim_server`), which matches its own `sh -c` argv and returns 0 unconditionally.
+> Readiness could not go false, so the EndpointSlice check below would have reported `ready=true`
+> even if BepInEx had broken the match entirely. The probes are now
+> `pgrep -f '[v]alheim_server'` and this gate is real. Re-verified independently: the pattern
+> does still match under the `LD_PRELOAD` wrapper.
+
 An empty result, or `ready=false`, means roll back — go to Step 12. Do not attempt to diagnose or "fix forward" while the server is dark.
 
 - [ ] **Step 11: Record the observation about `/config/bepinex` (non-blocking)**
@@ -202,10 +209,11 @@ loaded; **no mods are installed.**
 
 ### If the server goes unreachable after a framework change
 
-The readiness probe is `pgrep -f valheim_server`. BepInEx execs the game binary
-through an `LD_PRELOAD` wrapper — if that ever stops matching, readiness never
-becomes true and the Service drops its endpoints while the pod still reports
-`Running`. Check endpoints, not pod status:
+The readiness probe is `pgrep -f '[v]alheim_server'` (originally unbracketed, which
+made it a no-op that always passed — see the correction earlier in this plan).
+BepInEx execs the game binary through an `LD_PRELOAD` wrapper — if that ever stops
+matching, readiness never becomes true and the Service drops its endpoints while the
+pod still reports `Running`. Check endpoints, not pod status:
 
 ```powershell
 kubectl get endpointslice -n valheim -l kubernetes.io/service-name=valheim -o jsonpath='{range .items[*]}{.endpoints[*].conditions.ready}{"\n"}{end}'
