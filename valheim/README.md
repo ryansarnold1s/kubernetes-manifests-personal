@@ -186,7 +186,7 @@ silently replaces it with the ConfigMap value. If you want a change to stick, pu
 
 ## Modding (BepInEx)
 
-`BEPINEX: "true"` is set in `configmap.yaml`. **Eight mods are installed**, fetched declaratively
+`BEPINEX: "true"` is set in `configmap.yaml`. **Nine mods are installed**, fetched declaratively
 by the `fetch-mods` initContainer from `mods-configmap.yaml`:
 
 | Mod | Version | Client install |
@@ -196,6 +196,7 @@ by the `fetch-mods` initContainer from `mods-configmap.yaml`:
 | EpicLoot | 0.12.15 | **required** |
 | AzuExtendedPlayerInventory | 2.4.1 | **required — kicks clients without it** |
 | AzuContainerSizes | 1.1.4 | **required — kicks clients without it** |
+| ValheimPlus (Grantapher fork) | 9.17.1 | **required — `enforceMod = true`** |
 | Warfare | 1.8.9 | **required** (custom weapon/animation assets) |
 | SkilledCarryWeight | 1.4.1 | recommended (server install enforces config) |
 | PlantEverything | 1.20.0 | recommended (works without, minor cosmetic loss) |
@@ -259,6 +260,40 @@ image syncs with `rsync -a` and **no `--delete`**, so the stale DLL survives in 
 Also delete `/opt/valheim/bepinex/BepInEx/plugins/<Name>/`, or delete the `valheim-server` PVC to
 force a clean reinstall — that PVC is disposable and does not hold the world.
 
+### ValheimPlus
+
+Installed as an **ordinary BepInEx plugin via the initContainer** — its only dependency is
+`denikson-BepInExPack_Valheim-5.4.2333`, exactly the pack this server runs.
+
+🚨 **Do NOT set `VALHEIM_PLUS=true` in `configmap.yaml`.** The image branches
+`if [ "$VALHEIM_PLUS" = true ]; then ... elif [ "$BEPINEX" = true ]; then` — an if/elif, so
+`VALHEIM_PLUS` wins and the `BEPINEX` branch never runs. Every other mod lives in the BepInEx
+install path and would be silently bypassed. That is what "mutually exclusive" means here; it is
+a statement about the image's two install *modes*, not about V+ being incompatible with BepInEx.
+
+V+ ships with every gameplay section `enabled=false` — only `[ValheimPlus]` and `[Server]` are on,
+and both are meta. So it is inert until you enable something. Three sections are **pinned off** in
+`MOD_CONFIG` because they would fight the mods above:
+
+| Pinned off | Collides with |
+|---|---|
+| `[Inventory]` | AzuEPI (`playerInventoryRows`) and AzuContainerSizes (every chest/cart/boat row+column) |
+| `[Player]` | SkilledCarryWeight (`baseMaximumWeight`, `baseMegingjordBuff`) |
+| `[Wagon]` | SkilledCarryWeight's cart-mass reduction (`wagonBaseMass`, `wagonExtraMassFromItems`) |
+
+Everything else is free to enable — building, hotkeys, food, stamina, map, and so on. Two to watch
+if you do: `[Items] baseItemWeightReduction` and `[Stamina]` overweight drain both affect carrying,
+though neither touches a value set elsewhere and both default to no-op.
+
+**V+ owns `valheim_plus.cfg` and rewrites it on every load** — it normalises line endings to LF,
+reformats `enabled=false` into `enabled = false`, and prepends a UTF-8 BOM. That is fine and
+expected; the applier reads whatever V+ last wrote and reapplies the pins before the next load.
+
+`[Server]` defaults to `enforceMod = true` and `serverSyncsConfig = true`. The first makes V+ a
+mandatory client install; the second is actually useful — the server pushes its config to clients,
+so nobody can locally re-enable `[Inventory]` and desync. `maxPlayers = 10` there now governs the
+player cap.
+
 ### Per-mod configuration
 
 Mod settings are declared in the `MOD_CONFIG` block of `mods-configmap.yaml`, not hand-edited on
@@ -305,6 +340,19 @@ The applier's `norm()` strips zero-width characters before comparing and preserv
 key text on write, so `MOD_CONFIG` can use plain `Enabled`. **Do not remove those `norm()` calls
 as dead weight.** The proof it matched rather than appended is the key count: 83 before, 83
 after, across 48 edits. If you ever suspect a silent no-op, that count is the check:
+
+**The applier normalises four things that would each cause a silent no-op**, all found the hard
+way against real mod configs — every one would have appended a duplicate while logging success:
+
+| Quirk | Seen in | Handling |
+|---|---|---|
+| U+200B zero-width space in keys/sections | SkilledCarryWeight | stripped before compare, preserved on write |
+| UTF-8 BOM at file start | ValheimPlus | stripped before compare |
+| CRLF line endings | ValheimPlus | stripped before compare, `\r` re-appended on write |
+| `key=value` vs `Key = Value` spacing | V+ vs BepInEx | detected per line, original style reproduced |
+
+The integrity check that catches all four is the same: **section and key counts must be unchanged**
+across an apply. A duplicate appended section or key is the signature of a failed match.
 
 ```powershell
 kubectl exec -n valheim deploy/valheim -c valheim -- sh -c 'C=/config/bepinex/Searica.Valheim.SkilledCarryWeight.cfg; echo "keys=$(grep -c = $C) true=$(grep -c "Enabled = true" $C)"'

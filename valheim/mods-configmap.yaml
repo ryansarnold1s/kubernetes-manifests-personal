@@ -26,6 +26,7 @@ data:
   # name  version  url  sha256  layout
   #
   # layout=plugins -> the zip has a plugins/ dir; its contents go to BepInEx/plugins/<name>/
+  # layout=bepinex -> the zip nests under BepInEx/plugins/ (ValheimPlus does this)
   # layout=root    -> the .dll sits at the zip root; it goes to BepInEx/plugins/<name>/
   #
   # A zip's optional config/ dir is always copied to /config/bepinex/ , which IS
@@ -45,6 +46,7 @@ data:
     PlantEverything            1.20.0   https://thunderstore.io/package/download/Advize/PlantEverything/1.20.0/                     cbea097f4d8ac6bd7020d6c76a98f271ef8ae5a3e405ae64e110ed15c2941fe6  root
     AzuContainerSizes          1.1.4    https://thunderstore.io/package/download/Azumatt/AzuContainerSizes/1.1.4/                   801dfcd3cea2d37a009780a6fe6fb8091414fd36bd84678bd17fd06bb51c9112  root
     SkilledCarryWeight         1.4.1    https://thunderstore.io/package/download/Searica/SkilledCarryWeight/1.4.1/                  efdd59934335b3170f34c5efbd24c78a269a53325c253163ddbb15adf2c3ce55  root
+    ValheimPlus                9.17.1   https://thunderstore.io/package/download/Grantapher/ValheimPlus_Grantapher_Temporary/9.17.1/ 51974dc21c1a2414bb966f7fc8b043ee13c5b95dddc0b678e11edc5c44d91484  bepinex
 
   # Per-mod BepInEx config, declared here instead of hand-edited on the PVC.
   #
@@ -141,6 +143,27 @@ data:
     Searica.Valheim.SkilledCarryWeight.cfg|Unarmed|Coefficient|0.5
     Searica.Valheim.SkilledCarryWeight.cfg|WoodCutting|Enabled|true
     Searica.Valheim.SkilledCarryWeight.cfg|WoodCutting|Coefficient|0.5
+    #
+    # ValheimPlus: pin the three sections that would fight the mods above. V+ ships with EVERY
+    # gameplay section enabled=false (only [ValheimPlus] and [Server] are on, and both are meta),
+    # so these are already false -- pinning them makes it explicit and drift-proof, because
+    # MOD_CONFIG is reapplied on every boot.
+    #
+    #   [Inventory] -> playerInventoryRows collides with AzuExtendedPlayerInventory, and
+    #                  wood/personal/iron/blackmetal/cart/karve/longboat rows+columns collide
+    #                  with every value set in AzuContainerSizes above. V+'s own README: "Player
+    #                  inventory slot configuration is not compatible with Equipment and Quick
+    #                  slots mod unless the Inventory section is disabled."
+    #   [Player]    -> baseMaximumWeight / baseMegingjordBuff collide with SkilledCarryWeight.
+    #   [Wagon]     -> wagonBaseMass / wagonExtraMassFromItems collide with SkilledCarryWeight's
+    #                  CarryWeightAffectsCart mass reduction.
+    #
+    # Everything else in V+ is free to enable -- building, hotkeys, food, stamina, map, etc.
+    # Two to watch if you do: [Items] baseItemWeightReduction and [Stamina] overweight drain both
+    # affect carrying, though neither changes a value we set, and both default to no-op.
+    valheim_plus.cfg|Inventory|enabled|false
+    valheim_plus.cfg|Player|enabled|false
+    valheim_plus.cfg|Wagon|enabled|false
 
   install-mods.sh: |
     #!/bin/bash
@@ -195,6 +218,7 @@ data:
       mkdir -p "$PLUGINS/$name"
       case "$layout" in
         plugins) cp -a "$ex/plugins/." "$PLUGINS/$name/" ;;
+        bepinex) cp -a "$ex/BepInEx/plugins/." "$PLUGINS/$name/" ;;
         root)    find "$ex" -maxdepth 1 -type f -name '*.dll' -exec cp -a {} "$PLUGINS/$name/" \; ;;
         *)       echo "[FAIL ] $name: unknown layout '$layout'" >&2; exit 1 ;;
       esac
@@ -226,13 +250,21 @@ data:
     # before comparing; the original key text (ZWSP included) is preserved on write so the mod
     # still reads it. Verified on the real file: ZWSP survives, no duplicate key, key count
     # unchanged 83/83.
+    # Separator style is preserved per line, not normalised. BepInEx writes "Key = Value";
+    # ValheimPlus writes "enabled=false" with no spaces and parses its own INI. Forcing spaces
+    # into valheim_plus.cfg risks its parser reading " false" or missing the key entirely, so the
+    # replacement copies whatever style the original line used.
+    # CRLF matters too: ValheimPlus writes valheim_plus.cfg with \r\n, so "[Inventory]\r" never
+    # equals "[Inventory]". norm() strips \r before comparing, and the \r is re-appended on write
+    # so the file keeps consistent line endings. Without this every V+ pin would miss its section
+    # and append a duplicate one at the end -- silently, while logging success.
     CFG_AWK='
-    function norm(s,   t) { t=s; gsub(zw,"",t); gsub(bom,"",t); gsub(/^[ \t]+|[ \t]+$/,"",t); return t }
+    function norm(s,   t) { t=s; gsub(zw,"",t); gsub(bom,"",t); gsub(/\r/,"",t); gsub(/^[ \t]+|[ \t]+$/,"",t); return t }
     BEGIN { insec=0; done=0; sawsec=0 }
     {
       line=$0
       if (line ~ /^[ \t]*\[/) {
-        if (insec && !done) { print k " = " v; done=1 }
+        if (insec && !done) { print k sep v; done=1 }
         insec = (norm(line) == "[" norm(sec) "]"); if (insec) sawsec=1
         print line; next
       }
@@ -240,12 +272,14 @@ data:
         eq = index(line, "=")
         if (eq > 0) { lhs = substr(line,1,eq-1)
           if (norm(lhs) == norm(k)) { okey=lhs; gsub(/[ \t]+$/,"",okey)
-            print okey " = " v; done=1; next } }
+            s = (lhs ~ /[ \t]$/) ? " = " : "="
+            cr = (line ~ /\r$/) ? "\r" : ""
+            print okey s v cr; done=1; next } }
       }
       print line
     }
-    END { if (!done) { if (insec) print k " = " v
-           else if (!sawsec) { print ""; print "[" sec "]"; print k " = " v } } }'
+    END { if (!done) { if (insec) print k sep v
+           else if (!sawsec) { print ""; print "[" sec "]"; print k sep v } } }'
 
     ZW=$(printf '\342\200\213')    # U+200B zero width space
     BOM=$(printf '\357\273\277')   # U+FEFF byte order mark
@@ -258,7 +292,7 @@ data:
         echo "[cfg  ] $file [$section] $key = $value (created)"
         return 0
       fi
-      awk -v zw="$ZW" -v bom="$BOM" -v sec="$section" -v k="$key" -v v="$value" \
+      awk -v zw="$ZW" -v bom="$BOM" -v sep=" = " -v sec="$section" -v k="$key" -v v="$value" \
         "$CFG_AWK" "$path" > "$path.new"
       mv "$path.new" "$path"
       echo "[cfg  ] $file [$section] $key = $value"
