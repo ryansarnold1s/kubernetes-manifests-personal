@@ -22,6 +22,53 @@ spec:
       terminationGracePeriodSeconds: 120
       securityContext:
         fsGroup: 10000
+      initContainers:
+      # Fetches the pinned, checksum-verified server-side mod set onto the valheim-data PVC
+      # BEFORE the game container starts, so the image's bootstrap rsync
+      # (/config/bepinex/plugins/ -> BepInEx/plugins/) picks them up on the same boot. That
+      # ordering is the whole point -- the rsync runs once at bootstrap, so a DLL delivered any
+      # later would sit inert until the next restart.
+      #
+      # Idempotent: markers in /config/bepinex/.mod-state are keyed on version+sha256, so a
+      # normal restart re-downloads nothing and this adds ~1s. Only a first install or a version
+      # bump in mods-configmap.yaml pulls from the network. That matters -- Warfare alone is
+      # 182MB, and the nightly UPDATE_CRON restart would otherwise refetch the whole set daily.
+      #
+      # Reuses the game image deliberately: it is already pulled on the node
+      # (imagePullPolicy: IfNotPresent) and already ships curl, unzip and sha256sum, so this
+      # costs no extra pull and adds no new supply-chain surface.
+      #
+      # A checksum mismatch fails the init container and the pod will not start. That is
+      # intentional for executable code running inside the server. It only gates a first
+      # install or a version change, so a Thunderstore outage cannot take down an
+      # already-provisioned server.
+      - name: fetch-mods
+        image: lloesche/valheim-server:sha-732221f4d5b5
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/bash", "/scripts/install-mods.sh"]
+        env:
+        # Explicit key, not envFrom: the ConfigMap also holds install-mods.sh, and "install-mods.sh"
+        # is not a valid environment variable name -- envFrom would skip it and emit an
+        # InvalidEnvironmentVariableNames event on every pod start.
+        - name: MODS
+          valueFrom:
+            configMapKeyRef:
+              name: valheim-mods
+              key: MODS
+        volumeMounts:
+        - name: config
+          mountPath: /config
+        - name: mod-scripts
+          mountPath: /scripts
+          readOnly: true
+        - name: mod-tmp
+          mountPath: /tmp/mods
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+          limits:
+            memory: "1Gi"
       containers:
       - name: valheim
         image: lloesche/valheim-server:sha-732221f4d5b5
@@ -84,3 +131,15 @@ spec:
       - name: server
         persistentVolumeClaim:
           claimName: valheim-server
+      - name: mod-scripts
+        configMap:
+          name: valheim-mods
+          defaultMode: 0755
+          items:
+          - key: install-mods.sh
+            path: install-mods.sh
+      # Downloads land here, not on the world PVC, so a failed or partial fetch never litters
+      # valheim-data. Peak usage is Warfare: a 182MB zip plus its 183MB extraction.
+      - name: mod-tmp
+        emptyDir:
+          sizeLimit: 1Gi

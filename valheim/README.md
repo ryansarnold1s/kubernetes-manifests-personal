@@ -21,6 +21,7 @@ World: `TreeFellMeFirst`. Password lives in the `valheim-secrets` Secret.
 | `pvc.yaml` | `valheim-data` (/config), `valheim-server` (/opt/valheim) |
 | `deployment.yaml` | The server |
 | `service.yaml` | MetalLB LoadBalancer, UDP 2456-2457 |
+| `mods-configmap.yaml` | Pinned mod manifest + installer script for the `fetch-mods` initContainer |
 | `recurringjob.yaml` | Longhorn daily snapshot |
 
 `secret.yaml` is gitignored. Copy the template, set the password, apply.
@@ -93,8 +94,24 @@ tale in the plan.
   privileged is the norm for infra namespaces here, not a two-off exception; `valheim`
   deliberately does not run under that label. If something seems to need `SYS_NICE`, fix it
   another way rather than loosening the namespace.
-- Server auto-updates nightly at 05:00 America/Phoenix (`UPDATE_CRON`), which restarts it
-  and disconnects anyone online.
+- **Unattended auto-update is DISABLED** (`UPDATE_CRON: ""`). Valheim now updates only when the
+  container restarts, i.e. when you run `kubectl rollout restart`. This is deliberate: a Valheim
+  patch routinely breaks BepInEx mods, and mods are installed here. Update on purpose, with time
+  to check the mod stack afterwards. **Do not delete the `UPDATE_CRON` key to "turn it off"** —
+  see the warning in `configmap.yaml`; removing it enables 15-minute update checks.
+- **A separate nightly restart is still active and was NOT disabled**: `RESTART_CRON` defaults to
+  `10 5 * * *` and is not set in `configmap.yaml`, so the image's default applies. Confirmed live
+  in the container's crontab:
+
+  ```
+  10 5 * * * /usr/local/bin/valheim-is-idle && /usr/local/bin/supervisorctl restart valheim-server
+  ```
+
+  This is much lower risk than the auto-update was — it restarts only the game process via
+  supervisord, pulls no new Valheim version, and `RESTART_IF_IDLE` (default `true`) skips it
+  entirely while anyone is online. Left on deliberately for memory hygiene on a long-running
+  server. To disable it, add `RESTART_CRON: ""` to `configmap.yaml` — and note it takes an
+  explicit empty string for the same `${VAR-default}` reason as `UPDATE_CRON`.
 - **`SAVEINTERVAL` is unset**, so the image default of 1800s (30 min) applies. Up to ~30
   minutes of world progress can be lost on an ungraceful termination (e.g. node failure).
   The ConfigMap is unchanged; noted here for awareness.
@@ -163,61 +180,85 @@ is just removing the arg and restarting; there is nothing left behind in the wor
 and no need for the `resetworldkeys` console command.
 
 The practical consequence: **whatever is in `SERVER_ARGS` wins after any restart.** A modifier
-set at runtime via the `setworldmodifier` console command is a session-local change that the
-nightly `UPDATE_CRON` restart will silently overwrite with the ConfigMap value. If you want a
-change to stick, put it in `configmap.yaml`.
+set at runtime via the `setworldmodifier` console command is session-local and any restart
+silently replaces it with the ConfigMap value. If you want a change to stick, put it in
+`configmap.yaml`.
 
 ## Modding (BepInEx)
 
-`BEPINEX: "true"` is set in `configmap.yaml`. The framework is installed and
-loaded; **no mods are installed.**
+`BEPINEX: "true"` is set in `configmap.yaml`. **Six mods are installed**, fetched declaratively
+by the `fetch-mods` initContainer from `mods-configmap.yaml`:
 
-- **Vanilla clients are unaffected.** BepInEx on the server imposes no
-  requirement on clients by itself. Compatibility is enforced per-mod — a client
-  is rejected only when a mod requiring client-side components is installed.
+| Mod | Version | Client install |
+|---|---|---|
+| Jotunn | 2.29.2 | required (framework) |
+| JsonDotNET | 13.0.4 | required (library) |
+| EpicLoot | 0.12.15 | **required** |
+| AzuExtendedPlayerInventory | 2.4.1 | **required — kicks clients without it** |
+| Warfare | 1.8.9 | **required** (custom weapon/animation assets) |
+| PlantEverything | 1.20.0 | recommended (works without, minor cosmetic loss) |
+
+🚨 **Vanilla clients can no longer join.** AzuExtendedPlayerInventory runs a version check that
+kicks any client without it, and EpicLoot and Warfare need client-side assets. Every player must
+run the matching set, plus `BepInExPack_Valheim 5.4.2333`. r2modman pinned to these exact
+versions is the low-drift path. This reverses what this README said before mods existed — BepInEx
+alone imposed nothing on clients, but these specific mods do.
+
 - **`BEPINEX` and `VALHEIM_PLUS` are mutually exclusive.** Enabling both fails.
-- **Mod config** lives in `/config/bepinex` on the `valheim-data` PVC, so it
-  survives restarts. Mod config can also be set from the ConfigMap using
-  `BEPINEXCFG_<Section>_<Variable>` keys.
-- **Mod DLLs go in `/config/bepinex/plugins/`** on the `valheim-data` PVC
-  (verified present, currently empty — confirmed via `kubectl exec`). At
-  container bootstrap, the image rsyncs this directory into the live
-  BepInEx install (`/opt/valheim/bepinex/BepInEx/plugins`); that sync only
-  runs on startup, so a DLL dropped in while the server is running is **not**
-  picked up until the next restart, not instantly. This sharpens the
-  `UPDATE_CRON` hazard below: the same unattended nightly restart that can
-  break a mod against a new Valheim patch is also the only moment a
-  newly-delivered plugin actually takes effect, untested.
-- Enabling or disabling the framework costs a `Recreate` restart (up to ~2
-  min, 120s grace; observed ~25s).
+- **Mod config** lives in `/config/bepinex` on the `valheim-data` PVC, so it survives restarts.
+  It can also be set from the ConfigMap using `BEPINEXCFG_<Section>_<Variable>` keys.
+- **`BepInEx/config` in the live install is a symlink to `/config/bepinex`** (verified with
+  `readlink -f`). Anything a mod zip ships under `config/` therefore only has to be written to
+  the PVC — the installer does this, and it is how Warfare's `TherzieTranslations` YAMLs land.
+- **Mod DLLs go in `/config/bepinex/plugins/<Name>/`**, which the image rsyncs into
+  `/opt/valheim/bepinex/BepInEx/plugins` at container bootstrap. That sync runs **once per boot**,
+  which is exactly why the fetch runs as an initContainer — anything delivered later sits inert
+  until the next restart.
 
-### Before installing any mod — remaining gap
+### How the mods get there
 
-The destination and its persistence are solved (above): drop a `.dll` in
-`/config/bepinex/plugins/` on `valheim-data` and it survives restarts and
-gets synced into the live install on the next boot. What's not solved is
-**how the DLL gets onto that PVC in the first place** — Kubernetes has no
-bind-mount equivalent for a workstation file, so this needs an init
-container, a helper pod, or a custom image layer. This README already has a
-working helper-pod recipe for the same PVC (a `busybox` pod mounting
-`valheim-data` at `/config`, see Restore below) that the same pattern could
-adapt for plugin delivery instead of designing one from scratch. Choosing a
-repeatable, ideally declarative version of that transport is the remaining
-decision — not "nothing exists."
+`deployment.yaml` runs a `fetch-mods` initContainer before the game container. It reads the
+pinned manifest from `mods-configmap.yaml`, downloads each package, **verifies its SHA256**, and
+extracts it to the PVC. Two package layouts exist and are handled explicitly — some zips ship a
+`plugins/` dir, others put the `.dll` at the root — so the `layout` column is not decoration.
 
-`UPDATE_CRON` remains a separate hazard: it is currently `0 5 * * *` and
-unattended. A Valheim patch routinely breaks BepInEx mods, so a nightly
-auto-update can leave a broken mod stack running overnight. Decide the policy
-before mods exist, not after.
+It is **idempotent**: markers in `/config/bepinex/.mod-state` are keyed on version+sha256, so a
+normal restart downloads nothing (verified: re-running the installer reports `0 installed,
+6 already present`). This matters — Warfare alone is 182MB.
 
-### Confirm the framework is healthy
+A **checksum mismatch fails the pod deliberately.** This is executable code running inside the
+server. Because installs are idempotent, that only ever gates a first install or a version bump,
+so a Thunderstore outage cannot take down an already-provisioned server.
+
+### Adding, upgrading, removing
+
+Edit the `MODS` block in `mods-configmap.yaml`, then apply and restart:
 
 ```powershell
-kubectl logs -n valheim deploy/valheim --tail=200 | Select-String BepInEx
+kubectl apply -f mods-configmap.yaml
+kubectl rollout restart deploy/valheim -n valheim
 ```
 
-Expect `Chainloader startup complete` and `0 plugins to load` (BepInEx
-5.4.23.3).
+Get a checksum for a new version with:
+
+```powershell
+kubectl exec -n valheim deploy/valheim -- sh -c 'curl -fsSL -o /tmp/m.zip "<url>" && sha256sum /tmp/m.zip'
+```
+
+⚠️ **Removing a mod needs a second step.** Deleting its line stops it being fetched, but the
+image syncs with `rsync -a` and **no `--delete`**, so the stale DLL survives in the live install.
+Also delete `/opt/valheim/bepinex/BepInEx/plugins/<Name>/`, or delete the `valheim-server` PVC to
+force a clean reinstall — that PVC is disposable and does not hold the world.
+
+### Confirm the mod stack is healthy
+
+```powershell
+kubectl logs -n valheim deploy/valheim -c fetch-mods          # installer result
+kubectl logs -n valheim deploy/valheim -c valheim | Select-String "plugins to load|Loading \["
+```
+
+Expect `6 plugins to load`, a `Loading [...]` line per mod, and `Chainloader startup complete`
+(BepInEx 5.4.23.3).
 
 ### If the server goes unreachable after a framework change
 

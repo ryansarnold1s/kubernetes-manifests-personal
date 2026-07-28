@@ -1,0 +1,124 @@
+# Server-side BepInEx mod set, fetched by the `fetch-mods` initContainer in deployment.yaml.
+#
+# WHY AN INIT CONTAINER: Kubernetes has no bind-mount equivalent for a workstation file, so a
+# DLL has to reach the valheim-data PVC somehow. The pod has outbound internet (verified:
+# thunderstore.io -> HTTP 200), so fetching pinned releases at pod start is declarative,
+# reproducible from an empty PVC, and keeps versions in git instead of in someone's memory.
+#
+# ADDING/UPGRADING A MOD: add or edit a line in MODS below, then apply + rollout restart. The
+# installer keys off "<version> <sha256>", so changing either triggers a clean reinstall of just
+# that mod. Get a new checksum with:
+#   curl -fsSL -o m.zip "<download-url>" && sha256sum m.zip
+#
+# REMOVING A MOD: deleting a line here is NOT sufficient. The image syncs with `rsync -a` and no
+# --delete, so the stale DLL survives in the live install at /opt/valheim/bepinex/BepInEx/plugins.
+# Also delete that directory, or delete the valheim-server PVC to force a clean reinstall (that
+# PVC is disposable -- it does not hold the world).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: valheim-mods
+  namespace: valheim
+  labels:
+    app: valheim
+data:
+  # name  version  url  sha256  layout
+  #
+  # layout=plugins -> the zip has a plugins/ dir; its contents go to BepInEx/plugins/<name>/
+  # layout=root    -> the .dll sits at the zip root; it goes to BepInEx/plugins/<name>/
+  #
+  # A zip's optional config/ dir is always copied to /config/bepinex/ , which IS
+  # BepInEx/config/ (the live install symlinks it). Only Warfare ships one -- its
+  # TherzieTranslations YAMLs. Verified against each zip's actual contents, not assumed.
+  #
+  # Checksums captured 2026-07-27 from the real downloads.
+  # ALL SIX ALSO REQUIRE CLIENT-SIDE INSTALL except PlantEverything -- see README.md.
+  MODS: |
+    Jotunn                     2.29.2   https://thunderstore.io/package/download/ValheimModding/Jotunn/2.29.2/                      c018eb5876ea0b4a509c32b7926055918ea95bc4698610df6b2acc58d72029ad  plugins
+    JsonDotNET                 13.0.4   https://thunderstore.io/package/download/ValheimModding/JsonDotNET/13.0.4/                  a221c7be7163ab9739274b962fbd1f63abde65b1418839a62f02aca210868147  plugins
+    EpicLoot                   0.12.15  https://thunderstore.io/package/download/RandyKnapp/EpicLoot/0.12.15/                       0b13feefd8b23df985505f6b9fba6fcd71bcdff1c33935e03bf1c84378bba5eb  plugins
+    AzuExtendedPlayerInventory 2.4.1    https://thunderstore.io/package/download/Azumatt/AzuExtendedPlayerInventory/2.4.1/          813b4310b571ddc4465cc9b9d627b137410c6027088e5516ac299b4c5febb2be  root
+    Warfare                    1.8.9    https://thunderstore.io/package/download/Therzie/Warfare/1.8.9/                             bd591233da37ba3be3d2edcb5745df154f18fab91fb3da434e647b3f1c49a405  root
+    PlantEverything            1.20.0   https://thunderstore.io/package/download/Advize/PlantEverything/1.20.0/                     cbea097f4d8ac6bd7020d6c76a98f271ef8ae5a3e405ae64e110ed15c2941fe6  root
+
+  install-mods.sh: |
+    #!/bin/bash
+    # Idempotent, checksum-verified mod installer. Runs as an initContainer before the game
+    # container starts, so everything is in place for the bootstrap rsync on the same boot.
+    set -euo pipefail
+
+    BEPINEX_CONFIG=/config/bepinex          # == BepInEx/config/ in the live install (symlink)
+    PLUGINS="$BEPINEX_CONFIG/plugins"       # rsynced -> BepInEx/plugins/ at bootstrap
+    STATE="$BEPINEX_CONFIG/.mod-state"      # install markers; deliberately NOT under plugins/
+    TMP=/tmp/mods                           # emptyDir, so a failed download never litters the PVC
+
+    mkdir -p "$PLUGINS" "$STATE" "$TMP"
+
+    installed=0; skipped=0
+
+    install_one() {
+      local name=$1 ver=$2 url=$3 sha=$4 layout=$5
+      local marker="$STATE/$name" want="$ver $sha"
+
+      # Skip when the marker matches AND the payload is actually present. Warfare alone is
+      # 182MB -- re-downloading the set on every restart (including the nightly UPDATE_CRON
+      # one) would be slow and would hammer Thunderstore for no reason.
+      if [ -f "$marker" ] && [ "$(cat "$marker")" = "$want" ] && [ -d "$PLUGINS/$name" ]; then
+        echo "[skip ] $name $ver (already installed)"
+        skipped=$((skipped + 1))
+        return 0
+      fi
+
+      echo "[fetch] $name $ver"
+      local zip="$TMP/$name.zip"
+      curl -fsSL --retry 3 --retry-delay 5 --max-time 900 -o "$zip" "$url"
+
+      local got
+      got=$(sha256sum "$zip" | cut -d' ' -f1)
+      if [ "$got" != "$sha" ]; then
+        echo "[FAIL ] $name checksum mismatch" >&2
+        echo "         want $sha" >&2
+        echo "         got  $got" >&2
+        echo "         Refusing to install. This is executable code that runs inside the" >&2
+        echo "         server -- a mismatch means the artifact changed or was tampered with." >&2
+        exit 1
+      fi
+
+      local ex="$TMP/x-$name"
+      rm -rf "$ex"; mkdir -p "$ex"
+      unzip -q -o "$zip" -d "$ex"
+
+      # Replace rather than merge, so an upgrade cannot leave stale files from the old version.
+      rm -rf "${PLUGINS:?}/$name"
+      mkdir -p "$PLUGINS/$name"
+      case "$layout" in
+        plugins) cp -a "$ex/plugins/." "$PLUGINS/$name/" ;;
+        root)    find "$ex" -maxdepth 1 -type f -name '*.dll' -exec cp -a {} "$PLUGINS/$name/" \; ;;
+        *)       echo "[FAIL ] $name: unknown layout '$layout'" >&2; exit 1 ;;
+      esac
+
+      # Thunderstore's config/ maps to BepInEx/config/, which is the /config/bepinex symlink.
+      if [ -d "$ex/config" ]; then
+        echo "[     ] $name: installing bundled config/ -> $BEPINEX_CONFIG/"
+        cp -a "$ex/config/." "$BEPINEX_CONFIG/"
+      fi
+
+      rm -rf "$ex" "$zip"
+      echo "$want" > "$marker"
+      echo "[ok   ] $name $ver"
+      installed=$((installed + 1))
+    }
+
+    echo "=== valheim mod installer ==="
+    while read -r name ver url sha layout; do
+      [ -z "${name:-}" ] && continue
+      case "$name" in \#*) continue ;; esac
+      install_one "$name" "$ver" "$url" "$sha" "$layout"
+    done <<< "$MODS"
+
+    # Match the ownership the game container expects (PUID/PGID 10000).
+    chown -R 10000:10000 "$BEPINEX_CONFIG"
+
+    echo "=== done: $installed installed, $skipped already present ==="
+    echo "--- BepInEx/plugins staged on the PVC ---"
+    ls -1 "$PLUGINS"

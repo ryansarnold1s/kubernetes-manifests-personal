@@ -11,7 +11,19 @@ data:
   SERVER_PUBLIC: "false"
   SERVER_PORT: "2456"
   TZ: "America/Phoenix"
-  UPDATE_CRON: "0 5 * * *"
+  # Unattended auto-update DISABLED. A Valheim patch routinely breaks BepInEx mods, and the
+  # nightly restart was both the thing that could pull a breaking patch overnight and the only
+  # moment a newly-fetched plugin actually takes effect (the bootstrap rsync runs once per
+  # boot). With a mod stack installed -- including Warfare, last updated 03/2025 -- an
+  # unattended 5am update is the most likely way to find the server dark in the morning.
+  # Update deliberately instead: kubectl rollout restart deploy/valheim -n valheim
+  #
+  # ⚠️ MUST be an explicit empty string. DO NOT delete this key. The image uses
+  #   UPDATE_CRON=${UPDATE_CRON-*/15 * * * *}
+  # with `-`, not `:-`, so the default applies only when the variable is UNSET. Removing this
+  # line does not disable updates -- it silently switches them to EVERY 15 MINUTES. Empty-but-set
+  # fails the `[ -n "$UPDATE_CRON" ]` guard in valheim-bootstrap:93 and no cron is created.
+  UPDATE_CRON: ""
   BACKUPS: "true"
   BACKUPS_ZIP: "true"
   BACKUPS_CRON: "0 * * * *"
