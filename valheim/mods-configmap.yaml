@@ -47,6 +47,13 @@ data:
     AzuContainerSizes          1.1.4    https://thunderstore.io/package/download/Azumatt/AzuContainerSizes/1.1.4/                   801dfcd3cea2d37a009780a6fe6fb8091414fd36bd84678bd17fd06bb51c9112  root
     SkilledCarryWeight         1.4.1    https://thunderstore.io/package/download/Searica/SkilledCarryWeight/1.4.1/                  efdd59934335b3170f34c5efbd24c78a269a53325c253163ddbb15adf2c3ce55  root
     ValheimPlus                9.17.1   https://thunderstore.io/package/download/Grantapher/ValheimPlus_Grantapher_Temporary/9.17.1/ 51974dc21c1a2414bb966f7fc8b043ee13c5b95dddc0b678e11edc5c44d91484  bepinex
+    Armory                     1.3.1    https://thunderstore.io/package/download/Therzie/Armory/1.3.1/                             8be5e52c400dc27975dcbcb8d870b762df67932b2161b2c44184958b8acbb5ce  root
+    OdinsFoodBarrels           1.2.3    https://thunderstore.io/package/download/OdinPlus/OdinsFoodBarrels/1.2.3/                  0f451a6f634c17e698ad592979be98f710283eeb235f732cbf4200496ef6e3f6  root
+    XPortal                    1.2.24   https://thunderstore.io/package/download/SpikeHimself/XPortal/1.2.24/                      ba141d8c0dba3e102d83c54665a5a938abb2fcbe90b5197a127fdd74d976150a  plugins
+    # TrashItems is deliberately NOT here. It is a client-side inventory-UI mod with no server
+    # role, and it would contend with AzuExtendedPlayerInventory, which redraws the same screen.
+    # Its dependency pin is BepInExPack 5.4.800 and it was last updated 2024-01, so it predates
+    # AzuEPI's current version by ~2 years. Install it per-client and test the inventory UI.
 
   # Per-mod BepInEx config, declared here instead of hand-edited on the PVC.
   #

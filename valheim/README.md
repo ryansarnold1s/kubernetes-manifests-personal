@@ -186,7 +186,7 @@ silently replaces it with the ConfigMap value. If you want a change to stick, pu
 
 ## Modding (BepInEx)
 
-`BEPINEX: "true"` is set in `configmap.yaml`. **Nine mods are installed**, fetched declaratively
+`BEPINEX: "true"` is set in `configmap.yaml`. **Twelve mods are installed**, fetched declaratively
 by the `fetch-mods` initContainer from `mods-configmap.yaml`:
 
 | Mod | Version | Client install |
@@ -198,8 +198,17 @@ by the `fetch-mods` initContainer from `mods-configmap.yaml`:
 | AzuContainerSizes | 1.1.4 | **required — kicks clients without it** |
 | ValheimPlus (Grantapher fork) | 9.17.1 | **required — `enforceMod = true`** |
 | Warfare | 1.8.9 | **required** (custom weapon/animation assets) |
+| Armory | 1.3.1 | **required** (custom assets; depends on Warfare 1.8.9) |
+| OdinsFoodBarrels | 1.2.3 | **required** — *"required on both server and client for config sync"* |
+| XPortal | 1.2.24 | **required** — *"All players must run the same version"* |
 | SkilledCarryWeight | 1.4.1 | recommended (server install enforces config) |
 | PlantEverything | 1.20.0 | recommended (works without, minor cosmetic loss) |
+
+**`TrashItems` is deliberately not installed server-side.** It is a client-side inventory-UI mod
+with no server role. Install it per-client if wanted, but test it: AzuExtendedPlayerInventory
+redraws the same inventory screen, and TrashItems pins `BepInExPack 5.4.800` and was last updated
+2024-01, so it predates AzuEPI's current version by roughly two years. If the inventory UI
+misbehaves, suspect it first.
 
 🚨 **Vanilla clients can no longer join.** AzuExtendedPlayerInventory *and* AzuContainerSizes each
 run a version check that kicks clients without them, and EpicLoot and Warfare need client-side
