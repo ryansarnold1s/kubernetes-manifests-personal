@@ -299,7 +299,13 @@ data:
     valheim_plus.cfg|EitrRefinery|maximumSap|40
     valheim_plus.cfg|EitrRefinery|maximumSoftTissue|40
     valheim_plus.cfg|EitrRefinery|productionSpeed|20
+    valheim_plus.cfg|EitrRefinery|autoDeposit|true
+    valheim_plus.cfg|EitrRefinery|autoFuel|true
     valheim_plus.cfg|Oven|enabled|true
+    # [Oven] has NO autoDeposit key -- autoFuel is the only auto-* setting the section defines
+    # (verified against the generated valheim_plus.cfg). Adding one would append a dead key that
+    # V+ ignores. Same shape elsewhere: [Beehive] and [SapCollector] define autoDeposit but no
+    # autoFuel (neither burns fuel), and [FireSource] defines autoFuel but no autoDeposit.
     valheim_plus.cfg|Oven|autoFuel|true
     valheim_plus.cfg|SapCollector|enabled|true
     valheim_plus.cfg|SapCollector|sapProductionSpeed|30

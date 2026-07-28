@@ -253,7 +253,7 @@ extracts it to the PVC. Two package layouts exist and are handled explicitly —
 
 It is **idempotent**: markers in `/config/bepinex/.mod-state` are keyed on version+sha256, so a
 normal restart downloads nothing (verified: re-running the installer reports `0 installed,
-6 already present`). This matters — Warfare alone is 182MB.
+12 already present`). This matters — Warfare alone is 182MB.
 
 A **checksum mismatch fails the pod deliberately.** This is executable code running inside the
 server. Because installs are idempotent, that only ever gates a first install or a version bump,
@@ -304,6 +304,30 @@ and both are meta. So it is inert until you enable something. Three sections are
 FireSource, Turret, Armor, Items, Building, StructuralIntegrity, CraftFromChest, Workbench, and
 every production station (Smelter, Furnace, Kiln, Fermenter, Beehive, Windmill, SpinningWheel,
 EitrRefinery, Oven, SapCollector). See `MOD_CONFIG` for the exact values.
+
+#### Auto-deposit and auto-fuel
+
+Every production station pulls fuel from, and deposits output into, nearby containers —
+`autoRange` stays at the V+ default of 10m. **Not every section defines both keys**, so the
+coverage below is uneven by design, not by omission. Adding a key a section doesn't define
+appends a line V+ silently ignores:
+
+| Section | `autoDeposit` | `autoFuel` |
+|---|---|---|
+| Smelter, Furnace, Kiln, Fermenter, Windmill, SpinningWheel, EitrRefinery | ✅ | ✅ |
+| Beehive, SapCollector | ✅ | *(no such key — neither burns fuel)* |
+| Oven | *(no such key)* | ✅ |
+| FireSource | *(no such key — not a producer)* | ✅ |
+
+⚠️ **There is no `[BlastFurnace]` section in V+ 9.17.1** — grep the generated config for `blast`
+and it returns nothing. The Blast Furnace is therefore governed by whichever existing section V+
+matches it to, which the mod does not document. Both `[Smelter]` and `[Furnace]` have the two auto
+keys on, so it is very likely covered either way — but treat that as unverified until someone
+confirms in-game that a Blast Furnace actually pulls coal and deposits Flametal.
+
+⚠️ **`[HotTub]` and `[ShieldGenerator]` also define `autoFuel`, and both are left at `false`.**
+They consume fuel but produce nothing, so they are deliberately outside the "production station"
+set above. Enable them here if you want them auto-fuelled too — nothing prevents it.
 
 🚨 **Three V+ settings read backwards from their names.** Verified against the comments in the
 generated config — getting any of them wrong silently produces the *opposite* effect:
@@ -447,7 +471,7 @@ kubectl logs -n valheim deploy/valheim -c fetch-mods          # installer result
 kubectl logs -n valheim deploy/valheim -c valheim | Select-String "plugins to load|Loading \["
 ```
 
-Expect `6 plugins to load`, a `Loading [...]` line per mod, and `Chainloader startup complete`
+Expect `12 plugins to load`, a `Loading [...]` line per mod, and `Chainloader startup complete`
 (BepInEx 5.4.23.3).
 
 ### If the server goes unreachable after a framework change
