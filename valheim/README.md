@@ -85,15 +85,16 @@ tale in the plan.
   the probe does and reports success. For those, write the command to a script file inside the
   container first and run the file, so no ancestor process argv carries the pattern.
 - **No CPU limit, deliberately.** CFS throttling shows up in-game as rubber-banding.
-- **Scheduling is unconstrained on a heterogeneous cluster — no `nodeSelector`, `affinity` or
-  `priorityClassName`.** Four nodes have ~8 CPU / ~24Gi allocatable; three have ~4 CPU / ~7.3Gi.
-  This pod requests 2 CPU + 5Gi with an 8Gi limit, so on a small node the request alone is ~68% of
-  allocatable memory and the limit cannot be honoured under pressure. It has been landing on the
-  large nodes by luck, not by policy. A soft `nodeAffinity` preferring the large nodes is cheap
-  insurance if it ever gets evicted onto a small one.
+- **No `nodeSelector`, `affinity` or `priorityClassName` — and none is needed.** The cluster looks
+  heterogeneous (four nodes at ~8 CPU / 23Gi, three at ~4 CPU / 7.1Gi), but the three small ones
+  are control-plane and carry `node-role.kubernetes.io/control-plane=:NoSchedule`. This pod has
+  only the two default `NoExecute` tolerations, so its eligible set is the four workers, which are
+  identical. **Adding a `nodeAffinity` toward the large nodes would be a no-op** — the taint
+  already enforces it. It would only become necessary if a small node were ever untainted, or if
+  workers of differing size were added.
 - **Requests are well above observed usage** — 2 CPU / 5Gi requested against ~44m CPU / ~1.3Gi
   observed at idle. Deliberate headroom for world simulation under player load, but it is a real
-  reservation: on a 4-core node that CPU request is half the box.
+  reservation: a quarter of an 8-core worker is held whether or not anyone is playing.
 - **Do not add `SYS_NICE` back, and do not label the namespace privileged.** The cluster
   enforces Pod Security Admission at `baseline` for any namespace without PSA labels, and
   `valheim` carries none — it runs at that stricter default on purpose. `SYS_NICE` is not in
