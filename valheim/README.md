@@ -489,7 +489,27 @@ Expect names like `valheim--6bff2bbb-...`, up to 7 of them, rotating — not a f
 `valheim-daily-snapshot-*` name.
 
 Longhorn snapshots live on the same volume, so they protect against corruption and bad
-writes, not against loss of the volume. Off-cluster DR is not configured.
+writes, not against loss of the volume.
+
+**Off-cluster DR: CloudCasa.** The agent is deployed in `cloudcasa-io` and verified active — it
+exchanges `BACKUP` / `OFFLOAD` / `DELETE_BACKUP` messages with the service, and its logs show real
+backup data in object storage plus retention deletions running. This supersedes the earlier
+"off-cluster DR is not configured" note.
+
+⚠️ **Coverage of this namespace is NOT verifiable from inside the cluster.** CloudCasa keeps policy
+and run history server-side and deletes its CRs after each run, so `kubectl get backups.cloudcasa.io`
+returns nothing even while backups are working — an empty result there proves nothing either way.
+Confirm in the CloudCasa console:
+
+1. **A policy includes the `valheim` namespace.** The namespace was created 2026-07-26; a policy
+   that enumerates namespaces explicitly rather than "all namespaces" predates it and will not
+   cover it. Same failure shape as the `wger` snapshot label above — a healthy-looking backup
+   system that silently excludes this workload.
+2. **It has run successfully since 2026-07-26.**
+3. **It captures PVC data, not just resource manifests.** A namespace backup that only stores YAML
+   would restore a Deployment and an empty PVC. The world is volume data on `valheim-data`.
+
+The mod stack adds ~250MB to that same PVC, so the volume now holds more than just the world.
 
 ## Restore
 
