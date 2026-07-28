@@ -268,7 +268,24 @@ the volume:
 <cfg filename>|<Section>|<Key>|<Value>
 ```
 
-Currently set: `Extra Inventory Rows = 5` (AzuEPI's maximum — 5 extra rows for everyone).
+Currently set — `Extra Inventory Rows = 5` (AzuEPI's maximum), plus containers at roughly 2x
+vanilla:
+
+| Container | Vanilla | Now | Slots |
+|---|---|---|---|
+| Personal Chest | 2x3 | 4x4 | 6 → 16 |
+| Wood Chest | 2x5 | 4x6 | 10 → 24 |
+| Iron Chest | 4x6 | 6x8 | 24 → 48 |
+| Blackmetal Chest | 4x8 | 8x8 | 32 → 64 |
+| Cart | 3x6 | 5x8 | 18 → 40 |
+| Karve | 2x2 | 4x4 | 4 → 16 |
+| Longboat | 3x6 | 5x8 | 18 → 40 |
+
+Headroom remains: columns cap at 8 everywhere, rows go to 20 (chests) and 30 (carts/ships).
+
+⚠️ **Only ever grow a container.** Every AzuContainerSizes default is also its range minimum, so
+the values above are all increases. Shrinking a container that already holds items leaves those
+items in slots that no longer exist — take a Longhorn snapshot before reducing one.
 
 **The image's `BEPINEXCFG_<Section>_<Var>` env mechanism cannot do this.** It only ever writes
 `BepInEx.cfg` — `env2cfg --config "$config_path/BepInEx.cfg"` in `common` — never per-mod files.

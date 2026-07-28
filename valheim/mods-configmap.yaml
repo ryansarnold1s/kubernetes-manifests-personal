@@ -60,8 +60,26 @@ data:
   # Only keys listed here are touched -- everything else in the .cfg keeps whatever the mod
   # wrote. Settings marked "[Synced with Server]" propagate to all clients automatically, so
   # they need no client-side action.
+  # ⚠️ ONLY EVER GROW A CONTAINER. Every value below started at its range minimum, which is also
+  # the vanilla default, so these are all increases. Shrinking a container that already holds
+  # items puts those items in slots that no longer exist -- take a Longhorn snapshot first if you
+  # ever reduce one.
   MOD_CONFIG: |
     Azumatt.AzuExtendedPlayerInventory.cfg|2 - Inventory|Extra Inventory Rows|5
+    Azumatt.AzuContainerSizes.cfg|2 - Chests|Personal Chest Rows|4
+    Azumatt.AzuContainerSizes.cfg|2 - Chests|Personal Chest Columns|4
+    Azumatt.AzuContainerSizes.cfg|2 - Chests|Wood Chest Rows|4
+    Azumatt.AzuContainerSizes.cfg|2 - Chests|Wood Chest Columns|6
+    Azumatt.AzuContainerSizes.cfg|2 - Chests|Iron Chest Rows|6
+    Azumatt.AzuContainerSizes.cfg|2 - Chests|Iron Chest Columns|8
+    Azumatt.AzuContainerSizes.cfg|2 - Chests|Blackmetal Chest Rows|8
+    Azumatt.AzuContainerSizes.cfg|2 - Chests|Blackmetal Chest Columns|8
+    Azumatt.AzuContainerSizes.cfg|3 - Ships|Karve Rows|4
+    Azumatt.AzuContainerSizes.cfg|3 - Ships|Karve Columns|4
+    Azumatt.AzuContainerSizes.cfg|3 - Ships|Longboat Rows|5
+    Azumatt.AzuContainerSizes.cfg|3 - Ships|Longboat Columns|8
+    Azumatt.AzuContainerSizes.cfg|4 - Carts|Cart Rows|5
+    Azumatt.AzuContainerSizes.cfg|4 - Carts|Cart Columns|8
 
   install-mods.sh: |
     #!/bin/bash
