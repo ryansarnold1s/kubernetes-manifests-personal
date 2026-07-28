@@ -293,7 +293,7 @@ generated config — getting any of them wrong silently produces the *opposite* 
 |---|---|
 | `productionSpeed` | **Seconds per item, not a percentage.** "Twice as fast" means *halving* it. Setting 30 → 60 makes smelters twice as **slow**. |
 | `baseItemWeightReduction` | **Reduces on negative** despite the name: *"-50 will reduce item weight by 50%, 50 will increase."* |
-| `nightPercent` | **Absolute, not a modifier:** *"0 is all daytime, 100 is all nighttime."* Not a percent change. |
+| `nightPercent` | **Absolute, not a modifier:** *"0 is all daytime, 100 is all nighttime."* Not a percent change. Set to **10** — with `totalDayTimeInSeconds = 1800` that is 3 min of night per cycle, down from 9 at the default 30. Deliberately not 0, so night mobs, light sources and sleeping still matter. |
 
 **Two requested settings were deliberately NOT applied** — `autoEquipShield` and `autoRepair` both
 live in `[Player]`, which is pinned off because `baseMaximumWeight` there collides with

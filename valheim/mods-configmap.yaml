@@ -207,9 +207,13 @@ data:
     # Map: shared exploration.
     valheim_plus.cfg|Map|enabled|true
     valheim_plus.cfg|Map|shareMapProgression|true
-    # Time: no night at all (0 = all daytime).
+    # Time: night shortened to a third of vanilla, NOT removed. nightPercent is the share of the
+    # whole day cycle that is night ("0 is all daytime, 100 is all nighttime", default 30).
+    # totalDayTimeInSeconds is 1800, so: 30 -> 9 min of night, 10 -> 3 min, 5 -> 1.5 min.
+    # Deliberately not 0 -- night still needs to exist for night-spawning mobs, light sources and
+    # sleeping to remain meaningful.
     valheim_plus.cfg|Time|enabled|true
-    valheim_plus.cfg|Time|nightPercent|0
+    valheim_plus.cfg|Time|nightPercent|10
     # Fires: torches/sconces/braziers and other fires keep infinite fuel, and pull wood from
     # nearby chests (autoRange stays at the default 10m).
     valheim_plus.cfg|FireSource|enabled|true
