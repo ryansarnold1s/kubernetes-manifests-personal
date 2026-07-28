@@ -281,9 +281,40 @@ and both are meta. So it is inert until you enable something. Three sections are
 | `[Player]` | SkilledCarryWeight (`baseMaximumWeight`, `baseMegingjordBuff`) |
 | `[Wagon]` | SkilledCarryWeight's cart-mass reduction (`wagonBaseMass`, `wagonExtraMassFromItems`) |
 
-Everything else is free to enable — building, hotkeys, food, stamina, map, and so on. Two to watch
-if you do: `[Items] baseItemWeightReduction` and `[Stamina]` overweight drain both affect carrying,
-though neither touches a value set elsewhere and both default to no-op.
+**24 sections are enabled** for gameplay tuning: Stamina, StaminaUsage, Food, Map, Time,
+FireSource, Turret, Armor, Items, Building, StructuralIntegrity, CraftFromChest, Workbench, and
+every production station (Smelter, Furnace, Kiln, Fermenter, Beehive, Windmill, SpinningWheel,
+EitrRefinery, Oven, SapCollector). See `MOD_CONFIG` for the exact values.
+
+🚨 **Three V+ settings read backwards from their names.** Verified against the comments in the
+generated config — getting any of them wrong silently produces the *opposite* effect:
+
+| Setting | Trap |
+|---|---|
+| `productionSpeed` | **Seconds per item, not a percentage.** "Twice as fast" means *halving* it. Setting 30 → 60 makes smelters twice as **slow**. |
+| `baseItemWeightReduction` | **Reduces on negative** despite the name: *"-50 will reduce item weight by 50%, 50 will increase."* |
+| `nightPercent` | **Absolute, not a modifier:** *"0 is all daytime, 100 is all nighttime."* Not a percent change. |
+
+**Two requested settings were deliberately NOT applied** — `autoEquipShield` and `autoRepair` both
+live in `[Player]`, which is pinned off because `baseMaximumWeight` there collides with
+SkilledCarryWeight. Enabling `[Player]` to get them would put V+ and SkilledCarryWeight on the same
+carry-weight property with unknown patch ordering. See "If you want the `[Player]` features" below.
+
+Two knock-on effects worth knowing, neither a collision: `[Items] baseItemWeightReduction = -75`
+compounds with SkilledCarryWeight (lighter items *and* a higher cap), and `[Armor]` +100% compounds
+with EpicLoot's enchanted gear.
+
+### If you want the `[Player]` features
+
+`autoRepair` and `autoEquipShield` require `[Player] enabled = true`. That section also carries
+`baseMaximumWeight` (300) and `baseMegingjordBuff` (150). Both are already the vanilla values, so
+enabling the section *should* be neutral and let SkilledCarryWeight keep adding on top — but V+ and
+SkilledCarryWeight would then both patch max carry weight, and which wins depends on Harmony patch
+order, which is not documented by either mod.
+
+If you try it, change only `valheim_plus.cfg|Player|enabled|true` in `MOD_CONFIG` and **verify
+in-game that carry weight still scales with skill levels** before trusting it. Revert by setting it
+back to `false` — the pin is reapplied every boot, so nothing is stuck.
 
 **V+ owns `valheim_plus.cfg` and rewrites it on every load** — it normalises line endings to LF,
 reformats `enabled=false` into `enabled = false`, and prepends a UTF-8 BOM. That is fine and

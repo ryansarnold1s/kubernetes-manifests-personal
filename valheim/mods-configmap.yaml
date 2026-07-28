@@ -164,6 +164,133 @@ data:
     valheim_plus.cfg|Inventory|enabled|false
     valheim_plus.cfg|Player|enabled|false
     valheim_plus.cfg|Wagon|enabled|false
+    #
+    # --- ValheimPlus gameplay tuning -------------------------------------------------------
+    # ⚠️ THREE OF THESE READ BACKWARDS FROM THEIR NAMES. Verified against the comments in the
+    # generated valheim_plus.cfg, not assumed:
+    #   productionSpeed is SECONDS PER ITEM, not a percentage. "Twice as fast" means HALVING it.
+    #     Setting 30 -> 60 would make smelters twice as SLOW.
+    #   baseItemWeightReduction reduces on NEGATIVE values despite the name: "-50 will reduce
+    #     item weight by 50%, 50 will increase". -75 is a 75% reduction.
+    #   nightPercent is ABSOLUTE, not a modifier: "0 is all daytime, 100 is all nighttime".
+    # Floats are fine -- [Building] areaRepairRadius ships as 7.5.
+    #
+    # Stamina: +100% regen, -50% on every drain.
+    valheim_plus.cfg|Stamina|enabled|true
+    valheim_plus.cfg|Stamina|staminaRegen|100
+    valheim_plus.cfg|Stamina|staminaRegenDelay|-50
+    valheim_plus.cfg|Stamina|runStaminaDrain|-50
+    valheim_plus.cfg|Stamina|jumpStaminaDrain|-50
+    valheim_plus.cfg|Stamina|sneakStaminaDrain|-50
+    valheim_plus.cfg|Stamina|swimStaminaDrain|-50
+    valheim_plus.cfg|Stamina|dodgeStaminaUsage|-50
+    valheim_plus.cfg|Stamina|encumberedStaminaDrain|-50
+    valheim_plus.cfg|StaminaUsage|enabled|true
+    valheim_plus.cfg|StaminaUsage|axes|-50
+    valheim_plus.cfg|StaminaUsage|blocking|-50
+    valheim_plus.cfg|StaminaUsage|bows|-50
+    valheim_plus.cfg|StaminaUsage|clubs|-50
+    valheim_plus.cfg|StaminaUsage|knives|-50
+    valheim_plus.cfg|StaminaUsage|pickaxes|-50
+    valheim_plus.cfg|StaminaUsage|polearms|-50
+    valheim_plus.cfg|StaminaUsage|spears|-50
+    valheim_plus.cfg|StaminaUsage|swords|-50
+    valheim_plus.cfg|StaminaUsage|unarmed|-50
+    valheim_plus.cfg|StaminaUsage|hammer|-50
+    valheim_plus.cfg|StaminaUsage|hoe|-50
+    valheim_plus.cfg|StaminaUsage|cultivator|-50
+    valheim_plus.cfg|StaminaUsage|fishing|-50
+    # Food: lasts 100% longer, no degradation.
+    valheim_plus.cfg|Food|enabled|true
+    valheim_plus.cfg|Food|foodDurationMultiplier|100
+    valheim_plus.cfg|Food|disableFoodDegradation|true
+    # Map: shared exploration.
+    valheim_plus.cfg|Map|enabled|true
+    valheim_plus.cfg|Map|shareMapProgression|true
+    # Time: no night at all (0 = all daytime).
+    valheim_plus.cfg|Time|enabled|true
+    valheim_plus.cfg|Time|nightPercent|0
+    # Fires: torches/sconces/braziers and other fires keep infinite fuel, and pull wood from
+    # nearby chests (autoRange stays at the default 10m).
+    valheim_plus.cfg|FireSource|enabled|true
+    valheim_plus.cfg|FireSource|torches|true
+    valheim_plus.cfg|FireSource|fires|true
+    valheim_plus.cfg|FireSource|autoFuel|true
+    # Turret: both toggles on. The numeric modifiers stay at 0 (no change) -- raise them if you
+    # want faster/further/more accurate turrets.
+    valheim_plus.cfg|Turret|enabled|true
+    valheim_plus.cfg|Turret|ignorePlayers|true
+    valheim_plus.cfg|Turret|unlimitedAmmo|true
+    # Armor: +100% on every slot.
+    valheim_plus.cfg|Armor|enabled|true
+    valheim_plus.cfg|Armor|helmets|100
+    valheim_plus.cfg|Armor|chests|100
+    valheim_plus.cfg|Armor|legs|100
+    valheim_plus.cfg|Armor|capes|100
+    # Items: -75% weight, +100% stack size. Stack size lives in [Items], NOT the pinned
+    # [Inventory] section, so it does not collide with AzuContainerSizes.
+    valheim_plus.cfg|Items|enabled|true
+    valheim_plus.cfg|Items|baseItemWeightReduction|-75
+    valheim_plus.cfg|Items|itemStackMultiplier|100
+    # Building: no weather deterioration, structures indestructible.
+    valheim_plus.cfg|Building|enabled|true
+    valheim_plus.cfg|Building|noWeatherDamage|true
+    valheim_plus.cfg|StructuralIntegrity|enabled|true
+    valheim_plus.cfg|StructuralIntegrity|disableStructuralIntegrity|true
+    valheim_plus.cfg|StructuralIntegrity|disableDamageToPlayerStructures|true
+    # Craft/build/interact using nearby chests (one section covers all three).
+    valheim_plus.cfg|CraftFromChest|enabled|true
+    # Workbench: radius and attachment radius both doubled (meters, absolute).
+    valheim_plus.cfg|Workbench|enabled|true
+    valheim_plus.cfg|Workbench|workbenchRange|40
+    valheim_plus.cfg|Workbench|workbenchAttachmentRange|10
+    # Production: capacity doubled, time halved (= twice the speed), pull/deposit from chests.
+    valheim_plus.cfg|Smelter|enabled|true
+    valheim_plus.cfg|Smelter|maximumOre|20
+    valheim_plus.cfg|Smelter|maximumCoal|40
+    valheim_plus.cfg|Smelter|productionSpeed|15
+    valheim_plus.cfg|Smelter|autoDeposit|true
+    valheim_plus.cfg|Smelter|autoFuel|true
+    valheim_plus.cfg|Furnace|enabled|true
+    valheim_plus.cfg|Furnace|maximumOre|20
+    valheim_plus.cfg|Furnace|maximumCoal|40
+    valheim_plus.cfg|Furnace|productionSpeed|15
+    valheim_plus.cfg|Furnace|autoDeposit|true
+    valheim_plus.cfg|Furnace|autoFuel|true
+    valheim_plus.cfg|Kiln|enabled|true
+    valheim_plus.cfg|Kiln|maximumWood|50
+    valheim_plus.cfg|Kiln|productionSpeed|7.5
+    valheim_plus.cfg|Kiln|autoDeposit|true
+    valheim_plus.cfg|Kiln|autoFuel|true
+    valheim_plus.cfg|Fermenter|enabled|true
+    valheim_plus.cfg|Fermenter|fermenterDuration|1200
+    valheim_plus.cfg|Fermenter|fermenterItemsProduced|12
+    valheim_plus.cfg|Fermenter|autoDeposit|true
+    valheim_plus.cfg|Fermenter|autoFuel|true
+    valheim_plus.cfg|Beehive|enabled|true
+    valheim_plus.cfg|Beehive|honeyProductionSpeed|600
+    valheim_plus.cfg|Beehive|maximumHoneyPerBeehive|8
+    valheim_plus.cfg|Beehive|autoDeposit|true
+    valheim_plus.cfg|Windmill|enabled|true
+    valheim_plus.cfg|Windmill|maximumBarley|100
+    valheim_plus.cfg|Windmill|productionSpeed|5
+    valheim_plus.cfg|Windmill|autoDeposit|true
+    valheim_plus.cfg|Windmill|autoFuel|true
+    valheim_plus.cfg|SpinningWheel|enabled|true
+    valheim_plus.cfg|SpinningWheel|maximumFlax|100
+    valheim_plus.cfg|SpinningWheel|productionSpeed|15
+    valheim_plus.cfg|SpinningWheel|autoDeposit|true
+    valheim_plus.cfg|SpinningWheel|autoFuel|true
+    valheim_plus.cfg|EitrRefinery|enabled|true
+    valheim_plus.cfg|EitrRefinery|maximumSap|40
+    valheim_plus.cfg|EitrRefinery|maximumSoftTissue|40
+    valheim_plus.cfg|EitrRefinery|productionSpeed|20
+    valheim_plus.cfg|Oven|enabled|true
+    valheim_plus.cfg|Oven|autoFuel|true
+    valheim_plus.cfg|SapCollector|enabled|true
+    valheim_plus.cfg|SapCollector|sapProductionSpeed|30
+    valheim_plus.cfg|SapCollector|maximumSapPerCollector|20
+    valheim_plus.cfg|SapCollector|autoDeposit|true
 
   install-mods.sh: |
     #!/bin/bash
