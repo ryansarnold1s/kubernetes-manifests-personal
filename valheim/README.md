@@ -160,7 +160,7 @@ trees and foraging along with kills. There is no native way to boost mob drops a
 assembly are internal item fields (`maxDurability`, `useDurabilityDrain`, `durabilityPerLevel`)
 — nothing exposed to the launch parser or the console. Adjusting durability requires a BepInEx
 mod. **That gap is now closed** — ValheimPlus's `[Durability]` section does it, and is set to
-+50% on combat gear; see "ValheimPlus" below. Do not go looking for a `-modifier` for this.
++100% on combat gear; see "ValheimPlus" below. Do not go looking for a `-modifier` for this.
 
 ### Changing a modifier
 
@@ -307,11 +307,17 @@ Workbench, and every production station (Smelter, Furnace, Kiln, Fermenter, Beeh
 SpinningWheel, EitrRefinery, Oven, SapCollector). See `MOD_CONFIG` for the exact values.
 
 ⚠️ **`[Armor]` and `[Durability]` are different things and are easy to conflate.** `[Armor]`
-raises the armor *value* (damage reduction); `[Durability]` raises how long gear lasts before
-repair. Both are at +50%, which makes the confusion easy — asking to raise durability "by another
-50%" when only `[Armor]` was set would be a move from vanilla, not an increase. `[Durability]`
-covers `weapons`, `axes`, `bows`, `shields`, `armor`; tools (`pickaxes`, `hammer`, `cultivator`,
-`hoe`, `torch`) are deliberately left at vanilla 0.
+raises the armor *value* (damage reduction) and is at **+50%**; `[Durability]` raises how long
+gear lasts before repair and is at **+100%**. The mismatch is deliberate — see the next paragraph
+before "fixing" it. `[Durability]` covers `weapons`, `axes`, `bows`, `shields`, `armor`; tools
+(`pickaxes`, `hammer`, `cultivator`, `hoe`, `torch`) are deliberately left at vanilla 0.
+
+**Why one is +50% and the other +100%.** Armor value is a combat-balance number: it compounds
+with Armory's biome-tier variants and EpicLoot's enchants into a character that is hard to kill,
+which is why it was scaled back from +100%. Durability is a convenience number — it changes how
+often you walk back to a workbench, not whether you survive — so the same compounding argument
+carries much less weight, and doubling it was chosen deliberately with that distinction in view.
+The effective figure still exceeds +100% on EpicLoot-enchanted and Warfare gear.
 
 #### Auto-deposit and auto-fuel
 
