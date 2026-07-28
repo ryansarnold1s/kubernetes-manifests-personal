@@ -287,6 +287,29 @@ Headroom remains: columns cap at 8 everywhere, rows go to 20 (chests) and 30 (ca
 the values above are all increases. Shrinking a container that already holds items leaves those
 items in slots that no longer exist — take a Longhorn snapshot before reducing one.
 
+**Carry weight** — all 24 skills contribute at `Coefficient 0.5` (default was 0.25 across only 7).
+The formula is `extra = Σ(Coefficient × level^Power)` with `Power` left at 1, so it stays linear.
+Base carry weight is 300, so an average level 50 across skills is roughly +550. `[None]` is
+excluded — it is the enum's null entry, not a skill. Some entries (Cooking, Crafting, Farming,
+Dodge) may never gain XP in vanilla; they sit at level 0 and contribute nothing, so enabling
+them is free.
+
+🚨 **Zero-width characters are load-bearing in `SkilledCarryWeight.cfg`.** Searica prefixes keys
+and sections with U+200B (`E2 80 8B`) to force sort order in the config manager. The real key is
+`<ZWSP>Enabled`, not `Enabled`, and the first three sections are `[<ZWSP><ZWSP><ZWSP>Global]`,
+`[<ZWSP><ZWSP>Cart Mass]`, `[<ZWSP>Quick Cart]` — while `Coefficient`, `Power` and the skill
+sections are plain. A literal match therefore fails, and the applier would append a **second,
+plain `Enabled` line that the mod ignores while reporting success.**
+
+The applier's `norm()` strips zero-width characters before comparing and preserves the original
+key text on write, so `MOD_CONFIG` can use plain `Enabled`. **Do not remove those `norm()` calls
+as dead weight.** The proof it matched rather than appended is the key count: 83 before, 83
+after, across 48 edits. If you ever suspect a silent no-op, that count is the check:
+
+```powershell
+kubectl exec -n valheim deploy/valheim -c valheim -- sh -c 'C=/config/bepinex/Searica.Valheim.SkilledCarryWeight.cfg; echo "keys=$(grep -c = $C) true=$(grep -c "Enabled = true" $C)"'
+```
+
 **The image's `BEPINEXCFG_<Section>_<Var>` env mechanism cannot do this.** It only ever writes
 `BepInEx.cfg` — `env2cfg --config "$config_path/BepInEx.cfg"` in `common` — never per-mod files.
 Without `MOD_CONFIG`, these settings exist only as untracked edits on the PVC.

@@ -80,6 +80,67 @@ data:
     Azumatt.AzuContainerSizes.cfg|3 - Ships|Longboat Columns|8
     Azumatt.AzuContainerSizes.cfg|4 - Carts|Cart Rows|5
     Azumatt.AzuContainerSizes.cfg|4 - Carts|Cart Columns|8
+    #
+    # SkilledCarryWeight: every skill contributes, Coefficient 0.5 (default 0.25, 7 skills).
+    # extra carry weight = SUM over enabled skills of (Coefficient * level ^ Power). Power stays
+    # at its default of 1, so it is linear -- raising it makes high levels grow explosively.
+    # Base carry weight is 300, so at an average level 50 across these this is roughly +550.
+    #
+    # The "Enabled" key here is really "<ZWSP>Enabled" in the file -- see the norm() note in
+    # install-mods.sh. Writing it as plain "Enabled" is correct BECAUSE the applier normalizes;
+    # it would silently no-op without that.
+    #
+    # [None] is deliberately excluded -- it is the enum's null entry, not a skill. Some others
+    # (Cooking, Crafting, Farming, Dodge) may never gain XP in vanilla, in which case they sit at
+    # level 0 and contribute nothing. Enabling them costs nothing and covers mod-added skills.
+    Searica.Valheim.SkilledCarryWeight.cfg|Axes|Enabled|true
+    Searica.Valheim.SkilledCarryWeight.cfg|Axes|Coefficient|0.5
+    Searica.Valheim.SkilledCarryWeight.cfg|Blocking|Enabled|true
+    Searica.Valheim.SkilledCarryWeight.cfg|Blocking|Coefficient|0.5
+    Searica.Valheim.SkilledCarryWeight.cfg|BloodMagic|Enabled|true
+    Searica.Valheim.SkilledCarryWeight.cfg|BloodMagic|Coefficient|0.5
+    Searica.Valheim.SkilledCarryWeight.cfg|Bows|Enabled|true
+    Searica.Valheim.SkilledCarryWeight.cfg|Bows|Coefficient|0.5
+    Searica.Valheim.SkilledCarryWeight.cfg|Clubs|Enabled|true
+    Searica.Valheim.SkilledCarryWeight.cfg|Clubs|Coefficient|0.5
+    Searica.Valheim.SkilledCarryWeight.cfg|Cooking|Enabled|true
+    Searica.Valheim.SkilledCarryWeight.cfg|Cooking|Coefficient|0.5
+    Searica.Valheim.SkilledCarryWeight.cfg|Crafting|Enabled|true
+    Searica.Valheim.SkilledCarryWeight.cfg|Crafting|Coefficient|0.5
+    Searica.Valheim.SkilledCarryWeight.cfg|Crossbows|Enabled|true
+    Searica.Valheim.SkilledCarryWeight.cfg|Crossbows|Coefficient|0.5
+    Searica.Valheim.SkilledCarryWeight.cfg|Dodge|Enabled|true
+    Searica.Valheim.SkilledCarryWeight.cfg|Dodge|Coefficient|0.5
+    Searica.Valheim.SkilledCarryWeight.cfg|ElementalMagic|Enabled|true
+    Searica.Valheim.SkilledCarryWeight.cfg|ElementalMagic|Coefficient|0.5
+    Searica.Valheim.SkilledCarryWeight.cfg|Farming|Enabled|true
+    Searica.Valheim.SkilledCarryWeight.cfg|Farming|Coefficient|0.5
+    Searica.Valheim.SkilledCarryWeight.cfg|Fishing|Enabled|true
+    Searica.Valheim.SkilledCarryWeight.cfg|Fishing|Coefficient|0.5
+    Searica.Valheim.SkilledCarryWeight.cfg|Jump|Enabled|true
+    Searica.Valheim.SkilledCarryWeight.cfg|Jump|Coefficient|0.5
+    Searica.Valheim.SkilledCarryWeight.cfg|Knives|Enabled|true
+    Searica.Valheim.SkilledCarryWeight.cfg|Knives|Coefficient|0.5
+    Searica.Valheim.SkilledCarryWeight.cfg|Pickaxes|Enabled|true
+    Searica.Valheim.SkilledCarryWeight.cfg|Pickaxes|Coefficient|0.5
+    Searica.Valheim.SkilledCarryWeight.cfg|Polearms|Enabled|true
+    Searica.Valheim.SkilledCarryWeight.cfg|Polearms|Coefficient|0.5
+    Searica.Valheim.SkilledCarryWeight.cfg|Ride|Enabled|true
+    Searica.Valheim.SkilledCarryWeight.cfg|Ride|Coefficient|0.5
+    Searica.Valheim.SkilledCarryWeight.cfg|Run|Enabled|true
+    Searica.Valheim.SkilledCarryWeight.cfg|Run|Coefficient|0.5
+    Searica.Valheim.SkilledCarryWeight.cfg|Sneak|Enabled|true
+    Searica.Valheim.SkilledCarryWeight.cfg|Sneak|Coefficient|0.5
+    Searica.Valheim.SkilledCarryWeight.cfg|Spears|Enabled|true
+    Searica.Valheim.SkilledCarryWeight.cfg|Spears|Coefficient|0.5
+    Searica.Valheim.SkilledCarryWeight.cfg|Swim|Enabled|true
+    Searica.Valheim.SkilledCarryWeight.cfg|Swim|Coefficient|0.5
+    Searica.Valheim.SkilledCarryWeight.cfg|Swords|Enabled|true
+    Searica.Valheim.SkilledCarryWeight.cfg|Swords|Coefficient|0.5
+    Searica.Valheim.SkilledCarryWeight.cfg|Unarmed|Enabled|true
+    Searica.Valheim.SkilledCarryWeight.cfg|Unarmed|Coefficient|0.5
+    Searica.Valheim.SkilledCarryWeight.cfg|WoodCutting|Enabled|true
+    Searica.Valheim.SkilledCarryWeight.cfg|WoodCutting|Coefficient|0.5
 
   install-mods.sh: |
     #!/bin/bash
@@ -155,25 +216,39 @@ data:
     # section), section absent (create at end), file absent (create it -- BepInEx honours a
     # partial config and fills in the remaining defaults on first load, which is what makes this
     # work for a mod that has never run yet).
+    # ⚠️ ZERO-WIDTH CHARACTERS ARE REAL HERE, do not "clean up" the norm() calls below.
+    # SkilledCarryWeight prefixes keys and sections with U+200B (E2 80 8B) purely to force sort
+    # order in the config manager: its key is "<ZWSP>Enabled", and its first sections are
+    # "[<ZWSP><ZWSP><ZWSP>Global]", "[<ZWSP><ZWSP>Cart Mass]", "[<ZWSP>Quick Cart]", while
+    # Coefficient, Power and the skill sections are plain. A literal comparison does not match,
+    # so an "Enabled" entry would append a SECOND, plain Enabled line that the mod ignores --
+    # the applier would report success and change nothing. norm() strips zero-width characters
+    # before comparing; the original key text (ZWSP included) is preserved on write so the mod
+    # still reads it. Verified on the real file: ZWSP survives, no duplicate key, key count
+    # unchanged 83/83.
     CFG_AWK='
+    function norm(s,   t) { t=s; gsub(zw,"",t); gsub(bom,"",t); gsub(/^[ \t]+|[ \t]+$/,"",t); return t }
     BEGIN { insec=0; done=0; sawsec=0 }
     {
       line=$0
       if (line ~ /^[ \t]*\[/) {
         if (insec && !done) { print k " = " v; done=1 }
-        t=line; gsub(/^[ \t]+|[ \t]+$/,"",t)
-        insec = (t == "[" sec "]"); if (insec) sawsec=1
+        insec = (norm(line) == "[" norm(sec) "]"); if (insec) sawsec=1
         print line; next
       }
       if (insec && !done && line !~ /^[ \t]*[#;]/) {
         eq = index(line, "=")
-        if (eq > 0) { lhs = substr(line,1,eq-1); gsub(/^[ \t]+|[ \t]+$/,"",lhs)
-          if (lhs == k) { print k " = " v; done=1; next } }
+        if (eq > 0) { lhs = substr(line,1,eq-1)
+          if (norm(lhs) == norm(k)) { okey=lhs; gsub(/[ \t]+$/,"",okey)
+            print okey " = " v; done=1; next } }
       }
       print line
     }
     END { if (!done) { if (insec) print k " = " v
            else if (!sawsec) { print ""; print "[" sec "]"; print k " = " v } } }'
+
+    ZW=$(printf '\342\200\213')    # U+200B zero width space
+    BOM=$(printf '\357\273\277')   # U+FEFF byte order mark
 
     set_cfg() {
       local file=$1 section=$2 key=$3 value=$4
@@ -183,7 +258,8 @@ data:
         echo "[cfg  ] $file [$section] $key = $value (created)"
         return 0
       fi
-      awk -v sec="$section" -v k="$key" -v v="$value" "$CFG_AWK" "$path" > "$path.new"
+      awk -v zw="$ZW" -v bom="$BOM" -v sec="$section" -v k="$key" -v v="$value" \
+        "$CFG_AWK" "$path" > "$path.new"
       mv "$path.new" "$path"
       echo "[cfg  ] $file [$section] $key = $value"
     }
