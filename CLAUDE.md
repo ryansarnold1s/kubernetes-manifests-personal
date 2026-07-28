@@ -3,6 +3,24 @@
 Talos k8s manifests, one directory per workload. Each has its own README with operational
 detail and inline warnings — read it before changing anything in that directory.
 
+- `valheim/` — game server, 12 BepInEx mods installed declaratively via an initContainer. The complex one
+- `mumble/` — voice server
+- `docs/superpowers/{specs,plans}` — design specs and implementation plans. When a shipped decision turns
+  out wrong, append a correction rather than rewriting history; several already carry them
+
+## Deploying
+
+```powershell
+cd <workload>/                                        # relative paths from repo root silently no-op
+kubectl apply -f <file>.yaml --dry-run=server         # validate first
+kubectl apply -f <file>.yaml                          # must say configured/created, not unchanged
+kubectl rollout restart deploy/<name> -n <ns>         # ConfigMap edits need this; Deployment edits restart on their own
+kubectl rollout status  deploy/<name> -n <ns> --timeout=600s
+```
+
+Single-replica stateful workloads use `strategy: Recreate`, so every apply is a brief outage — confirm
+nobody is connected first.
+
 ## Environment
 
 - `$env:KUBECONFIG = "C:\Users\RyanArnold\Downloads\kubeconfig"` — needed for every kubectl call (machine-specific)
@@ -15,7 +33,7 @@ detail and inline warnings — read it before changing anything in that director
 ## Verification
 
 - **Verify the negative case.** A check only ever observed passing has not been verified — confirm it fails when it should. A no-op health probe shipped this way once
-- `kubectl apply` must report `configured`/`created`; `unchanged` means it silently no-opped (wrong path or cwd). Use `--dry-run=server` first
+- `unchanged` from `kubectl apply` is a silent failure, not a success — usually the wrong cwd
 - After editing a config file in place, re-read it and confirm section/key **counts are unchanged** — an appended duplicate is the signature of a failed match
 
 ## PowerShell + kubectl
