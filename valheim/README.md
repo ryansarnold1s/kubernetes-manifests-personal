@@ -159,7 +159,8 @@ trees and foraging along with kills. There is no native way to boost mob drops a
 ⚠️ **There is no native durability modifier.** The only durability-related symbols in the
 assembly are internal item fields (`maxDurability`, `useDurabilityDrain`, `durabilityPerLevel`)
 — nothing exposed to the launch parser or the console. Adjusting durability requires a BepInEx
-mod, which means solving the DLL-delivery gap below first.
+mod. **That gap is now closed** — ValheimPlus's `[Durability]` section does it, and is set to
++50% on combat gear; see "ValheimPlus" below. Do not go looking for a `-modifier` for this.
 
 ### Changing a modifier
 
@@ -300,10 +301,17 @@ and both are meta. So it is inert until you enable something. Three sections are
 | `[Player]` | SkilledCarryWeight (`baseMaximumWeight`, `baseMegingjordBuff`) |
 | `[Wagon]` | SkilledCarryWeight's cart-mass reduction (`wagonBaseMass`, `wagonExtraMassFromItems`) |
 
-**24 sections are enabled** for gameplay tuning: Stamina, StaminaUsage, Food, Map, Time,
-FireSource, Turret, Armor, Items, Building, StructuralIntegrity, CraftFromChest, Workbench, and
-every production station (Smelter, Furnace, Kiln, Fermenter, Beehive, Windmill, SpinningWheel,
-EitrRefinery, Oven, SapCollector). See `MOD_CONFIG` for the exact values.
+**25 sections are enabled** for gameplay tuning: Stamina, StaminaUsage, Food, Map, Time,
+FireSource, Turret, Armor, Durability, Items, Building, StructuralIntegrity, CraftFromChest,
+Workbench, and every production station (Smelter, Furnace, Kiln, Fermenter, Beehive, Windmill,
+SpinningWheel, EitrRefinery, Oven, SapCollector). See `MOD_CONFIG` for the exact values.
+
+⚠️ **`[Armor]` and `[Durability]` are different things and are easy to conflate.** `[Armor]`
+raises the armor *value* (damage reduction); `[Durability]` raises how long gear lasts before
+repair. Both are at +50%, which makes the confusion easy — asking to raise durability "by another
+50%" when only `[Armor]` was set would be a move from vanilla, not an increase. `[Durability]`
+covers `weapons`, `axes`, `bows`, `shields`, `armor`; tools (`pickaxes`, `hammer`, `cultivator`,
+`hoe`, `torch`) are deliberately left at vanilla 0.
 
 #### Auto-deposit and auto-fuel
 

@@ -241,6 +241,28 @@ data:
     valheim_plus.cfg|Armor|chests|50
     valheim_plus.cfg|Armor|legs|50
     valheim_plus.cfg|Armor|capes|50
+    # Durability: +50% on combat gear. DISTINCT FROM [Armor] ABOVE -- that one raises the armor
+    # VALUE (damage reduction), this one raises how long gear lasts before repair. Enabling this
+    # section is what turns it on at all; it shipped enabled=false with every value at 0, so this
+    # is a move from vanilla, not an increase on an existing bonus.
+    #
+    # Percent modifier, same convention as [Armor]: 50 takes durability 100 -> 150, -50 -> 50.
+    #
+    # Compounds with two other sources, so re-read this before doubling it -- the same trap that
+    # got [Armor] scaled back from +100%:
+    #   EpicLoot's ModifyDurability enchant (a % roll on top of this, in magiceffects.json)
+    #   Warfare's custom weapons, which set ABSOLUTE durability per item (Blackmetal Scimitar is
+    #     200, +50/level) that this percentage then scales.
+    #
+    # Tools are deliberately left at vanilla 0: pickaxes, hammer, cultivator, hoe, torch. The ask
+    # was weapons and armor. `axes` IS included -- an axe is a weapon -- which also makes
+    # woodcutting cheaper as a side effect.
+    valheim_plus.cfg|Durability|enabled|true
+    valheim_plus.cfg|Durability|weapons|50
+    valheim_plus.cfg|Durability|axes|50
+    valheim_plus.cfg|Durability|bows|50
+    valheim_plus.cfg|Durability|shields|50
+    valheim_plus.cfg|Durability|armor|50
     # Items: -75% weight, +100% stack size. Stack size lives in [Items], NOT the pinned
     # [Inventory] section, so it does not collide with AzuContainerSizes.
     valheim_plus.cfg|Items|enabled|true
