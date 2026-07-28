@@ -55,6 +55,11 @@ spec:
             configMapKeyRef:
               name: valheim-mods
               key: MODS
+        - name: MOD_CONFIG
+          valueFrom:
+            configMapKeyRef:
+              name: valheim-mods
+              key: MOD_CONFIG
         volumeMounts:
         - name: config
           mountPath: /config

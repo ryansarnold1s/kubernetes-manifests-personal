@@ -1,4 +1,5 @@
-# Server-side BepInEx mod set, fetched by the `fetch-mods` initContainer in deployment.yaml.
+# Server-side BepInEx mod set and per-mod config, applied by the `fetch-mods` initContainer
+# in deployment.yaml.
 #
 # WHY AN INIT CONTAINER: Kubernetes has no bind-mount equivalent for a workstation file, so a
 # DLL has to reach the valheim-data PVC somehow. The pod has outbound internet (verified:
@@ -8,7 +9,7 @@
 # ADDING/UPGRADING A MOD: add or edit a line in MODS below, then apply + rollout restart. The
 # installer keys off "<version> <sha256>", so changing either triggers a clean reinstall of just
 # that mod. Get a new checksum with:
-#   curl -fsSL -o m.zip "<download-url>" && sha256sum m.zip
+#   kubectl exec -n valheim deploy/valheim -c valheim -- sh -c 'curl -fsSL -o /tmp/m.zip "<url>" && sha256sum /tmp/m.zip'
 #
 # REMOVING A MOD: deleting a line here is NOT sufficient. The image syncs with `rsync -a` and no
 # --delete, so the stale DLL survives in the live install at /opt/valheim/bepinex/BepInEx/plugins.
@@ -31,8 +32,10 @@ data:
   # BepInEx/config/ (the live install symlinks it). Only Warfare ships one -- its
   # TherzieTranslations YAMLs. Verified against each zip's actual contents, not assumed.
   #
-  # Checksums captured 2026-07-27 from the real downloads.
-  # ALL SIX ALSO REQUIRE CLIENT-SIDE INSTALL except PlantEverything -- see README.md.
+  # Checksums captured from the real downloads (2026-07-27).
+  # CLIENT INSTALL: every mod here except PlantEverything must also be on each client.
+  # AzuExtendedPlayerInventory and AzuContainerSizes actively KICK clients that lack them.
+  # See README.md for the full client list.
   MODS: |
     Jotunn                     2.29.2   https://thunderstore.io/package/download/ValheimModding/Jotunn/2.29.2/                      c018eb5876ea0b4a509c32b7926055918ea95bc4698610df6b2acc58d72029ad  plugins
     JsonDotNET                 13.0.4   https://thunderstore.io/package/download/ValheimModding/JsonDotNET/13.0.4/                  a221c7be7163ab9739274b962fbd1f63abde65b1418839a62f02aca210868147  plugins
@@ -40,11 +43,31 @@ data:
     AzuExtendedPlayerInventory 2.4.1    https://thunderstore.io/package/download/Azumatt/AzuExtendedPlayerInventory/2.4.1/          813b4310b571ddc4465cc9b9d627b137410c6027088e5516ac299b4c5febb2be  root
     Warfare                    1.8.9    https://thunderstore.io/package/download/Therzie/Warfare/1.8.9/                             bd591233da37ba3be3d2edcb5745df154f18fab91fb3da434e647b3f1c49a405  root
     PlantEverything            1.20.0   https://thunderstore.io/package/download/Advize/PlantEverything/1.20.0/                     cbea097f4d8ac6bd7020d6c76a98f271ef8ae5a3e405ae64e110ed15c2941fe6  root
+    AzuContainerSizes          1.1.4    https://thunderstore.io/package/download/Azumatt/AzuContainerSizes/1.1.4/                   801dfcd3cea2d37a009780a6fe6fb8091414fd36bd84678bd17fd06bb51c9112  root
+    SkilledCarryWeight         1.4.1    https://thunderstore.io/package/download/Searica/SkilledCarryWeight/1.4.1/                  efdd59934335b3170f34c5efbd24c78a269a53325c253163ddbb15adf2c3ce55  root
+
+  # Per-mod BepInEx config, declared here instead of hand-edited on the PVC.
+  #
+  # Format: <cfg filename>|<Section>|<Key>|<Value>          (pipe-delimited; keys contain spaces)
+  #
+  # The image's BEPINEXCFG_<Section>_<Var> env mechanism CANNOT do this -- it only ever writes
+  # BepInEx.cfg (`env2cfg --config "$config_path/BepInEx.cfg"` in common), never per-mod files.
+  # Without this block those settings exist only as untracked edits on the volume.
+  #
+  # Applied on every boot, so this file is the source of truth: a value changed in-game or by a
+  # mod's own config manager is reverted on the next restart. Change it here, not there.
+  #
+  # Only keys listed here are touched -- everything else in the .cfg keeps whatever the mod
+  # wrote. Settings marked "[Synced with Server]" propagate to all clients automatically, so
+  # they need no client-side action.
+  MOD_CONFIG: |
+    Azumatt.AzuExtendedPlayerInventory.cfg|2 - Inventory|Extra Inventory Rows|5
 
   install-mods.sh: |
     #!/bin/bash
-    # Idempotent, checksum-verified mod installer. Runs as an initContainer before the game
-    # container starts, so everything is in place for the bootstrap rsync on the same boot.
+    # Idempotent, checksum-verified mod installer + declarative per-mod config.
+    # Runs as an initContainer before the game container starts, so everything is in place for
+    # the bootstrap rsync on the same boot.
     set -euo pipefail
 
     BEPINEX_CONFIG=/config/bepinex          # == BepInEx/config/ in the live install (symlink)
@@ -61,8 +84,8 @@ data:
       local marker="$STATE/$name" want="$ver $sha"
 
       # Skip when the marker matches AND the payload is actually present. Warfare alone is
-      # 182MB -- re-downloading the set on every restart (including the nightly UPDATE_CRON
-      # one) would be slow and would hammer Thunderstore for no reason.
+      # 182MB -- re-downloading the set on every restart would be slow and would hammer
+      # Thunderstore for no reason.
       if [ -f "$marker" ] && [ "$(cat "$marker")" = "$want" ] && [ -d "$PLUGINS/$name" ]; then
         echo "[skip ] $name $ver (already installed)"
         skipped=$((skipped + 1))
@@ -109,12 +132,57 @@ data:
       installed=$((installed + 1))
     }
 
+    # Sets one key in a BepInEx .cfg, touching nothing else in the file. Handles all four cases:
+    # key present in section (replace in place), key absent but section present (append to that
+    # section), section absent (create at end), file absent (create it -- BepInEx honours a
+    # partial config and fills in the remaining defaults on first load, which is what makes this
+    # work for a mod that has never run yet).
+    CFG_AWK='
+    BEGIN { insec=0; done=0; sawsec=0 }
+    {
+      line=$0
+      if (line ~ /^[ \t]*\[/) {
+        if (insec && !done) { print k " = " v; done=1 }
+        t=line; gsub(/^[ \t]+|[ \t]+$/,"",t)
+        insec = (t == "[" sec "]"); if (insec) sawsec=1
+        print line; next
+      }
+      if (insec && !done && line !~ /^[ \t]*[#;]/) {
+        eq = index(line, "=")
+        if (eq > 0) { lhs = substr(line,1,eq-1); gsub(/^[ \t]+|[ \t]+$/,"",lhs)
+          if (lhs == k) { print k " = " v; done=1; next } }
+      }
+      print line
+    }
+    END { if (!done) { if (insec) print k " = " v
+           else if (!sawsec) { print ""; print "[" sec "]"; print k " = " v } } }'
+
+    set_cfg() {
+      local file=$1 section=$2 key=$3 value=$4
+      local path="$BEPINEX_CONFIG/$file"
+      if [ ! -f "$path" ]; then
+        printf '[%s]\n\n%s = %s\n' "$section" "$key" "$value" > "$path"
+        echo "[cfg  ] $file [$section] $key = $value (created)"
+        return 0
+      fi
+      awk -v sec="$section" -v k="$key" -v v="$value" "$CFG_AWK" "$path" > "$path.new"
+      mv "$path.new" "$path"
+      echo "[cfg  ] $file [$section] $key = $value"
+    }
+
     echo "=== valheim mod installer ==="
     while read -r name ver url sha layout; do
       [ -z "${name:-}" ] && continue
       case "$name" in \#*) continue ;; esac
       install_one "$name" "$ver" "$url" "$sha" "$layout"
     done <<< "$MODS"
+
+    echo "=== applying per-mod config ==="
+    while IFS='|' read -r file section key value; do
+      [ -z "${file:-}" ] && continue
+      case "$file" in \#*) continue ;; esac
+      set_cfg "$file" "$section" "$key" "$value"
+    done <<< "${MOD_CONFIG:-}"
 
     # Match the ownership the game container expects (PUID/PGID 10000).
     chown -R 10000:10000 "$BEPINEX_CONFIG"

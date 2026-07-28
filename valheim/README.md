@@ -186,7 +186,7 @@ silently replaces it with the ConfigMap value. If you want a change to stick, pu
 
 ## Modding (BepInEx)
 
-`BEPINEX: "true"` is set in `configmap.yaml`. **Six mods are installed**, fetched declaratively
+`BEPINEX: "true"` is set in `configmap.yaml`. **Eight mods are installed**, fetched declaratively
 by the `fetch-mods` initContainer from `mods-configmap.yaml`:
 
 | Mod | Version | Client install |
@@ -195,14 +195,23 @@ by the `fetch-mods` initContainer from `mods-configmap.yaml`:
 | JsonDotNET | 13.0.4 | required (library) |
 | EpicLoot | 0.12.15 | **required** |
 | AzuExtendedPlayerInventory | 2.4.1 | **required — kicks clients without it** |
+| AzuContainerSizes | 1.1.4 | **required — kicks clients without it** |
 | Warfare | 1.8.9 | **required** (custom weapon/animation assets) |
+| SkilledCarryWeight | 1.4.1 | recommended (server install enforces config) |
 | PlantEverything | 1.20.0 | recommended (works without, minor cosmetic loss) |
 
-🚨 **Vanilla clients can no longer join.** AzuExtendedPlayerInventory runs a version check that
-kicks any client without it, and EpicLoot and Warfare need client-side assets. Every player must
-run the matching set, plus `BepInExPack_Valheim 5.4.2333`. r2modman pinned to these exact
-versions is the low-drift path. This reverses what this README said before mods existed — BepInEx
-alone imposed nothing on clients, but these specific mods do.
+🚨 **Vanilla clients can no longer join.** AzuExtendedPlayerInventory *and* AzuContainerSizes each
+run a version check that kicks clients without them, and EpicLoot and Warfare need client-side
+assets. Every player must run the matching set, plus `BepInExPack_Valheim 5.4.2333`. r2modman
+pinned to these exact versions is the low-drift path. This reverses what this README said before
+mods existed — BepInEx alone imposed nothing on clients, but these specific mods do.
+
+⚠️ **`JsonDotNET` is the one people skip**, because it reads as a library rather than a mod. Without
+it the client logs `Could not load [Epic Loot] because it has missing dependencies:
+com.ValheimModding.NewtonsoftJsonDetector`, EpicLoot never loads, and Jotunn then refuses the
+connection with **`ErrorVersion`** — which looks like a game-version mismatch and is not one.
+If a client gets `ErrorVersion`, check its BepInEx log for a failed plugin load before suspecting
+the server.
 
 - **`BEPINEX` and `VALHEIM_PLUS` are mutually exclusive.** Enabling both fails.
 - **Mod config** lives in `/config/bepinex` on the `valheim-data` PVC, so it survives restarts.
@@ -249,6 +258,45 @@ kubectl exec -n valheim deploy/valheim -- sh -c 'curl -fsSL -o /tmp/m.zip "<url>
 image syncs with `rsync -a` and **no `--delete`**, so the stale DLL survives in the live install.
 Also delete `/opt/valheim/bepinex/BepInEx/plugins/<Name>/`, or delete the `valheim-server` PVC to
 force a clean reinstall — that PVC is disposable and does not hold the world.
+
+### Per-mod configuration
+
+Mod settings are declared in the `MOD_CONFIG` block of `mods-configmap.yaml`, not hand-edited on
+the volume:
+
+```
+<cfg filename>|<Section>|<Key>|<Value>
+```
+
+Currently set: `Extra Inventory Rows = 5` (AzuEPI's maximum — 5 extra rows for everyone).
+
+**The image's `BEPINEXCFG_<Section>_<Var>` env mechanism cannot do this.** It only ever writes
+`BepInEx.cfg` — `env2cfg --config "$config_path/BepInEx.cfg"` in `common` — never per-mod files.
+Without `MOD_CONFIG`, these settings exist only as untracked edits on the PVC.
+
+The applier touches **only the keys listed**; everything else in a `.cfg` keeps whatever the mod
+wrote. It handles a key already present, a key missing from an existing section, a missing
+section, and a missing file — that last case matters because a mod that has never run has no
+config yet, and BepInEx honours a partial file and fills in the rest on first load.
+
+It runs on **every boot, so this file wins.** A value changed in-game or via a config manager is
+reverted on the next restart. Change it here, not there.
+
+Settings marked `[Synced with Server]` in a `.cfg` propagate to clients automatically — no client
+action needed for those. Config filenames available to target:
+
+```
+Azumatt.AzuExtendedPlayerInventory.cfg    Azumatt.AzuContainerSizes.cfg
+Searica.Valheim.SkilledCarryWeight.cfg    randyknapp.mods.epicloot.cfg
+Therzie.Warfare.cfg                       advize.PlantEverything.cfg
+```
+
+Verify a setting landed and survived the mod's own save cycle:
+
+```powershell
+kubectl logs -n valheim deploy/valheim -c fetch-mods | Select-String "\[cfg"
+kubectl exec -n valheim deploy/valheim -c valheim -- grep -B2 "^Extra Inventory Rows" /config/bepinex/Azumatt.AzuExtendedPlayerInventory.cfg
+```
 
 ### Confirm the mod stack is healthy
 
