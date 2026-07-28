@@ -232,12 +232,15 @@ data:
     valheim_plus.cfg|Turret|enabled|true
     valheim_plus.cfg|Turret|ignorePlayers|true
     valheim_plus.cfg|Turret|unlimitedAmmo|true
-    # Armor: +100% on every slot.
+    # Armor: +50% on every slot, scaled back from +100%. This multiplier compounds with two
+    # other sources -- Armory's upgraded biome-tier armor variants and EpicLoot's enchanted gear
+    # -- so doubling it on top of both stacked up faster than any of the three assumed alone.
+    # V+'s own example: base armor 14 -> 21 at +50%, -> 28 at +100%, before those other two.
     valheim_plus.cfg|Armor|enabled|true
-    valheim_plus.cfg|Armor|helmets|100
-    valheim_plus.cfg|Armor|chests|100
-    valheim_plus.cfg|Armor|legs|100
-    valheim_plus.cfg|Armor|capes|100
+    valheim_plus.cfg|Armor|helmets|50
+    valheim_plus.cfg|Armor|chests|50
+    valheim_plus.cfg|Armor|legs|50
+    valheim_plus.cfg|Armor|capes|50
     # Items: -75% weight, +100% stack size. Stack size lives in [Items], NOT the pinned
     # [Inventory] section, so it does not collide with AzuContainerSizes.
     valheim_plus.cfg|Items|enabled|true

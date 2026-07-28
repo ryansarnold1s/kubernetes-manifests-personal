@@ -309,9 +309,13 @@ live in `[Player]`, which is pinned off because `baseMaximumWeight` there collid
 SkilledCarryWeight. Enabling `[Player]` to get them would put V+ and SkilledCarryWeight on the same
 carry-weight property with unknown patch ordering. See "If you want the `[Player]` features" below.
 
-Two knock-on effects worth knowing, neither a collision: `[Items] baseItemWeightReduction = -75`
-compounds with SkilledCarryWeight (lighter items *and* a higher cap), and `[Armor]` +100% compounds
-with EpicLoot's enchanted gear.
+Two knock-on effects worth knowing, neither a collision:
+
+- `[Items] baseItemWeightReduction = -75` compounds with SkilledCarryWeight — lighter items *and*
+  a higher cap.
+- `[Armor]` is **+50%, scaled back from +100%**, because it multiplies on top of two other sources:
+  Armory's upgraded biome-tier armor variants and EpicLoot's enchanted gear. V+'s own example is
+  base armor 14 → 21 at +50%, → 28 at +100%, before either of those applies.
 
 ### If you want the `[Player]` features
 
