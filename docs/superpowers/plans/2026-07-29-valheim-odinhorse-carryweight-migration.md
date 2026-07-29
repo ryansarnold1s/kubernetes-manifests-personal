@@ -700,6 +700,65 @@ Replace with:
 ⚠️ `150` is a **percentage modifier**, not an absolute — V+'s own annotation is *"The value 50
 will increase the durability from 100 to 150."* So this takes tool durability 100 → **250**.
 
+- [ ] **Step 4d: Enable `[Gathering]` and `[Experience]`**
+
+Both sections are currently `enabled = false` and every key in them is `0`. Append these two
+blocks to the end of `MOD_CONFIG`, after the `[SapCollector]` lines:
+
+```
+    # --- Gathering: double the yield from every node broken with a tool ---------------------
+    # This was asked for as "increase tool damage". V+ CANNOT do that -- verified by enumerating
+    # all 58 sections and every key containing "damage": the complete set is monster scaling,
+    # unarmed, fall, structural and hull. There is no [Damage] section and no per-weapon-type
+    # modifier. So this is a yield change, not a damage change: a rock still takes the same
+    # number of swings, you just mine fewer rocks. [Experience] below is the damage half.
+    #
+    # ⚠️ COMPOUNDS with `-modifier resources more` in configmap.yaml -- a NATIVE global drop
+    # multiplier already one step above normal. The effective multiplier is therefore MORE than
+    # 2x, not exactly 2x. There are two independent sources; know which one you are changing.
+    #
+    # dropChance stays at 0 deliberately. It is a different mechanic: it raises the CHANCE on
+    # nodes that have no guaranteed drop (dungeon scrap piles), not the AMOUNT from ore veins.
+    #
+    # feather is included for consistency, with a quirk worth knowing: it also affects drops
+    # from shooting gulls and crows, not only trees.
+    #
+    # ⚠️ Enabling this section makes every key in it live. The ones not listed sit at 0, which is
+    # a no-op -- same situation as [Player]. RE-VERIFY ON ANY V+ UPGRADE: a release adding a
+    # non-neutral default here would now take effect silently.
+    valheim_plus.cfg|Gathering|enabled|true
+    valheim_plus.cfg|Gathering|wood|100
+    valheim_plus.cfg|Gathering|fineWood|100
+    valheim_plus.cfg|Gathering|coreWood|100
+    valheim_plus.cfg|Gathering|elderBark|100
+    valheim_plus.cfg|Gathering|yggdrasilWood|100
+    valheim_plus.cfg|Gathering|blackwood|100
+    valheim_plus.cfg|Gathering|stone|100
+    valheim_plus.cfg|Gathering|grausten|100
+    valheim_plus.cfg|Gathering|blackMarble|100
+    valheim_plus.cfg|Gathering|tinOre|100
+    valheim_plus.cfg|Gathering|copperOre|100
+    valheim_plus.cfg|Gathering|copperScrap|100
+    valheim_plus.cfg|Gathering|ironScrap|100
+    valheim_plus.cfg|Gathering|silverOre|100
+    valheim_plus.cfg|Gathering|chitin|100
+    valheim_plus.cfg|Gathering|feather|100
+    valheim_plus.cfg|Gathering|flametalOre|100
+    valheim_plus.cfg|Gathering|proustitePowder|100
+    # --- Experience: faster Pickaxes skill --------------------------------------------------
+    # This is the ONLY route V+ offers to genuinely more pickaxe DAMAGE. Skill level scales tool
+    # damage in vanilla, so levelling Pickaxes faster means fewer swings per rock. Unlike
+    # [Gathering] above, this really is a damage increase rather than a yield increase.
+    #
+    # Self-limiting: once Pickaxes reaches 100 this contributes nothing further.
+    #
+    # Only pickaxes is raised. Every other skill stays at 0 (no-op); the section being enabled
+    # makes them live, so adding another later is a one-line change. Same re-verify-on-upgrade
+    # caveat as [Gathering] above.
+    valheim_plus.cfg|Experience|enabled|true
+    valheim_plus.cfg|Experience|pickaxes|100
+```
+
 - [ ] **Step 5: Apply, restart, and watch the prune remove a real mod**
 
 ```powershell
@@ -760,6 +819,12 @@ echo "=== [Workbench] roof check ==="
 awk '/^\[Workbench\]/{f=1} f&&/^\[/&&!/^\[Workbench\]/{f=0} f' "$C" | tr -d '\r' | grep -E '^(enabled|workbenchRange|disableRoofCheck) '
 echo "=== [Durability] tools vs combat gear ==="
 awk '/^\[Durability\]/{f=1} f&&/^\[/&&!/^\[Durability\]/{f=0} f' "$C" | tr -d '\r' | grep -E '^(enabled|weapons|axes|bows|shields|armor|pickaxes|hammer|cultivator|hoe|torch) '
+echo "=== [Gathering] enabled + a sample of yields ==="
+awk '/^\[Gathering\]/{f=1} f&&/^\[/&&!/^\[Gathering\]/{f=0} f' "$C" | tr -d '\r' | grep -E '^(enabled|dropChance|stone|copperOre|silverOre|wood) '
+echo "=== [Gathering] count of keys at 100 (expect 18) ==="
+awk '/^\[Gathering\]/{f=1} f&&/^\[/&&!/^\[Gathering\]/{f=0} f' "$C" | tr -d '\r' | grep -cE '= 100$'
+echo "=== [Experience] pickaxes ==="
+awk '/^\[Experience\]/{f=1} f&&/^\[/&&!/^\[Experience\]/{f=0} f' "$C" | tr -d '\r' | grep -E '^(enabled|pickaxes|woodCutting|swords) '
 echo "=== total section count ==="
 grep -c '^\[' "$C" | tr -d '\r'
 '@
@@ -799,11 +864,34 @@ shields = 100
 torch = 150
 ```
 
-⚠️ The `[Durability]` keys print in the file's own order, not the order you wrote them. Two
+and:
+
+```
+=== [Gathering] enabled + a sample of yields ===
+enabled = true
+dropChance = 0
+wood = 100
+stone = 100
+copperOre = 100
+silverOre = 100
+=== [Gathering] count of keys at 100 (expect 18) ===
+18
+=== [Experience] pickaxes ===
+enabled = true
+pickaxes = 100
+woodCutting = 0
+swords = 0
+```
+
+⚠️ The `[Durability]` keys print in the file's own order, not the order you wrote them. Four
 things to check specifically:
 - **`axes = 100`** — it must stay with the weapons, not drift to 150 with the tools
 - **exactly five keys at 150** — `pickaxes`, `hammer`, `cultivator`, `hoe`, `torch`. Combat gear
   (`weapons`, `axes`, `bows`, `shields`, `armor`) all stay at 100
+- **`[Gathering] dropChance = 0`** — it must NOT have been swept to 100 with the yields; it is a
+  different mechanic and was deliberately left alone
+- **`[Experience] woodCutting = 0` and `swords = 0`** — only `pickaxes` was raised. These two
+  confirm the section was enabled without other skills being touched
 
 A `[Player]` count of `2` means the applier appended rather than matched — investigate before
 proceeding. `autoUnequipShield = false` confirms only the intended keys were touched.
@@ -1007,6 +1095,33 @@ sits with the tools because its durability is burn time.
 
 ⚠️ These values are **percentage modifiers** — `150` takes durability 100 → 250.
 
+**(i)** Document the mining changes. Add near the V+ section list:
+
+```markdown
+**Mining yield and pickaxe skill.** `[Gathering]` is at **+100%** on every resource dropped from
+a node broken with a tool, and `[Experience] pickaxes` is at **+100%**.
+
+These were asked for as "increase tool damage". 🚨 **V+ cannot do that** — verified by
+enumerating all 58 sections and every key containing `damage`: the complete set is monster
+scaling, unarmed, fall, structural and hull. There is no `[Damage]` section and no
+per-weapon-type modifier. Do not go looking for one.
+
+The two settings split the goal:
+- `[Gathering]` is a **yield** change — a rock takes the same swings, you mine fewer rocks
+- `[Experience] pickaxes` is the only real **damage** route, since skill level scales tool
+  damage in vanilla. It is self-limiting: at Pickaxes 100 it stops contributing
+
+⚠️ **`[Gathering]` compounds with `-modifier resources more`** in `configmap.yaml`, a native
+global drop multiplier already one step above normal. The effective multiplier is **more than
+2×**. Two independent sources — know which one you are changing.
+
+`dropChance` is deliberately left at `0`: it raises the *chance* on nodes without a guaranteed
+drop (dungeon scrap piles), not the *amount* from ore veins.
+```
+
+Both are newly-enabled sections, so update the **"25 sections are enabled"** count to **27** and
+add `Gathering` and `Experience` to the list.
+
 **Verify no stale references remain** (the mod table row for OdinHorse is added in Task 3):
 
 ```bash
@@ -1018,9 +1133,13 @@ installed, and no `[Player]`-is-pinned-off claim.
 
 - [ ] **Step 11: Commit**
 
+⚠️ The title must name the whole change. This task grew well past the SkilledCarryWeight
+migration during execution, and a commit titled only for the migration would hide four unrelated
+gameplay changes from anyone reading `git log`.
+
 ```bash
 git add valheim/mods-configmap.yaml valheim/README.md
-git commit -m "Remove SkilledCarryWeight, port carry weight to ValheimPlus
+git commit -m "Remove SkilledCarryWeight; move carry weight and QoL settings to V+
 
 SkilledCarryWeight is incompatible with OdinHorse: its Cart Mass Reduction
 scales cart mass down as max carry weight rises, and its Quick Cart hotkey
@@ -1052,6 +1171,21 @@ than the +100% on combat gear: combat durability is adjacent to balance, tool
 durability is pure convenience. axes stays at 100 with the weapons -- it is a
 weapon that also chops wood. Both README passages asserting tools were at
 vanilla are rewritten rather than left contradicting the config.
+
+Enables [Gathering] at +100% and [Experience] pickaxes at +100%. Both were
+asked for as \"increase tool damage\", which V+ cannot do -- verified by
+enumerating all 58 sections and every key containing damage. [Gathering] is a
+yield change (same swings, fewer rocks); [Experience] is the only real damage
+route, since skill level scales tool damage in vanilla, and it self-limits at
+Pickaxes 100. [Gathering] COMPOUNDS with -modifier resources more already set
+in configmap.yaml, so the effective multiplier exceeds 2x. dropChance stays at
+0 -- it is a chance mechanic, not an amount mechanic.
+
+Three sections move from disabled to enabled ([Player], [Gathering],
+[Experience]). Each was checked key-by-key against the generated cfg: all
+unlisted keys sit at vanilla-equivalent no-ops. Flagged in-file for
+re-verification on any V+ upgrade, since an enabled section adopts new
+defaults silently where a disabled one cannot.
 
 Safe to remove because SkilledCarryWeight is a pure runtime patch that
 registers no prefabs and persists nothing in the world save. This does not

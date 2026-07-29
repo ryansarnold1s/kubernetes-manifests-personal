@@ -75,6 +75,7 @@ it could destroy.
 | `autoRepair`, `autoEquipShield` | Enable both | Previously requested and refused *only* because `[Player]` was pinned off for SkilledCarryWeight. That objection dies with this change; see §5.1 |
 | `[Workbench] disableRoofCheck` | Enable | Requested mid-execution. One added line — `[Workbench]` is already enabled for `workbenchRange`. See §5.2 |
 | Tool durability `+150%` | Enable | Requested mid-execution. Reverses a deliberate "tools stay at vanilla" decision, so the comment asserting that must be rewritten, not just the values. See §5.3 |
+| `[Gathering] +100%`, `[Experience] pickaxes +100%` | Enable both | Requested mid-execution as "increase tool damage", which V+ cannot do. These are the two honest substitutes. See §5.4 |
 | V+ `[Wagon]` | **Stays disabled** | Its `wagonBaseMass=20` would stomp the horse cart back to draggable — reintroducing the exact bug this work removes |
 | OdinHorse version | 1.6.5 | See §7 |
 | OdinHorse config | None — ship at defaults | Saddle storage stays off; §5 |
@@ -223,6 +224,45 @@ durability is burn time — the same kind of convenience number.
 left at vanilla 0: pickaxes, hammer, cultivator, hoe, torch. The ask was weapons and armor."*
 That comment is aimed at exactly this edit. It must be **rewritten**, not left standing next to
 contradicting values — a comment that argues against the code beside it is worse than no comment.
+
+### 5.4 Mining yield and pickaxe skill rate
+
+Asked for as *"change how much damage tools do such as pickaxes by 100%"*.
+
+🚨 **ValheimPlus cannot do this.** Verified by enumerating all 58 sections and every key
+containing "damage" in the live generated config. The complete set is `[Game]
+gameDifficultyDamageScale` (monster scaling per nearby player), `[Player] baseUnarmedDamage`
+(fists only), `fallDamageScalePercent` / `maxFallDamage`, `[StructuralIntegrity]
+disableDamageTo*`, and `[Ship] waterImpactDamage`. There is no `[Damage]` section and no
+per-weapon-type modifier. The only three `pickaxes` keys in the file are `[Experience]`,
+`[Durability]` and `[StaminaUsage]`.
+
+Since pickaxe damage is what governs how many swings a node takes, the underlying goal is read
+as *less tedious mining*. Two substitutes were chosen:
+
+**`[Gathering]` at `+100%`** — doubles the yield from every node broken with a tool. Not a
+damage change: the rock takes the same swings, but fewer rocks are needed.
+
+⚠️ **This compounds with `-modifier resources more`** in `configmap.yaml`, a *native* global
+drop multiplier already one step above normal. The effective multiplier therefore exceeds 2×.
+Anyone tuning drops later must know there are two independent sources.
+
+`dropChance` stays at `0` deliberately — it is a different mechanic, raising the *chance* on
+nodes without a guaranteed drop (dungeon scrap piles) rather than the *amount* from ore veins.
+
+**`[Experience] pickaxes` at `+100%`** — the only route V+ offers to genuinely more pickaxe
+damage. Skill level scales tool damage in vanilla, so faster Pickaxes leveling means fewer
+swings per rock. **Self-limiting:** once the skill reaches 100 it contributes nothing further.
+
+Both sections are currently `enabled = false`, so both get enabled. Every other key in each sits
+at `0`, which is a no-op — the same "enabling the section is neutral apart from what we pin"
+situation as `[Player]` in §5.1, and it carries the same ⚠️ **re-verify on any V+ upgrade**
+caveat, for the same reason: an enabled section adopts new non-neutral defaults silently where a
+disabled one cannot.
+
+Rejected: adding a mod that edits item stats directly. It is the only way to set tool damage
+outright, but it means a new pinned dependency, a new client-side install for every player, and
+new supply-chain surface. That would be its own spec, not a fold-in to this migration.
 
 **OdinHorse saddle storage stays off.** Version 1.6.1 added it *"disabled by default
 for performance optimization"*. Enabling it would require a second apply — `MOD_CONFIG`
