@@ -1232,6 +1232,28 @@ Add a comment above it in the file's existing style:
     # ⚠️ Requires the [Wagon] pin in MOD_CONFIG to stay disabled -- see the note there.
 ```
 
+Then add a rejection note beside the existing `TrashItems` one, matching its style — the repo
+documents mods it deliberately does not install so they do not get re-proposed:
+
+```
+    # CookingStationTweaks (Grizzzly, 0.7.1) is deliberately NOT here. Evaluated 2026-07-29 and
+    # declined. Its features are useful and it does NOT collide with V+ -- [Oven] there covers
+    # only fuel, this covers slots, cook time, burning and auto-pop. Grizzzly's is the right
+    # fork: 0.7.1 (2025-05) vs yeldarb420 0.6.0 (2024-06) vs digitiliad 0.2.0 (deprecated).
+    #
+    # It was declined because it has NO enforcement mechanism. It ships no ServerSync and no
+    # Jotunn, so unlike everything else here it can neither kick mismatched clients (AzuEPI,
+    # AzuContainerSizes do) nor push config from the server (ValheimPlus does, via
+    # serverSyncsConfig). Correct client config would be convention, not mechanism.
+    #
+    # The failure mode is the one already documented for AzuContainerSizes below: a player on a
+    # different SlotMultiplier -- or without the mod -- sees a DIFFERENT slot count on a shared
+    # station, and food in the extra slots is invisible and unrecoverable to them. Silent and
+    # per-player. If it is ever reconsidered, the artifact is sha256
+    # 62c11fa57ca3ff34d0ef09942da77966835ce042ca03e378e7eb749398714477, 115605 bytes, layout
+    # root, and its config file is aedenthorn.CookingStationTweaks.cfg.
+```
+
 - [ ] **Step 2: Validate and apply**
 
 ```powershell

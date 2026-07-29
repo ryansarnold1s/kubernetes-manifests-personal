@@ -99,6 +99,34 @@ Neither fact is recorded anywhere in the repo today. The `pvc.yaml` comment sayi
 the PVC "does not affect the world" is true and remains true — it is just not the
 same claim as "loses nothing".
 
+### Rejected: CookingStationTweaks
+
+Proposed mid-execution (`Grizzzly/CookingStationTweaks` 0.7.1). Researched and declined.
+
+The features are genuinely useful — `PreventBurning` and `AutoPop` default true, `SlotMultiplier`
+2.5 taking cooking stations 2→5 slots and ovens 4→10 — and there is **no key collision with V+**,
+whose `[Oven]` section covers only fuel (`autoFuel`, `autoRange`, `ignorePrivateAreaCheck`).
+Grizzzly's is also the correct fork: 0.7.1 (2025-05) against yeldarb420's 0.6.0 (2024-06) and
+digitiliad's deprecated 0.2.0.
+
+**Declined because it has no enforcement mechanism.** It ships no `ServerSync` and no Jotunn
+dependency, so unlike the rest of this stack it can neither kick mismatched clients
+(AzuExtendedPlayerInventory, AzuContainerSizes) nor push config from the server (ValheimPlus,
+`serverSyncsConfig = true`). Correct client configuration would be convention rather than
+mechanism — the only mod in the set where that is true.
+
+The failure mode is the one this repo already documents for AzuContainerSizes: *"Shrinking a
+container that already holds items puts those items in slots that no longer exist."* A player
+running a different `SlotMultiplier`, or none, sees a different slot count on a shared station,
+and food in the extra slots is invisible and unrecoverable to them. Silent, per-player, and
+awkward to diagnose.
+
+Artifact facts recorded so this does not need re-researching: sha256
+`62c11fa57ca3ff34d0ef09942da77966835ce042ca03e378e7eb749398714477`, 115,605 bytes, layout `root`,
+sole dependency `denikson-BepInExPack_Valheim-5.4.2202` (server runs 5.4.2333). Config file is
+`aedenthorn.CookingStationTweaks.cfg`; pinning it would need a second apply, since `MOD_CONFIG`
+requires key names that do not exist until the mod first generates the file.
+
 ### Rejected: keeping SkilledCarryWeight and skipping OdinHorse
 
 Viable, but the ask was OdinHorse. Recorded only to note that the horse cart is the
