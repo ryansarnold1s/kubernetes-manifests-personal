@@ -275,10 +275,21 @@ Get a checksum for a new version with:
 kubectl exec -n valheim deploy/valheim -- sh -c 'curl -fsSL -o /tmp/m.zip "<url>" && sha256sum /tmp/m.zip'
 ```
 
-⚠️ **Removing a mod needs a second step.** Deleting its line stops it being fetched, but the
-image syncs with `rsync -a` and **no `--delete`**, so the stale DLL survives in the live install.
-Also delete `/opt/valheim/bepinex/BepInEx/plugins/<Name>/`, or delete the `valheim-server` PVC to
-force a clean reinstall — that PVC is disposable and does not hold the world.
+**Removing a mod is a single step.** Delete its line from `MODS`, apply, restart. The
+initContainer prunes any plugin directory not listed in `MODS` from **both** the staged copy on
+`valheim-data` and the live install on `valheim-server`, and drops its `.mod-state` marker. This
+used to need a manual `rm -rf` in two places, because the image syncs with `rsync -a` and **no
+`--delete`**.
+
+⚠️ **Deleting the `valheim-server` PVC does not remove a mod**, despite being the disposable one.
+The staged copy on `valheim-data` survives and the bootstrap rsync restores it. That PVC also
+holds `bepinex/BepInEx/vplus-data/<World>_mapSync.dat`, the V+ shared-map pool — disposable with
+respect to the world is not the same as lossless.
+
+🚨 **The prune handles files, not world data.** A mod that registered prefabs — EpicLoot,
+Warfare, Armory, OdinsFoodBarrels, OdinHorse — has its items or creatures persisted as ZDOs in
+`TreeFellMeFirst.db`, and dropping it orphans them. Only pure runtime-patch mods are free to
+remove.
 
 ### ValheimPlus
 

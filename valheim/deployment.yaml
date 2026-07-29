@@ -63,6 +63,13 @@ spec:
         volumeMounts:
         - name: config
           mountPath: /config
+        # The prune in install-mods.sh has to reach the LIVE install, not just the staged copy.
+        # The image's bootstrap sync is `rsync -a` with no --delete, so a mod removed only from
+        # /config/bepinex/plugins survives here and keeps running. Both PVCs are ReadWriteOnce,
+        # but this is the same pod that already mounts both, and strategy: Recreate guarantees
+        # there is never a second pod contending for them.
+        - name: server
+          mountPath: /opt/valheim
         - name: mod-scripts
           mountPath: /scripts
           readOnly: true

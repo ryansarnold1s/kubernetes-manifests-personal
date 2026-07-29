@@ -11,10 +11,17 @@
 # that mod. Get a new checksum with:
 #   kubectl exec -n valheim deploy/valheim -c valheim -- sh -c 'curl -fsSL -o /tmp/m.zip "<url>" && sha256sum /tmp/m.zip'
 #
-# REMOVING A MOD: deleting a line here is NOT sufficient. The image syncs with `rsync -a` and no
-# --delete, so the stale DLL survives in the live install at /opt/valheim/bepinex/BepInEx/plugins.
-# Also delete that directory, or delete the valheim-server PVC to force a clean reinstall (that
-# PVC is disposable -- it does not hold the world).
+# REMOVING A MOD: delete the line, apply, restart. The installer prunes any plugin directory not
+# listed in MODS from BOTH the staged copy here and the live install at
+# /opt/valheim/bepinex/BepInEx/plugins, and drops its .mod-state marker. This used to require a
+# manual rm -rf in two places, because the image syncs with `rsync -a` and no --delete.
+#
+# Deleting the valheim-server PVC does NOT remove a mod, despite being the disposable one -- the
+# staged copy here survives and the bootstrap rsync restores it.
+#
+# ⚠️ The prune handles FILES, not world data. A mod that registered prefabs -- EpicLoot, Warfare,
+# Armory, OdinsFoodBarrels, OdinHorse -- has its items or creatures persisted as ZDOs in the world
+# save, and dropping it orphans them. Only pure runtime-patch mods are free to remove.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -479,6 +486,61 @@ data:
       case "$name" in \#*) continue ;; esac
       install_one "$name" "$ver" "$url" "$sha" "$layout"
     done <<< "$MODS"
+
+    # --- prune: mods no longer listed in MODS --------------------------------------------
+    # Deleting a line from MODS used to be insufficient. The staged copy survived here, and the
+    # image's bootstrap sync is `rsync -a` with NO --delete, so the stale DLL also survived in
+    # the live install -- a "removed" mod kept running. Both copies are pruned here, which is
+    # what makes removal declarative.
+    #
+    # ⚠️ $PLUGINS is on valheim-data, the SAME Longhorn volume as /config/worlds_local. Every rm
+    # below uses ${VAR:?}, so an unset or empty path aborts the script instead of expanding to a
+    # bare root path. Do NOT rewrite these as plain "$VAR" -- that is the one bug in this file
+    # that could reach the world save.
+    LIVE_PLUGINS=/opt/valheim/bepinex/BepInEx/plugins
+
+    keep=$(while read -r name _rest; do
+             [ -z "${name:-}" ] && continue
+             case "$name" in \#*) continue ;; esac
+             printf '%s\n' "$name"
+           done <<< "$MODS")
+
+    # A malformed or truncated MODS must never be read as "delete everything".
+    if [ -z "$keep" ]; then
+      echo "[FAIL ] MODS parsed to an empty set -- refusing to prune" >&2
+      exit 1
+    fi
+
+    prune_dir() {
+      local root=$1 label=$2 d n
+      if [ ! -d "$root" ]; then
+        echo "[prune] $label: $root absent, nothing to do"
+        return 0
+      fi
+      for d in "$root"/*/; do
+        [ -d "$d" ] || continue
+        n=$(basename "$d")
+        if ! printf '%s\n' "$keep" | grep -qxF "$n"; then
+          echo "[prune] $label: removing $n (not in MODS)"
+          rm -rf "${root:?}/${n:?}"
+        fi
+      done
+    }
+
+    echo "=== pruning mods no longer in MODS ==="
+    prune_dir "$PLUGINS"      "staged"
+    prune_dir "$LIVE_PLUGINS" "live"
+
+    # Orphaned install markers go too, so re-adding a mod later reinstalls it cleanly instead of
+    # being skipped by a stale version+sha marker.
+    for m in "$STATE"/*; do
+      [ -f "$m" ] || continue
+      n=$(basename "$m")
+      if ! printf '%s\n' "$keep" | grep -qxF "$n"; then
+        echo "[prune] marker: removing $n"
+        rm -f "${STATE:?}/${n:?}"
+      fi
+    done
 
     echo "=== applying per-mod config ==="
     while IFS='|' read -r file section key value; do
