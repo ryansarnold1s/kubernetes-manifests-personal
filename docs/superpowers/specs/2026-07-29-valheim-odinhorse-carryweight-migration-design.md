@@ -76,6 +76,7 @@ it could destroy.
 | `[Workbench] disableRoofCheck` | Enable | Requested mid-execution. One added line — `[Workbench]` is already enabled for `workbenchRange`. See §5.2 |
 | Tool durability `+150%` | Enable | Requested mid-execution. Reverses a deliberate "tools stay at vanilla" decision, so the comment asserting that must be rewritten, not just the values. See §5.3 |
 | `[Gathering] +100%`, `[Experience] pickaxes +100%` | Enable both | Requested mid-execution as "increase tool damage", which V+ cannot do. These are the two honest substitutes. See §5.4 |
+| `[Items] noTeleportPrevention` | Enable | Chosen over adding TeleportEverything. One line; `[Items]` already enabled. Covers ores/ingots only, not tames or carts |
 | V+ `[Wagon]` | **Stays disabled** | Its `wagonBaseMass=20` would stomp the horse cart back to draggable — reintroducing the exact bug this work removes |
 | OdinHorse version | 1.6.5 | See §7 |
 | OdinHorse config | None — ship at defaults | Saddle storage stays off; §5 |
@@ -98,6 +99,43 @@ the clean path. Investigation killed it on two counts:
 Neither fact is recorded anywhere in the repo today. The `pvc.yaml` comment saying
 the PVC "does not affect the world" is true and remains true — it is just not the
 same claim as "loses nothing".
+
+### Rejected: TeleportEverything (V+ one-liner chosen instead)
+
+Proposed mid-execution (`OdinPlus/TeleportEverything` 2.9.1). Declined **in favour of a setting
+ValheimPlus already has**.
+
+The mod is good: 2.9.1 released 2026-02-08, 700K downloads, and — unlike CookingStationTweaks —
+it **has server-synced settings** ("can only be modified by server owner"), so it does not carry
+the config-consistency failure mode that killed that one. Its stated partial incompatibilities
+are TargetPortal, CreatureLevelAndLootControl and UnrestrictedPortals, **none of which are
+installed**. XPortal was checked specifically since both touch portals: XPortal is an *AnyPortal*
+revamp, incompatible only with AnyPortal, ComfyGizmo and Custom Meshes, and the two mods do
+different jobs — XPortal manages portal naming and targeting, TeleportEverything manages what may
+pass through.
+
+**Declined because most of the wanted behaviour is one config line.** V+ `[Items]` is already
+enabled and carries `noTeleportPrevention` (*"Enables you to teleport with ores and other usually
+teleport restricted objects"*), currently `false`. Setting it true delivers ore and ingot
+portaling with no new mod, no client install, and nothing new to keep updated.
+
+What the mod would have added beyond that, and is therefore knowingly given up: tamed creatures
+(wolves, boars, loxes) through portals, **carts** through portals, enemies following through, the
+"Vikings don't run" mode, and configurable transport fees.
+
+Noted for the future: it would compose well with OdinHorse, which adds a rideable horse and a
+horse cart. Caveat if reconsidered — OdinHorse's horse is a *custom* creature and
+TeleportEverything filters allies by mask/regex, so it may need config rather than working
+untouched.
+
+⚠️ **If TeleportEverything is ever added, `noTeleportPrevention` must be set back to `false`.**
+Both patch the same "may this item teleport" check, and the mod should own it — the same
+one-owner-per-property discipline as the `[Wagon]` and `[Inventory]` pins.
+
+Artifact facts recorded so this needs no re-researching: sha256
+`266b6d6b1799796555d9d188963fdccd28578c9118aac2bc911d174a301807a8`, 308,447 bytes, layout `root`,
+dependency `denikson-BepInExPack_Valheim-5.4.2200` (server runs 5.4.2333). Config file is
+`com.kpro.TeleportEverything.cfg`.
 
 ### Rejected: CookingStationTweaks
 

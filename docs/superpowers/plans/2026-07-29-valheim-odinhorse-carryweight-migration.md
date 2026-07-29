@@ -1252,6 +1252,23 @@ documents mods it deliberately does not install so they do not get re-proposed:
     # per-player. If it is ever reconsidered, the artifact is sha256
     # 62c11fa57ca3ff34d0ef09942da77966835ce042ca03e378e7eb749398714477, 115605 bytes, layout
     # root, and its config file is aedenthorn.CookingStationTweaks.cfg.
+    #
+    # TeleportEverything (OdinPlus, 2.9.1) is deliberately NOT here either. Evaluated 2026-07-29.
+    # It is a good mod -- 700K downloads, and unlike CookingStationTweaks it HAS server-synced
+    # settings, so it does not carry that config-consistency problem. Its stated partial
+    # incompatibilities (TargetPortal, CreatureLevelAndLootControl, UnrestrictedPortals) are all
+    # absent here, and it does NOT conflict with XPortal: XPortal is an AnyPortal revamp that
+    # manages portal naming/targeting, while this manages what may pass through.
+    #
+    # It was declined because V+ [Items] noTeleportPrevention -- one line, in a section already
+    # enabled -- covers ores and ingots, which was most of the want. Knowingly given up: tamed
+    # animals and carts through portals, enemy-follow modes, transport fees.
+    #
+    # ⚠️ If it is ever added, set [Items] noTeleportPrevention back to false -- both patch the
+    # same check. Artifact: sha256
+    # 266b6d6b1799796555d9d188963fdccd28578c9118aac2bc911d174a301807a8, 308447 bytes, layout root,
+    # config file com.kpro.TeleportEverything.cfg. Would compose well with OdinHorse's horse and
+    # horse cart, though its ally filter is mask/regex based so a custom creature may need config.
 ```
 
 - [ ] **Step 2: Validate and apply**
@@ -1339,6 +1356,52 @@ $p = kubectl get pod -n valheim -l app=valheim -o jsonpath='{.items[0].metadata.
 ```
 
 If the log prints something other than 12, use the printed value and note the discrepancy.
+
+- [ ] **Step 1b: Enable `[Items] noTeleportPrevention`**
+
+Chosen instead of adding the TeleportEverything mod. `[Items]` is already enabled, so this is one
+added line. Find the existing block in `MOD_CONFIG`:
+
+```
+    # Items: -75% weight, +100% stack size. Stack size lives in [Items], NOT the pinned
+    # [Inventory] section, so it does not collide with AzuContainerSizes.
+    valheim_plus.cfg|Items|enabled|true
+    valheim_plus.cfg|Items|baseItemWeightReduction|-75
+    valheim_plus.cfg|Items|itemStackMultiplier|100
+```
+
+Replace with:
+
+```
+    # Items: -75% weight, +100% stack size. Stack size lives in [Items], NOT the pinned
+    # [Inventory] section, so it does not collide with AzuContainerSizes.
+    #
+    # noTeleportPrevention lifts vanilla's ban on carrying ores and ingots through a portal. V+'s
+    # own description: "Enables you to teleport with ores and other usually teleport restricted
+    # objects." Vanilla default is false.
+    #
+    # ⚠️ THIS COVERS ITEMS ONLY -- ores, ingots, dragon eggs. It does NOT teleport tamed animals
+    # or carts. That was a deliberate trade: the OdinPlus/TeleportEverything mod does all of it,
+    # and was evaluated and declined because this one line covers most of the want with no new
+    # mod, no client install and nothing extra to keep updated. See the note beside MODS above.
+    #
+    # ⚠️ IF TeleportEverything IS EVER INSTALLED, SET THIS BACK TO false. Both patch the same
+    # "may this item teleport" check and the mod should own it -- same one-owner-per-property
+    # discipline as the [Wagon] and [Inventory] pins.
+    valheim_plus.cfg|Items|enabled|true
+    valheim_plus.cfg|Items|baseItemWeightReduction|-75
+    valheim_plus.cfg|Items|itemStackMultiplier|100
+    valheim_plus.cfg|Items|noTeleportPrevention|true
+```
+
+Add to the Step 8 verification script:
+
+```
+echo "=== [Items] teleport ==="
+awk '/^\[Items\]/{f=1} f&&/^\[/&&!/^\[Items\]/{f=0} f' "$C" | tr -d '\r' | grep -E '^(enabled|noTeleportPrevention|baseItemWeightReduction) '
+```
+
+Expected: `enabled = true`, `noTeleportPrevention = true`, `baseItemWeightReduction = -75`.
 
 - [ ] **Step 7b: Absorbed from Task 2's stalled fix round**
 
