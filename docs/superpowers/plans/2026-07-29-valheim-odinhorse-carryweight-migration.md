@@ -1320,7 +1320,22 @@ disk that failed to load is the failure this catches — `ls` alone would not.
 | OdinHorse | 1.6.5 | **required** (custom creature/item assets) |
 ```
 
-The **"Twelve mods are installed"** prose is already correct — one out, one in.
+⚠️ **Restore the mod-count assertions to twelve.** An earlier draft of this plan claimed the
+"Twelve mods are installed" prose needed no change because one mod goes out and one comes in.
+That is wrong *between* the two tasks: Task 2 removes SkilledCarryWeight and leaves the count at
+**eleven**, so Task 2 corrected these three to eleven and Task 3 must put them back:
+
+- `README.md` — "**Eleven mods are installed**" → twelve
+- `README.md` — the installer idempotency example, `0 installed, 11 already present` → `12`
+- `README.md` — "Expect `11 plugins to load`" → `12`
+
+Confirm the last one against a real chainloader log line rather than inferring it:
+
+```powershell
+$env:KUBECONFIG = "C:\Users\RyanArnold\Downloads\kubeconfig"
+$p = kubectl get pod -n valheim -l app=valheim -o jsonpath='{.items[0].metadata.name}'
+(kubectl exec -n valheim $p -c valheim -- cat /opt/valheim/bepinex/BepInEx/LogOutput.log | Select-String "plugins to load") -join "`n"
+```
 
 **(b)** Add to the client install section, after the existing `JsonDotNET` warning:
 
