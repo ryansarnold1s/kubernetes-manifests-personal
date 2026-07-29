@@ -190,6 +190,12 @@ Add a prune, running after the install loop:
 - Build the desired set from `MODS`
 - **Guard: refuse to prune if the desired set is empty.** A malformed `MODS` must not
   be able to wipe the install
+- **Guard: every deletion uses the `${PLUGINS:?}` idiom already established in
+  `install_one`.** `/config/bepinex/plugins` is on `valheim-data` — the same Longhorn
+  volume as `/config/worlds_local/TreeFellMeFirst.db`. An unset or empty path variable
+  in an `rm -rf` is the one bug in this change that could reach the world. `:?` makes
+  the shell abort rather than expand to a bare root path. This is not optional and it
+  is not stylistic
 - Delete any directory in `/config/bepinex/plugins/` not in the set, plus its
   `.mod-state` marker
 - Delete any directory in `/opt/valheim/bepinex/BepInEx/plugins/` not in the set
@@ -287,8 +293,45 @@ backup before install, and this is a live world with a 5.2 MB save. Single-repli
 | Risk | Assessment |
 |---|---|
 | Prune deletes a wanted mod | Guarded two ways and verified in both directions. Highest-consequence part of this change; review closely |
+| Prune reaches the world | `/config/bepinex/plugins` shares the `valheim-data` volume with `TreeFellMeFirst.db`. This is the only path in this change that could touch the world. Guarded by `${PLUGINS:?}` and the empty-set check; see §6.3 and §11 |
+| Removing OdinHorse *later* orphans world data | **Adding a prefab mod is closer to one-way than removing SkilledCarryWeight is.** Tamed horses, bred offspring and horse carts persist as ZDOs in `TreeFellMeFirst.db`. Pulling OdinHorse afterwards loses them and can throw load errors. Not a risk of this change — a risk this change creates. Weigh it before installing, not after |
 | initContainer gains write access to the game install | Necessary for the prune. Scoped to directories not in `MODS` |
 | Flat carry weight feels like lost progression | Accepted deliberately; see §5 |
 | A player keeps SkilledCarryWeight client-side | Horse cart is draggable for that player. No server-side mitigation exists — §8 is the only control |
 | OdinHorse 1.6.5 is three days old | Mitigated by §7; the server-relevant fix landed three versions earlier |
 | Orphaned `Searica.Valheim.SkilledCarryWeight.cfg` on the PVC | Harmless with no DLL to read it. Left in place |
+
+---
+
+## 11. World data safety
+
+The owner's stated condition for proceeding is that `TreeFellMeFirst` loses no data.
+Recorded here as an acceptance criterion, with the reasoning that satisfies it.
+
+**Nothing in this change writes to `/config/worlds_local`.** The world file is never
+a target of any step.
+
+**Removing SkilledCarryWeight orphans nothing in the world DB.** It is a pure runtime
+Harmony patch — carry weight, cart mass, a hotkey. It registers no prefabs and no
+items, so nothing of it is persisted in `TreeFellMeFirst.db`. This is specific to this
+mod and does not generalise: removing EpicLoot, Warfare, Armory or OdinsFoodBarrels
+*would* orphan item prefabs, and that would be genuine data loss.
+
+**The only path that could reach the world is the prune**, because
+`/config/bepinex/plugins` shares the `valheim-data` volume with the save. Guarded by
+`${PLUGINS:?}` and the empty-set check (§6.3), and verified in both directions (§9).
+
+**The restart is the already-exercised path.** `terminationGracePeriodSeconds: 120`
+exists because Valheim needs ~2 minutes to flush the world on SIGTERM.
+
+**Safety net verified live on 2026-07-29**, rather than assumed:
+
+| Check | Result |
+|---|---|
+| `recurring-job-group.longhorn.io/valheim` on the Volume | `enabled` — present. The silent-unlabeled failure mode CLAUDE.md warns about is not in play |
+| Longhorn snapshots retained | 7, newest 2026-07-29T11:00:00Z, `readyToUse=true` |
+| In-game auto-backups in `worlds_local` | 4, newest 06:10 same day |
+| Off-cluster | CloudCasa (`cloudcasa-io`) |
+
+A manual Longhorn snapshot immediately before applying is still required (§9). The
+daily job is a floor, not a substitute for one taken against the exact pre-change state.
