@@ -72,6 +72,7 @@ it could destroy.
 | SkilledCarryWeight | Remove | Conflict is structural, not configurable |
 | Carry weight replacement | V+ `[Player] baseMaximumWeight = 850` | Matches what SkilledCarryWeight gave at ~average skill 50 |
 | Megingjord | Pin at vanilla `150` | Enabling `[Player]` makes the key live; pinning makes "unchanged" a decision in git rather than an accident |
+| `autoRepair`, `autoEquipShield` | Enable both | Previously requested and refused *only* because `[Player]` was pinned off for SkilledCarryWeight. That objection dies with this change; see §5.1 |
 | V+ `[Wagon]` | **Stays disabled** | Its `wagonBaseMass=20` would stomp the horse cart back to draggable — reintroducing the exact bug this work removes |
 | OdinHorse version | 1.6.5 | See §7 |
 | OdinHorse config | None — ship at defaults | Saddle storage stays off; §5 |
@@ -120,6 +121,42 @@ not a technical consequence.
 Context for the number: `[Items] baseItemWeightReduction = -75` is already in force,
 so everything weighs 25%. 850 is therefore ~3400 vanilla-equivalent hauling capacity.
 
+### 5.1 What enabling `[Player]` unblocks
+
+`README.md` records two settings as **requested and deliberately not applied**:
+
+> *"Two requested settings were deliberately NOT applied — `autoEquipShield` and
+> `autoRepair` both live in `[Player]`, which is pinned off because `baseMaximumWeight`
+> there collides with SkilledCarryWeight."*
+
+The stated objection was patch-order ambiguity between V+ and SkilledCarryWeight on
+the same carry-weight property. With SkilledCarryWeight removed there is no second
+mod patching it, so the objection no longer applies. Both are enabled:
+
+```
+valheim_plus.cfg|Player|autoRepair|true
+valheim_plus.cfg|Player|autoEquipShield|true
+```
+
+`autoRepair` pairs with the `+100%` `[Durability]` already in force — fewer repair
+trips, and the remaining ones are automatic. `autoUnequipShield` is a **separate key**
+and stays at `false`.
+
+**Precondition verified against the live generated `valheim_plus.cfg`, not upstream
+docs.** The installed Grantapher 9.17.1 `[Player]` section carries **24 keys**, not the
+3 the upstream documentation implies. All 24 were checked: every one sits at a
+vanilla-equivalent default (`deathPenaltyMultiplier = 0` and `fallDamageScalePercent = 0`
+are modifiers at no-op; `maxFallDamage = 100` is annotated *"Game default is 100"*;
+`guardianBuffDuration = 300` / `guardianBuffCooldown = 1200` match vanilla). Enabling the
+section is therefore neutral apart from the four keys pinned here.
+
+⚠️ **Re-verify this if V+ is ever upgraded.** A new release adding a non-neutral default
+to `[Player]` would silently take effect, because the section is now enabled rather than
+pinned off.
+
+`serverSyncsConfig = true` means both settings propagate to clients — no client-side
+action for these two.
+
 **OdinHorse saddle storage stays off.** Version 1.6.1 added it *"disabled by default
 for performance optimization"*. Enabling it would require a second apply — `MOD_CONFIG`
 needs exact section and key names, and those do not exist until the mod generates its
@@ -137,15 +174,23 @@ Remove:
 SkilledCarryWeight  1.4.1  https://thunderstore.io/package/download/Searica/SkilledCarryWeight/1.4.1/  efdd...  root
 ```
 
-Add OdinHorse 1.6.5. Checksum and layout are captured from the real download during
-implementation, per the procedure in the file's own header — **not** guessed:
+Add OdinHorse 1.6.5. Checksum and layout captured from the real artifact on 2026-07-29
+via the procedure in the file's own header — **not** guessed:
 
-```powershell
-kubectl exec -n valheim deploy/valheim -c valheim -- sh -c 'curl -fsSL -o /tmp/m.zip "<url>" && sha256sum /tmp/m.zip'
-```
+| Field | Value |
+|---|---|
+| sha256 | `23a455aa79c074f2098107ea9f09f044460442d152732d928f511a16023209bc` |
+| size | 9,174,319 bytes |
+| layout | `root` |
 
-Layout is determined by inspecting the zip's actual structure, matching the header's
-existing rule that layouts are "verified against each zip's actual contents, not assumed."
+The checksum was confirmed **reproducible across two independent downloads**. Layout is
+`root` because the zip contains exactly `CHANGELOG.md`, `icon.png`, `manifest.json`,
+`OdinHorse.dll`, `README.md` — a bare DLL at the zip root, with no `plugins/`,
+`BepInEx/` or `config/` directory. This matches the header's rule that layouts are
+"verified against each zip's actual contents, not assumed."
+
+`manifest.json` reads `"dependencies": []`, confirming from the artifact itself what the
+Thunderstore API reports.
 
 Net mod count stays **12** — one out, one in.
 
@@ -163,6 +208,8 @@ Change the `[Player]` pin from off to on, and add the two values:
 valheim_plus.cfg|Player|enabled|true
 valheim_plus.cfg|Player|baseMaximumWeight|850
 valheim_plus.cfg|Player|baseMegingjordBuff|150
+valheim_plus.cfg|Player|autoRepair|true
+valheim_plus.cfg|Player|autoEquipShield|true
 ```
 
 ⚠️ **Both keys are absolute values, not percentages** — vanilla defaults are 300 and
