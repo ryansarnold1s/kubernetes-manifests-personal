@@ -14,12 +14,20 @@ detail and inline warnings — read it before changing anything in that director
 cd <workload>/                                        # relative paths from repo root silently no-op
 kubectl apply -f <file>.yaml --dry-run=server         # validate first
 kubectl apply -f <file>.yaml                          # must say configured/created, not unchanged
-kubectl rollout restart deploy/<name> -n <ns>         # ConfigMap edits need this; Deployment edits restart on their own
+kubectl rollout restart deploy/<name> -n <ns>         # ConfigMap edits need this. Deployment edits restart on their
+                                                      # own — adding it after a Deployment apply starts a SECOND
+                                                      # Recreate cycle and races the first
 kubectl rollout status  deploy/<name> -n <ns> --timeout=600s
 ```
 
 Single-replica stateful workloads use `strategy: Recreate`, so every apply is a brief outage — confirm
-nobody is connected first.
+nobody is connected first. Valheim logs `Connections N` every 10 min:
+
+```powershell
+kubectl logs -n valheim deploy/valheim -c valheim --tail=600 | Select-String "Connections \d+" | Select-Object -Last 1
+```
+
+Up to 10 min stale, so a `0` right after someone quits is real, but a `2` may be too.
 
 ## Environment
 
@@ -29,12 +37,14 @@ nobody is connected first.
 - Namespaces without PSA labels enforce `baseline`
 - Longhorn RecurringJobs bind via a label on the **Volume**, not the PVC — a recreated PVC silently stops being snapshotted
 - Off-cluster backup is CloudCasa (`cloudcasa-io`); it deletes its CRs after each run, so an empty `kubectl get backups.cloudcasa.io` proves nothing either way
+- Longhorn snapshots can be taken declaratively: apply a `snapshots.longhorn.io` CR with `spec.volume: <pv-name>` and `spec.createSnapshot: true` (v1.11.3). No UI needed
 
 ## Verification
 
 - **Verify the negative case.** A check only ever observed passing has not been verified — confirm it fails when it should. A no-op health probe shipped this way once
 - `unchanged` from `kubectl apply` is a silent failure, not a success — usually the wrong cwd
 - After editing a config file in place, re-read it and confirm section/key **counts are unchanged** — an appended duplicate is the signature of a failed match
+- **A container-generated config on the PVC is the source of truth for which keys exist**, not upstream docs — they routinely understate the set (V+ `[Player]`: docs 3 keys, installed build 24). Enumerate the live file before pinning anything
 
 ## PowerShell + kubectl
 
