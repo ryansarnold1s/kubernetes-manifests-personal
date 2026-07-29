@@ -198,7 +198,7 @@ silently replaces it with the ConfigMap value. If you want a change to stick, pu
 
 ## Modding (BepInEx)
 
-`BEPINEX: "true"` is set in `configmap.yaml`. **Twelve mods are installed**, fetched declaratively
+`BEPINEX: "true"` is set in `configmap.yaml`. **Eleven mods are installed**, fetched declaratively
 by the `fetch-mods` initContainer from `mods-configmap.yaml`:
 
 | Mod | Version | Client install |
@@ -254,7 +254,7 @@ extracts it to the PVC. Two package layouts exist and are handled explicitly —
 
 It is **idempotent**: markers in `/config/bepinex/.mod-state` are keyed on version+sha256, so a
 normal restart downloads nothing (verified: re-running the installer reports `0 installed,
-12 already present`). This matters — Warfare alone is 182MB.
+11 already present`). This matters — Warfare alone is 182MB.
 
 A **checksum mismatch fails the pod deliberately.** This is executable code running inside the
 server. Because installs are idempotent, that only ever gates a first install or a version bump,
