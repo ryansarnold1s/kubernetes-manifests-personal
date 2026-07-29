@@ -611,6 +611,41 @@ with:
     # abuse zero-width characters for sort order are not rare.
 ```
 
+- [ ] **Step 4b: Enable `disableRoofCheck` in the `[Workbench]` block**
+
+A separate region of `MOD_CONFIG` from Step 3 — find the existing Workbench block:
+
+```
+    # Workbench: radius and attachment radius both doubled (meters, absolute).
+    valheim_plus.cfg|Workbench|enabled|true
+    valheim_plus.cfg|Workbench|workbenchRange|40
+    valheim_plus.cfg|Workbench|workbenchAttachmentRange|10
+```
+
+Replace it with:
+
+```
+    # Workbench: radius and attachment radius both doubled (meters, absolute).
+    #
+    # disableRoofCheck removes vanilla's requirement that a workbench be roofed and unexposed
+    # before it will function at all. V+'s own description: "Disables the roof and exposure
+    # requirement to use a workbench." Vanilla default is false.
+    #
+    # This is NOT the same thing as workbenchRange above -- range governs how far from a bench
+    # you can build, while the roof check governs whether the bench works in the first place.
+    # A sheltered bench already worked at 40m without this.
+    #
+    # Pairs with [Player] autoRepair: repair fires on interacting with a workbench, so while the
+    # roof check stands, auto-repair only works under a roof. Both together are what make it
+    # automatic anywhere.
+    #
+    # No new section is enabled here -- [Workbench] was already on for the two range values.
+    valheim_plus.cfg|Workbench|enabled|true
+    valheim_plus.cfg|Workbench|workbenchRange|40
+    valheim_plus.cfg|Workbench|workbenchAttachmentRange|10
+    valheim_plus.cfg|Workbench|disableRoofCheck|true
+```
+
 - [ ] **Step 5: Apply, restart, and watch the prune remove a real mod**
 
 ```powershell
@@ -667,6 +702,8 @@ echo "=== [Player] values ==="
 awk '/^\[Player\]/{f=1} f&&/^\[/&&!/^\[Player\]/{f=0} f' "$C" | tr -d '\r' | grep -E '^(enabled|baseMaximumWeight|baseMegingjordBuff|autoRepair|autoEquipShield|autoUnequipShield) '
 echo "=== [Wagon] must still be disabled ==="
 awk '/^\[Wagon\]/{f=1} f&&/^\[/&&!/^\[Wagon\]/{f=0} f' "$C" | tr -d '\r' | grep -E '^(enabled|wagonBaseMass) '
+echo "=== [Workbench] roof check ==="
+awk '/^\[Workbench\]/{f=1} f&&/^\[/&&!/^\[Workbench\]/{f=0} f' "$C" | tr -d '\r' | grep -E '^(enabled|workbenchRange|disableRoofCheck) '
 echo "=== total section count ==="
 grep -c '^\[' "$C" | tr -d '\r'
 '@
@@ -688,10 +725,16 @@ autoUnequipShield = false
 === [Wagon] must still be disabled ===
 enabled = false
 wagonBaseMass = 20
+=== [Workbench] roof check ===
+enabled = true
+workbenchRange = 40
+disableRoofCheck = true
 ```
 
 A `[Player]` count of `2` means the applier appended rather than matched — investigate before
 proceeding. `autoUnequipShield = false` confirms only the intended keys were touched.
+`workbenchRange = 40` still present alongside `disableRoofCheck = true` confirms the Step 4b
+edit added a key rather than replacing the block.
 
 - [ ] **Step 9: Verify in-game**
 
@@ -700,6 +743,9 @@ Join the server and confirm:
   when a skill levels up
 - Interacting with a workbench repairs equipment automatically
 - Equipping a one-handed weapon auto-equips the best shield
+- **An uncovered workbench — no roof, open sky — still functions for crafting and repair.**
+  Test this on a bench with no shelter at all, not one that merely looks exposed; vanilla's
+  check is about roof cover and exposure, and a partial roof already passed it before
 
 The carry-weight check is the negative case: the old behaviour scaled with skill, so observing
 a flat number is what proves SkilledCarryWeight is actually gone rather than merely unlisted.
@@ -831,6 +877,22 @@ kubectl exec -n valheim deploy/valheim -c valheim -- sh -c 'C=/config/bepinex/va
 `player=1` is the check that matters — a `2` means the applier appended a duplicate `[Player]`
 section instead of matching the existing one.
 
+**(g)** Document the workbench change. Find the README's Workbench/production discussion and add:
+
+```markdown
+**Workbenches no longer need a roof.** `[Workbench] disableRoofCheck = true` removes vanilla's
+requirement that a bench be sheltered and unexposed before it functions — V+'s own description
+is *"Disables the roof and exposure requirement to use a workbench."* This is distinct from
+`workbenchRange = 40`, which governs how far from a bench you can build; a sheltered bench
+already worked at 40m without it.
+
+It compounds with `[Player] autoRepair`: repair fires on interacting with a workbench, so while
+the roof check stood, auto-repair only worked under a roof.
+```
+
+No section count change — `[Workbench]` was already among the enabled sections, so the README's
+**"25 sections are enabled"** figure stays correct.
+
 **Verify no stale references remain** (the mod table row for OdinHorse is added in Task 3):
 
 ```bash
@@ -864,6 +926,11 @@ README recorded as requested and refused solely over the carry-weight patch
 ordering. All 24 keys in the section were verified vanilla-equivalent against
 the generated cfg at 9.17.1, so enabling it is neutral apart from the four
 pinned -- flagged for re-verification on any V+ upgrade.
+
+Also enables [Workbench] disableRoofCheck, removing vanilla's requirement that
+a workbench be roofed and unexposed to function. One line -- the section was
+already enabled for workbenchRange. Compounds with autoRepair, which fires on
+workbench interaction and would otherwise only work under a roof.
 
 Safe to remove because SkilledCarryWeight is a pure runtime patch that
 registers no prefabs and persists nothing in the world save. This does not

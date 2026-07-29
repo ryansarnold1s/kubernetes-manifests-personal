@@ -73,6 +73,7 @@ it could destroy.
 | Carry weight replacement | V+ `[Player] baseMaximumWeight = 850` | Matches what SkilledCarryWeight gave at ~average skill 50 |
 | Megingjord | Pin at vanilla `150` | Enabling `[Player]` makes the key live; pinning makes "unchanged" a decision in git rather than an accident |
 | `autoRepair`, `autoEquipShield` | Enable both | Previously requested and refused *only* because `[Player]` was pinned off for SkilledCarryWeight. That objection dies with this change; see §5.1 |
+| `[Workbench] disableRoofCheck` | Enable | Requested mid-execution. One added line — `[Workbench]` is already enabled for `workbenchRange`. See §5.2 |
 | V+ `[Wagon]` | **Stays disabled** | Its `wagonBaseMass=20` would stomp the horse cart back to draggable — reintroducing the exact bug this work removes |
 | OdinHorse version | 1.6.5 | See §7 |
 | OdinHorse config | None — ship at defaults | Saddle storage stays off; §5 |
@@ -156,6 +157,36 @@ pinned off.
 
 `serverSyncsConfig = true` means both settings propagate to clients — no client-side
 action for these two.
+
+### 5.2 Workbench roof requirement
+
+Requested during execution, after the design was approved. Recorded here so the change is not
+archaeology later.
+
+Vanilla requires a workbench to be roofed and unexposed before it will function. The installed
+V+ exposes this in a section that is **already enabled**, so it costs one line:
+
+```
+valheim_plus.cfg|Workbench|disableRoofCheck|true
+```
+
+Read from the live generated `valheim_plus.cfg` at 9.17.1, not upstream docs:
+
+```
+; Disables the roof and exposure requirement to use a workbench.
+disableRoofCheck = false
+```
+
+`[Workbench]` is already `enabled = true` for `workbenchRange = 40` and
+`workbenchAttachmentRange = 10`, so no new section is turned on and no new keys become live
+beyond this one.
+
+**It compounds with `autoRepair` from §5.1.** Auto-repair triggers on interacting with a
+workbench; while the roof check stands, that only works under a roof. Both together are what
+make repair automatic anywhere.
+
+Not included: `[Hatchery] requireShelter` (*"whether or not an egg requires a roof and fire to
+grow"*) is the same family of restriction but a different feature, and was not asked for.
 
 **OdinHorse saddle storage stays off.** Version 1.6.1 added it *"disabled by default
 for performance optimization"*. Enabling it would require a second apply — `MOD_CONFIG`
