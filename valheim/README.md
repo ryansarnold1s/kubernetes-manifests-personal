@@ -160,7 +160,8 @@ trees and foraging along with kills. There is no native way to boost mob drops a
 assembly are internal item fields (`maxDurability`, `useDurabilityDrain`, `durabilityPerLevel`)
 — nothing exposed to the launch parser or the console. Adjusting durability requires a BepInEx
 mod. **That gap is now closed** — ValheimPlus's `[Durability]` section does it, and is set to
-+100% on combat gear; see "ValheimPlus" below. Do not go looking for a `-modifier` for this.
++100% on combat gear and +150% on tools; see "ValheimPlus" below. Do not go looking for a
+`-modifier` for this.
 
 ### Changing a modifier
 
@@ -212,7 +213,6 @@ by the `fetch-mods` initContainer from `mods-configmap.yaml`:
 | Armory | 1.3.1 | **required** (custom assets; depends on Warfare 1.8.9) |
 | OdinsFoodBarrels | 1.2.3 | **required** — *"required on both server and client for config sync"* |
 | XPortal | 1.2.24 | **required** — *"All players must run the same version"* |
-| SkilledCarryWeight | 1.4.1 | recommended (server install enforces config) |
 | PlantEverything | 1.20.0 | recommended (works without, minor cosmetic loss) |
 
 **`TrashItems` is deliberately not installed server-side.** It is a client-side inventory-UI mod
@@ -303,25 +303,31 @@ install path and would be silently bypassed. That is what "mutually exclusive" m
 a statement about the image's two install *modes*, not about V+ being incompatible with BepInEx.
 
 V+ ships with every gameplay section `enabled=false` — only `[ValheimPlus]` and `[Server]` are on,
-and both are meta. So it is inert until you enable something. Three sections are **pinned off** in
+and both are meta. So it is inert until you enable something. Two sections are **pinned off** in
 `MOD_CONFIG` because they would fight the mods above:
 
 | Pinned off | Collides with |
 |---|---|
 | `[Inventory]` | AzuEPI (`playerInventoryRows`) and AzuContainerSizes (every chest/cart/boat row+column) |
-| `[Player]` | SkilledCarryWeight (`baseMaximumWeight`, `baseMegingjordBuff`) |
-| `[Wagon]` | SkilledCarryWeight's cart-mass reduction (`wagonBaseMass`, `wagonExtraMassFromItems`) |
+| `[Wagon]` | OdinHorse's horse cart (`wagonBaseMass` would stomp its deliberate heaviness back to draggable) |
 
-**25 sections are enabled** for gameplay tuning: Stamina, StaminaUsage, Food, Map, Time,
+**27 sections are enabled** for gameplay tuning: Player, Stamina, StaminaUsage, Food, Map, Time,
 FireSource, Turret, Armor, Durability, Items, Building, StructuralIntegrity, CraftFromChest,
-Workbench, and every production station (Smelter, Furnace, Kiln, Fermenter, Beehive, Windmill,
-SpinningWheel, EitrRefinery, Oven, SapCollector). See `MOD_CONFIG` for the exact values.
+Workbench, Gathering, Experience, and every production station (Smelter, Furnace, Kiln, Fermenter,
+Beehive, Windmill, SpinningWheel, EitrRefinery, Oven, SapCollector). See `MOD_CONFIG` for the
+exact values.
 
 ⚠️ **`[Armor]` and `[Durability]` are different things and are easy to conflate.** `[Armor]`
 raises the armor *value* (damage reduction) and is at **+50%**; `[Durability]` raises how long
 gear lasts before repair and is at **+100%**. The mismatch is deliberate — see the next paragraph
-before "fixing" it. `[Durability]` covers `weapons`, `axes`, `bows`, `shields`, `armor`; tools
-(`pickaxes`, `hammer`, `cultivator`, `hoe`, `torch`) are deliberately left at vanilla 0.
+before "fixing" it. `[Durability]` is **+100% on combat gear** (`weapons`, `axes`, `bows`,
+`shields`, `armor`) and **+150% on tools** (`pickaxes`, `hammer`, `cultivator`, `hoe`, `torch`).
+
+⚠️ **Tools are deliberately the more generous number.** Combat-gear durability is still adjacent
+to balance — it governs how long you last in a fight before a weapon breaks. Tool durability is
+pure convenience: it changes only how often you walk back to a workbench. `axes` sits with the
+weapons at +100%, not with the tools, because an axe is a weapon that also chops wood. `torch`
+sits with the tools because its durability is burn time.
 
 **Why one is +50% and the other +100%.** Armor value is a combat-balance number: it compounds
 with Armory's biome-tier variants and EpicLoot's enchants into a character that is hard to kill,
@@ -329,6 +335,35 @@ which is why it was scaled back from +100%. Durability is a convenience number �
 often you walk back to a workbench, not whether you survive — so the same compounding argument
 carries much less weight, and doubling it was chosen deliberately with that distinction in view.
 The effective figure still exceeds +100% on EpicLoot-enchanted and Warfare gear.
+
+**Workbenches no longer need a roof.** `[Workbench] disableRoofCheck = true` removes vanilla's
+requirement that a bench be sheltered and unexposed before it functions — V+'s own description
+is *"Disables the roof and exposure requirement to use a workbench."* This is distinct from
+`workbenchRange = 40`, which governs how far from a bench you can build; a sheltered bench
+already worked at 40m without it.
+
+It compounds with `[Player] autoRepair`: repair fires on interacting with a workbench, so while
+the roof check stood, auto-repair only worked under a roof.
+
+**Mining yield and pickaxe skill.** `[Gathering]` is at **+100%** on every resource dropped from
+a node broken with a tool, and `[Experience] pickaxes` is at **+100%**.
+
+These were asked for as "increase tool damage". 🚨 **V+ cannot do that** — verified by
+enumerating all 58 sections and every key containing `damage`: the complete set is monster
+scaling, unarmed, fall, structural and hull. There is no `[Damage]` section and no
+per-weapon-type modifier. Do not go looking for one.
+
+The two settings split the goal:
+- `[Gathering]` is a **yield** change — a rock takes the same swings, you mine fewer rocks
+- `[Experience] pickaxes` is the only real **damage** route, since skill level scales tool
+  damage in vanilla. It is self-limiting: at Pickaxes 100 it stops contributing
+
+⚠️ **`[Gathering]` compounds with `-modifier resources more`** in `configmap.yaml`, a native
+global drop multiplier already one step above normal. The effective multiplier is **more than
+2×**. Two independent sources — know which one you are changing.
+
+`dropChance` is deliberately left at `0`: it raises the *chance* on nodes without a guaranteed
+drop (dungeon scrap piles), not the *amount* from ore veins.
 
 #### Auto-deposit and auto-fuel
 
@@ -363,30 +398,32 @@ generated config — getting any of them wrong silently produces the *opposite* 
 | `baseItemWeightReduction` | **Reduces on negative** despite the name: *"-50 will reduce item weight by 50%, 50 will increase."* |
 | `nightPercent` | **Absolute, not a modifier:** *"0 is all daytime, 100 is all nighttime."* Not a percent change. Set to **10** — with `totalDayTimeInSeconds = 1800` that is 3 min of night per cycle, down from 9 at the default 30. Deliberately not 0, so night mobs, light sources and sleeping still matter. |
 
-**Two requested settings were deliberately NOT applied** — `autoEquipShield` and `autoRepair` both
-live in `[Player]`, which is pinned off because `baseMaximumWeight` there collides with
-SkilledCarryWeight. Enabling `[Player]` to get them would put V+ and SkilledCarryWeight on the same
-carry-weight property with unknown patch ordering. See "If you want the `[Player]` features" below.
+**`autoRepair` and `autoEquipShield` are now enabled.** Both live in `[Player]`, which was pinned
+off while SkilledCarryWeight owned carry weight — enabling it would have put two mods on the same
+property with undocumented patch ordering. SkilledCarryWeight has been removed, so that objection
+is gone and both settings are on. `autoUnequipShield` is a separate key, left at `false`.
 
 Two knock-on effects worth knowing, neither a collision:
 
-- `[Items] baseItemWeightReduction = -75` compounds with SkilledCarryWeight — lighter items *and*
-  a higher cap.
+- `[Items] baseItemWeightReduction = -75` compounds with the raised cap — lighter items *and*
+  more of them. At `baseMaximumWeight = 850` that is roughly 3400 vanilla-equivalent capacity.
 - `[Armor]` is **+50%, scaled back from +100%**, because it multiplies on top of two other sources:
   Armory's upgraded biome-tier armor variants and EpicLoot's enchanted gear. V+'s own example is
   base armor 14 → 21 at +50%, → 28 at +100%, before either of those applies.
 
-### If you want the `[Player]` features
+### `[Player]` is enabled
 
-`autoRepair` and `autoEquipShield` require `[Player] enabled = true`. That section also carries
-`baseMaximumWeight` (300) and `baseMegingjordBuff` (150). Both are already the vanilla values, so
-enabling the section *should* be neutral and let SkilledCarryWeight keep adding on top — but V+ and
-SkilledCarryWeight would then both patch max carry weight, and which wins depends on Harmony patch
-order, which is not documented by either mod.
+V+ owns carry weight outright — `baseMaximumWeight = 850`, `baseMegingjordBuff = 150` (vanilla).
+Both are **absolute values, not percentages**, unlike `[Armor]` and `[Durability]`.
 
-If you try it, change only `valheim_plus.cfg|Player|enabled|true` in `MOD_CONFIG` and **verify
-in-game that carry weight still scales with skill levels** before trusting it. Revert by setting it
-back to `false` — the pin is reapplied every boot, so nothing is stuck.
+⚠️ **Carry weight no longer scales with skill.** SkilledCarryWeight made it a progression reward;
+850 is roughly what it granted at average skill level 50, so an established character sees no
+change while a new one starts at the old endgame. That was a deliberate trade, not an oversight.
+
+🚨 **Re-verify `[Player]` on any V+ upgrade.** All 24 keys were checked at 9.17.1 and every one
+sits at a vanilla-equivalent default, which is what makes enabling the section neutral apart from
+the four pinned in `MOD_CONFIG`. A future release adding a non-neutral default would take effect
+**silently** — a pinned-off section could not do that.
 
 **V+ owns `valheim_plus.cfg` and rewrites it on every load** — it normalises line endings to LF,
 reformats `enabled=false` into `enabled = false`, and prepends a UTF-8 BOM. That is fine and
@@ -425,31 +462,24 @@ Headroom remains: columns cap at 8 everywhere, rows go to 20 (chests) and 30 (ca
 the values above are all increases. Shrinking a container that already holds items leaves those
 items in slots that no longer exist — take a Longhorn snapshot before reducing one.
 
-**Carry weight** — all 24 skills contribute at `Coefficient 0.5` (default was 0.25 across only 7).
-The formula is `extra = Σ(Coefficient × level^Power)` with `Power` left at 1, so it stays linear.
-Base carry weight is 300, so an average level 50 across skills is roughly +550. `[None]` is
-excluded — it is the enum's null entry, not a skill. Some entries (Cooking, Crafting, Farming,
-Dodge) may never gain XP in vanilla; they sit at level 0 and contribute nothing, so enabling
-them is free.
+**Carry weight** — `[Player] baseMaximumWeight = 850`, flat. This replaced SkilledCarryWeight,
+which summed `Coefficient × level` across 24 skills for roughly +550 over a 300 base at average
+level 50. See "`[Player]` is enabled" above.
 
-🚨 **Zero-width characters are load-bearing in `SkilledCarryWeight.cfg`.** Searica prefixes keys
-and sections with U+200B (`E2 80 8B`) to force sort order in the config manager. The real key is
-`<ZWSP>Enabled`, not `Enabled`, and the first three sections are `[<ZWSP><ZWSP><ZWSP>Global]`,
-`[<ZWSP><ZWSP>Cart Mass]`, `[<ZWSP>Quick Cart]` — while `Coefficient`, `Power` and the skill
-sections are plain. A literal match therefore fails, and the applier would append a **second,
-plain `Enabled` line that the mod ignores while reporting success.**
-
-The applier's `norm()` strips zero-width characters before comparing and preserves the original
-key text on write, so `MOD_CONFIG` can use plain `Enabled`. **Do not remove those `norm()` calls
-as dead weight.** The proof it matched rather than appended is the key count: 83 before, 83
-after, across 48 edits. If you ever suspect a silent no-op, that count is the check:
+🚨 **Zero-width characters can be load-bearing in a mod's `.cfg`.** SkilledCarryWeight prefixed
+keys and sections with U+200B (`E2 80 8B`) to force sort order in its config manager — its real
+key was `<ZWSP>Enabled`, not `Enabled` — so a literal match failed and the applier appended a
+**second, plain `Enabled` line the mod ignored while reporting success.** That mod is gone, so
+nothing installed exercises this path today, but `norm()` still strips zero-width characters
+because the failure mode is silent. **Do not remove those `norm()` calls as dead weight** — they
+also strip the `\r` that `valheim_plus.cfg` depends on, and every V+ pin would break without it.
 
 **The applier normalises four things that would each cause a silent no-op**, all found the hard
 way against real mod configs — every one would have appended a duplicate while logging success:
 
 | Quirk | Seen in | Handling |
 |---|---|---|
-| U+200B zero-width space in keys/sections | SkilledCarryWeight | stripped before compare, preserved on write |
+| U+200B zero-width space in keys/sections | SkilledCarryWeight (removed; handling kept) | stripped before compare, preserved on write |
 | UTF-8 BOM at file start | ValheimPlus | stripped before compare |
 | CRLF line endings | ValheimPlus | stripped before compare, `\r` re-appended on write |
 | `key=value` vs `Key = Value` spacing | V+ vs BepInEx | detected per line, original style reproduced |
@@ -458,8 +488,11 @@ The integrity check that catches all four is the same: **section and key counts 
 across an apply. A duplicate appended section or key is the signature of a failed match.
 
 ```powershell
-kubectl exec -n valheim deploy/valheim -c valheim -- sh -c 'C=/config/bepinex/Searica.Valheim.SkilledCarryWeight.cfg; echo "keys=$(grep -c = $C) true=$(grep -c "Enabled = true" $C)"'
+kubectl exec -n valheim deploy/valheim -c valheim -- sh -c 'C=/config/bepinex/valheim_plus.cfg; echo "sections=$(grep -c "^\[" $C) keys=$(grep -c "=" $C) player=$(grep -c "^\[Player\]" $C)"'
 ```
+
+`player=1` is the check that matters — a `2` means the applier appended a duplicate `[Player]`
+section instead of matching the existing one.
 
 **The image's `BEPINEXCFG_<Section>_<Var>` env mechanism cannot do this.** It only ever writes
 `BepInEx.cfg` — `env2cfg --config "$config_path/BepInEx.cfg"` in `common` — never per-mod files.
@@ -478,8 +511,8 @@ action needed for those. Config filenames available to target:
 
 ```
 Azumatt.AzuExtendedPlayerInventory.cfg    Azumatt.AzuContainerSizes.cfg
-Searica.Valheim.SkilledCarryWeight.cfg    randyknapp.mods.epicloot.cfg
-Therzie.Warfare.cfg                       advize.PlantEverything.cfg
+randyknapp.mods.epicloot.cfg              Therzie.Warfare.cfg
+advize.PlantEverything.cfg
 ```
 
 Verify a setting landed and survived the mod's own save cycle:

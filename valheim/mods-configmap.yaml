@@ -52,7 +52,6 @@ data:
     Warfare                    1.8.9    https://thunderstore.io/package/download/Therzie/Warfare/1.8.9/                             bd591233da37ba3be3d2edcb5745df154f18fab91fb3da434e647b3f1c49a405  root
     PlantEverything            1.20.0   https://thunderstore.io/package/download/Advize/PlantEverything/1.20.0/                     cbea097f4d8ac6bd7020d6c76a98f271ef8ae5a3e405ae64e110ed15c2941fe6  root
     AzuContainerSizes          1.1.4    https://thunderstore.io/package/download/Azumatt/AzuContainerSizes/1.1.4/                   801dfcd3cea2d37a009780a6fe6fb8091414fd36bd84678bd17fd06bb51c9112  root
-    SkilledCarryWeight         1.4.1    https://thunderstore.io/package/download/Searica/SkilledCarryWeight/1.4.1/                  efdd59934335b3170f34c5efbd24c78a269a53325c253163ddbb15adf2c3ce55  root
     ValheimPlus                9.17.1   https://thunderstore.io/package/download/Grantapher/ValheimPlus_Grantapher_Temporary/9.17.1/ 51974dc21c1a2414bb966f7fc8b043ee13c5b95dddc0b678e11edc5c44d91484  bepinex
     Armory                     1.3.1    https://thunderstore.io/package/download/Therzie/Armory/1.3.1/                             8be5e52c400dc27975dcbcb8d870b762df67932b2161b2c44184958b8acbb5ce  root
     OdinsFoodBarrels           1.2.3    https://thunderstore.io/package/download/OdinPlus/OdinsFoodBarrels/1.2.3/                  0f451a6f634c17e698ad592979be98f710283eeb235f732cbf4200496ef6e3f6  root
@@ -97,87 +96,62 @@ data:
     Azumatt.AzuContainerSizes.cfg|4 - Carts|Cart Rows|5
     Azumatt.AzuContainerSizes.cfg|4 - Carts|Cart Columns|8
     #
-    # SkilledCarryWeight: every skill contributes, Coefficient 0.5 (default 0.25, 7 skills).
-    # extra carry weight = SUM over enabled skills of (Coefficient * level ^ Power). Power stays
-    # at its default of 1, so it is linear -- raising it makes high levels grow explosively.
-    # Base carry weight is 300, so at an average level 50 across these this is roughly +550.
-    #
-    # The "Enabled" key here is really "<ZWSP>Enabled" in the file -- see the norm() note in
-    # install-mods.sh. Writing it as plain "Enabled" is correct BECAUSE the applier normalizes;
-    # it would silently no-op without that.
-    #
-    # [None] is deliberately excluded -- it is the enum's null entry, not a skill. Some others
-    # (Cooking, Crafting, Farming, Dodge) may never gain XP in vanilla, in which case they sit at
-    # level 0 and contribute nothing. Enabling them costs nothing and covers mod-added skills.
-    Searica.Valheim.SkilledCarryWeight.cfg|Axes|Enabled|true
-    Searica.Valheim.SkilledCarryWeight.cfg|Axes|Coefficient|0.5
-    Searica.Valheim.SkilledCarryWeight.cfg|Blocking|Enabled|true
-    Searica.Valheim.SkilledCarryWeight.cfg|Blocking|Coefficient|0.5
-    Searica.Valheim.SkilledCarryWeight.cfg|BloodMagic|Enabled|true
-    Searica.Valheim.SkilledCarryWeight.cfg|BloodMagic|Coefficient|0.5
-    Searica.Valheim.SkilledCarryWeight.cfg|Bows|Enabled|true
-    Searica.Valheim.SkilledCarryWeight.cfg|Bows|Coefficient|0.5
-    Searica.Valheim.SkilledCarryWeight.cfg|Clubs|Enabled|true
-    Searica.Valheim.SkilledCarryWeight.cfg|Clubs|Coefficient|0.5
-    Searica.Valheim.SkilledCarryWeight.cfg|Cooking|Enabled|true
-    Searica.Valheim.SkilledCarryWeight.cfg|Cooking|Coefficient|0.5
-    Searica.Valheim.SkilledCarryWeight.cfg|Crafting|Enabled|true
-    Searica.Valheim.SkilledCarryWeight.cfg|Crafting|Coefficient|0.5
-    Searica.Valheim.SkilledCarryWeight.cfg|Crossbows|Enabled|true
-    Searica.Valheim.SkilledCarryWeight.cfg|Crossbows|Coefficient|0.5
-    Searica.Valheim.SkilledCarryWeight.cfg|Dodge|Enabled|true
-    Searica.Valheim.SkilledCarryWeight.cfg|Dodge|Coefficient|0.5
-    Searica.Valheim.SkilledCarryWeight.cfg|ElementalMagic|Enabled|true
-    Searica.Valheim.SkilledCarryWeight.cfg|ElementalMagic|Coefficient|0.5
-    Searica.Valheim.SkilledCarryWeight.cfg|Farming|Enabled|true
-    Searica.Valheim.SkilledCarryWeight.cfg|Farming|Coefficient|0.5
-    Searica.Valheim.SkilledCarryWeight.cfg|Fishing|Enabled|true
-    Searica.Valheim.SkilledCarryWeight.cfg|Fishing|Coefficient|0.5
-    Searica.Valheim.SkilledCarryWeight.cfg|Jump|Enabled|true
-    Searica.Valheim.SkilledCarryWeight.cfg|Jump|Coefficient|0.5
-    Searica.Valheim.SkilledCarryWeight.cfg|Knives|Enabled|true
-    Searica.Valheim.SkilledCarryWeight.cfg|Knives|Coefficient|0.5
-    Searica.Valheim.SkilledCarryWeight.cfg|Pickaxes|Enabled|true
-    Searica.Valheim.SkilledCarryWeight.cfg|Pickaxes|Coefficient|0.5
-    Searica.Valheim.SkilledCarryWeight.cfg|Polearms|Enabled|true
-    Searica.Valheim.SkilledCarryWeight.cfg|Polearms|Coefficient|0.5
-    Searica.Valheim.SkilledCarryWeight.cfg|Ride|Enabled|true
-    Searica.Valheim.SkilledCarryWeight.cfg|Ride|Coefficient|0.5
-    Searica.Valheim.SkilledCarryWeight.cfg|Run|Enabled|true
-    Searica.Valheim.SkilledCarryWeight.cfg|Run|Coefficient|0.5
-    Searica.Valheim.SkilledCarryWeight.cfg|Sneak|Enabled|true
-    Searica.Valheim.SkilledCarryWeight.cfg|Sneak|Coefficient|0.5
-    Searica.Valheim.SkilledCarryWeight.cfg|Spears|Enabled|true
-    Searica.Valheim.SkilledCarryWeight.cfg|Spears|Coefficient|0.5
-    Searica.Valheim.SkilledCarryWeight.cfg|Swim|Enabled|true
-    Searica.Valheim.SkilledCarryWeight.cfg|Swim|Coefficient|0.5
-    Searica.Valheim.SkilledCarryWeight.cfg|Swords|Enabled|true
-    Searica.Valheim.SkilledCarryWeight.cfg|Swords|Coefficient|0.5
-    Searica.Valheim.SkilledCarryWeight.cfg|Unarmed|Enabled|true
-    Searica.Valheim.SkilledCarryWeight.cfg|Unarmed|Coefficient|0.5
-    Searica.Valheim.SkilledCarryWeight.cfg|WoodCutting|Enabled|true
-    Searica.Valheim.SkilledCarryWeight.cfg|WoodCutting|Coefficient|0.5
-    #
-    # ValheimPlus: pin the three sections that would fight the mods above. V+ ships with EVERY
-    # gameplay section enabled=false (only [ValheimPlus] and [Server] are on, and both are meta),
-    # so these are already false -- pinning them makes it explicit and drift-proof, because
-    # MOD_CONFIG is reapplied on every boot.
+    # ValheimPlus: [Inventory] and [Wagon] are pinned OFF because they would fight other mods.
+    # V+ ships with EVERY gameplay section enabled=false (only [ValheimPlus] and [Server] are on,
+    # and both are meta), so these are already false -- pinning them makes it explicit and
+    # drift-proof, because MOD_CONFIG is reapplied on every boot.
     #
     #   [Inventory] -> playerInventoryRows collides with AzuExtendedPlayerInventory, and
     #                  wood/personal/iron/blackmetal/cart/karve/longboat rows+columns collide
     #                  with every value set in AzuContainerSizes above. V+'s own README: "Player
     #                  inventory slot configuration is not compatible with Equipment and Quick
     #                  slots mod unless the Inventory section is disabled."
-    #   [Player]    -> baseMaximumWeight / baseMegingjordBuff collide with SkilledCarryWeight.
-    #   [Wagon]     -> wagonBaseMass / wagonExtraMassFromItems collide with SkilledCarryWeight's
-    #                  CarryWeightAffectsCart mass reduction.
+    #   [Wagon]     -> ⚠️ THIS PIN IS LOAD-BEARING FOR OdinHorse. It is not leftover caution.
+    #                  wagonBaseMass sets the base mass of the wagon object outright (default 20).
+    #                  OdinHorse's horse cart is deliberately too heavy for a player to drag --
+    #                  that weight is the entire reason taming a horse is worth doing. Enabling
+    #                  this section would stomp it back to draggable. This pin previously read as
+    #                  a SkilledCarryWeight collision; that mod is gone and the pin still stays.
     #
     # Everything else in V+ is free to enable -- building, hotkeys, food, stamina, map, etc.
-    # Two to watch if you do: [Items] baseItemWeightReduction and [Stamina] overweight drain both
-    # affect carrying, though neither changes a value we set, and both default to no-op.
     valheim_plus.cfg|Inventory|enabled|false
-    valheim_plus.cfg|Player|enabled|false
     valheim_plus.cfg|Wagon|enabled|false
+    #
+    # [Player]: ENABLED. This section was pinned off while SkilledCarryWeight owned carry weight.
+    # That mod has been removed -- it was incompatible with OdinHorse's horse cart -- so V+ now
+    # owns carry weight outright and nothing else patches it.
+    #
+    # ⚠️ baseMaximumWeight and baseMegingjordBuff are ABSOLUTE VALUES, not percentages. This
+    # inverts [Armor] and [Durability] further down this file, where the numbers ARE percentage
+    # modifiers. 850 means 850 units, NOT +850%. Vanilla is 300 and 150 respectively.
+    #
+    # 850 replaces what SkilledCarryWeight gave at roughly average skill level 50 (300 base plus
+    # ~550 summed across 24 skills). The tradeoff is deliberate and worth knowing before anyone
+    # "restores progression": carry weight is now a CONSTANT rather than something skill levels
+    # earn, so a new character starts with what previously took ~50 average levels to reach.
+    # [Items] baseItemWeightReduction is -75, so everything weighs 25% -- 850 is roughly 3400
+    # vanilla-equivalent hauling capacity.
+    #
+    # baseMegingjordBuff is pinned at its vanilla 150 deliberately. Enabling the section makes
+    # every key in it live, so "unchanged from vanilla" is recorded as a decision rather than
+    # left to chance.
+    #
+    # autoRepair and autoEquipShield were requested when this server was set up and refused ONLY
+    # because [Player] was pinned off over the SkilledCarryWeight collision. That objection died
+    # with the mod. autoUnequipShield is a SEPARATE key and stays at its default false.
+    #
+    # ⚠️ RE-VERIFY THIS SECTION ON ANY V+ UPGRADE. All 24 keys in [Player] were checked against
+    # the generated valheim_plus.cfg at 9.17.1 and every one sits at a vanilla-equivalent default
+    # (deathPenaltyMultiplier and fallDamageScalePercent are modifiers at 0; maxFallDamage 100 is
+    # annotated "Game default is 100"; guardianBuffDuration 300 / Cooldown 1200 match vanilla).
+    # That is what makes enabling the section neutral apart from the four pinned below. A future
+    # release adding a non-neutral default would now take effect SILENTLY -- a pinned-off section
+    # could not do that.
+    valheim_plus.cfg|Player|enabled|true
+    valheim_plus.cfg|Player|baseMaximumWeight|850
+    valheim_plus.cfg|Player|baseMegingjordBuff|150
+    valheim_plus.cfg|Player|autoRepair|true
+    valheim_plus.cfg|Player|autoEquipShield|true
     #
     # --- ValheimPlus gameplay tuning -------------------------------------------------------
     # ⚠️ THREE OF THESE READ BACKWARDS FROM THEIR NAMES. Verified against the comments in the
@@ -267,15 +241,35 @@ data:
     #   Warfare's custom weapons, which set ABSOLUTE durability per item (Blackmetal Scimitar is
     #     200, +50/level) that this percentage then scales.
     #
-    # Tools are deliberately left at vanilla 0: pickaxes, hammer, cultivator, hoe, torch. The ask
-    # was weapons and armor. `axes` IS included -- an axe is a weapon -- which also makes
-    # woodcutting cheaper as a side effect.
+    # Tools are at +150%, HIGHER than the +100% on combat gear above. ⚠️ That asymmetry is
+    # deliberate -- do not "correct" it to match, for the same reason [Armor] and [Durability]
+    # deliberately differ. Combat-gear durability is still adjacent to balance: it governs how
+    # long you last in a fight before a weapon breaks. Tool durability is pure convenience --
+    # it changes only how often you walk back to a workbench. Tools being the MORE generous
+    # number follows from that distinction rather than contradicting it.
+    #
+    # This reverses an earlier decision. These five keys previously sat at vanilla 0 with a
+    # comment saying tools were deliberately excluded because "the ask was weapons and armor".
+    # Raising them was then asked for explicitly, with the convenience-vs-balance split above on
+    # the table.
+    #
+    # `axes` stays at 100 with the WEAPONS, not with the tools. An axe is a weapon that also
+    # chops wood and was raised on that basis; moving it here would be a combat-balance change
+    # wearing a tools-change disguise.
+    #
+    # `torch` is grouped with the tools. It is a light source rather than a tool, but its
+    # durability is burn time -- the same kind of convenience number.
     valheim_plus.cfg|Durability|enabled|true
     valheim_plus.cfg|Durability|weapons|100
     valheim_plus.cfg|Durability|axes|100
     valheim_plus.cfg|Durability|bows|100
     valheim_plus.cfg|Durability|shields|100
     valheim_plus.cfg|Durability|armor|100
+    valheim_plus.cfg|Durability|pickaxes|150
+    valheim_plus.cfg|Durability|hammer|150
+    valheim_plus.cfg|Durability|cultivator|150
+    valheim_plus.cfg|Durability|hoe|150
+    valheim_plus.cfg|Durability|torch|150
     # Items: -75% weight, +100% stack size. Stack size lives in [Items], NOT the pinned
     # [Inventory] section, so it does not collide with AzuContainerSizes.
     valheim_plus.cfg|Items|enabled|true
@@ -290,9 +284,24 @@ data:
     # Craft/build/interact using nearby chests (one section covers all three).
     valheim_plus.cfg|CraftFromChest|enabled|true
     # Workbench: radius and attachment radius both doubled (meters, absolute).
+    #
+    # disableRoofCheck removes vanilla's requirement that a workbench be roofed and unexposed
+    # before it will function at all. V+'s own description: "Disables the roof and exposure
+    # requirement to use a workbench." Vanilla default is false.
+    #
+    # This is NOT the same thing as workbenchRange above -- range governs how far from a bench
+    # you can build, while the roof check governs whether the bench works in the first place.
+    # A sheltered bench already worked at 40m without this.
+    #
+    # Pairs with [Player] autoRepair: repair fires on interacting with a workbench, so while the
+    # roof check stands, auto-repair only works under a roof. Both together are what make it
+    # automatic anywhere.
+    #
+    # No new section is enabled here -- [Workbench] was already on for the two range values.
     valheim_plus.cfg|Workbench|enabled|true
     valheim_plus.cfg|Workbench|workbenchRange|40
     valheim_plus.cfg|Workbench|workbenchAttachmentRange|10
+    valheim_plus.cfg|Workbench|disableRoofCheck|true
     # Production: capacity doubled, time halved (= twice the speed), pull/deposit from chests.
     valheim_plus.cfg|Smelter|enabled|true
     valheim_plus.cfg|Smelter|maximumOre|20
@@ -346,6 +355,57 @@ data:
     valheim_plus.cfg|SapCollector|sapProductionSpeed|30
     valheim_plus.cfg|SapCollector|maximumSapPerCollector|20
     valheim_plus.cfg|SapCollector|autoDeposit|true
+    # --- Gathering: double the yield from every node broken with a tool ---------------------
+    # This was asked for as "increase tool damage". V+ CANNOT do that -- verified by enumerating
+    # all 58 sections and every key containing "damage": the complete set is monster scaling,
+    # unarmed, fall, structural and hull. There is no [Damage] section and no per-weapon-type
+    # modifier. So this is a yield change, not a damage change: a rock still takes the same
+    # number of swings, you just mine fewer rocks. [Experience] below is the damage half.
+    #
+    # ⚠️ COMPOUNDS with `-modifier resources more` in configmap.yaml -- a NATIVE global drop
+    # multiplier already one step above normal. The effective multiplier is therefore MORE than
+    # 2x, not exactly 2x. There are two independent sources; know which one you are changing.
+    #
+    # dropChance stays at 0 deliberately. It is a different mechanic: it raises the CHANCE on
+    # nodes that have no guaranteed drop (dungeon scrap piles), not the AMOUNT from ore veins.
+    #
+    # feather is included for consistency, with a quirk worth knowing: it also affects drops
+    # from shooting gulls and crows, not only trees.
+    #
+    # ⚠️ Enabling this section makes every key in it live. The ones not listed sit at 0, which is
+    # a no-op -- same situation as [Player]. RE-VERIFY ON ANY V+ UPGRADE: a release adding a
+    # non-neutral default here would now take effect silently.
+    valheim_plus.cfg|Gathering|enabled|true
+    valheim_plus.cfg|Gathering|wood|100
+    valheim_plus.cfg|Gathering|fineWood|100
+    valheim_plus.cfg|Gathering|coreWood|100
+    valheim_plus.cfg|Gathering|elderBark|100
+    valheim_plus.cfg|Gathering|yggdrasilWood|100
+    valheim_plus.cfg|Gathering|blackwood|100
+    valheim_plus.cfg|Gathering|stone|100
+    valheim_plus.cfg|Gathering|grausten|100
+    valheim_plus.cfg|Gathering|blackMarble|100
+    valheim_plus.cfg|Gathering|tinOre|100
+    valheim_plus.cfg|Gathering|copperOre|100
+    valheim_plus.cfg|Gathering|copperScrap|100
+    valheim_plus.cfg|Gathering|ironScrap|100
+    valheim_plus.cfg|Gathering|silverOre|100
+    valheim_plus.cfg|Gathering|chitin|100
+    valheim_plus.cfg|Gathering|feather|100
+    valheim_plus.cfg|Gathering|flametalOre|100
+    valheim_plus.cfg|Gathering|proustitePowder|100
+    # --- Experience: faster Pickaxes skill --------------------------------------------------
+    # This is the ONLY route V+ offers to genuinely more pickaxe DAMAGE. Skill level scales tool
+    # damage in vanilla, so levelling Pickaxes faster means fewer swings per rock. Unlike
+    # [Gathering] above, this really is a damage increase rather than a yield increase.
+    #
+    # Self-limiting: once Pickaxes reaches 100 this contributes nothing further.
+    #
+    # Only pickaxes is raised. Every other skill stays at 0 (no-op); the section being enabled
+    # makes them live, so adding another later is a one-line change. Same re-verify-on-upgrade
+    # caveat as [Gathering] above.
+    valheim_plus.cfg|Experience|enabled|true
+    valheim_plus.cfg|Experience|pickaxes|100
 
   install-mods.sh: |
     #!/bin/bash
@@ -422,16 +482,15 @@ data:
     # section), section absent (create at end), file absent (create it -- BepInEx honours a
     # partial config and fills in the remaining defaults on first load, which is what makes this
     # work for a mod that has never run yet).
-    # ⚠️ ZERO-WIDTH CHARACTERS ARE REAL HERE, do not "clean up" the norm() calls below.
-    # SkilledCarryWeight prefixes keys and sections with U+200B (E2 80 8B) purely to force sort
-    # order in the config manager: its key is "<ZWSP>Enabled", and its first sections are
-    # "[<ZWSP><ZWSP><ZWSP>Global]", "[<ZWSP><ZWSP>Cart Mass]", "[<ZWSP>Quick Cart]", while
-    # Coefficient, Power and the skill sections are plain. A literal comparison does not match,
-    # so an "Enabled" entry would append a SECOND, plain Enabled line that the mod ignores --
-    # the applier would report success and change nothing. norm() strips zero-width characters
-    # before comparing; the original key text (ZWSP included) is preserved on write so the mod
-    # still reads it. Verified on the real file: ZWSP survives, no duplicate key, key count
-    # unchanged 83/83.
+    # ⚠️ DO NOT "clean up" the norm() calls below. The CRLF handling is load-bearing TODAY (see
+    # the note further down); the zero-width handling is now defensive, and both stay.
+    # SkilledCarryWeight was the mod that needed the zero-width stripping: it prefixed keys and
+    # sections with U+200B (E2 80 8B) to force sort order in its config manager, so its real key
+    # was "<ZWSP>Enabled" and a literal comparison would append a SECOND, plain Enabled line that
+    # the mod ignored -- while the applier reported success and changed nothing. That mod has
+    # been removed, so nothing currently installed exercises this path. It is kept because the
+    # failure mode is silent and expensive to rediscover, and because Thunderstore mods that
+    # abuse zero-width characters for sort order are not rare.
     # Separator style is preserved per line, not normalised. BepInEx writes "Key = Value";
     # ValheimPlus writes "enabled=false" with no spaces and parses its own INI. Forcing spaces
     # into valheim_plus.cfg risks its parser reading " false" or missing the key entirely, so the
@@ -601,7 +660,8 @@ data:
     #
     # Markers are deliberately NOT counted by the breaker above: a marker is regenerable metadata,
     # and one left behind with no plugin dir is a cosmetic inconsistency, not data loss. The
-    # breaker exits before this loop anyway, so a truncated MODS never reaches it.
+    # breaker exits before this loop anyway, so a truncation large enough to trip the breaker
+    # never reaches it.
     for m in "$STATE"/*; do
       [ -f "$m" ] || continue
       n=$(basename "$m")
