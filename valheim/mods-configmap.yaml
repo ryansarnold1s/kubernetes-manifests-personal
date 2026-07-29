@@ -505,9 +505,74 @@ data:
              printf '%s\n' "$name"
            done <<< "$MODS")
 
-    # A malformed or truncated MODS must never be read as "delete everything".
+    # An EMPTY MODS -- the ConfigMap key missing, or its block scalar emptied -- must never be read
+    # as "delete everything". That is all this guard covers. It does NOT cover a truncated MODS: a
+    # block scalar clipped mid-list still parses to a perfectly valid non-empty set and walks
+    # straight past here. The bulk-prune breaker below is what catches truncation. Do not read
+    # this guard as protecting against malformed input generally -- it protects against one shape
+    # of it.
     if [ -z "$keep" ]; then
       echo "[FAIL ] MODS parsed to an empty set -- refusing to prune" >&2
+      exit 1
+    fi
+
+    # Single source of truth for "does MODS still list this directory name?". The pre-flight count
+    # and the removal itself both go through it, so the breaker can never disagree about what the
+    # prune then deletes.
+    # `grep` exits 1 on no-match. Every caller below puts that in a tested position (`if !` or
+    # `||`), where a non-zero exit is the condition being tested and is NOT fatal under `set -e`.
+    # Do not call this bare, and do not "simplify" a caller into an untested command.
+    is_kept() {
+      printf '%s\n' "$keep" | grep -qxF "$1"
+    }
+
+    # Directory names present under a root that MODS no longer lists.
+    doomed_in() {
+      local root=$1 d n
+      [ -d "$root" ] || return 0
+      for d in "$root"/*/; do
+        [ -d "$d" ] || continue
+        n=$(basename "$d")
+        is_kept "$n" || printf '%s\n' "$n"
+      done
+    }
+
+    # DISTINCT names across both roots -- `sort -u`, deliberately NOT the sum of the two counts.
+    # A mod is normally present in the staged copy AND the live install, so summing would double
+    # every removal and trip the breaker below at half its intended threshold, on an ordinary
+    # two-mod change.
+    doomed=$( { doomed_in "$PLUGINS"; doomed_in "$LIVE_PLUGINS"; } | sort -u )
+    if [ -z "$doomed" ]; then
+      doomed_n=0
+    else
+      doomed_n=$(printf '%s\n' "$doomed" | wc -l | tr -d '[:space:]')
+    fi
+
+    # --- bulk-prune circuit breaker -------------------------------------------------------
+    # ⚠️ DO NOT raise this threshold to push a large cleanup through, and do NOT delete it on the
+    # grounds that the empty-set guard above already covers bad input. It does not. A MODS block
+    # scalar clipped mid-list by a bad edit still parses to a valid, non-empty set, and the prune
+    # would then read every mod BELOW the cut as deliberately removed and delete it from both
+    # plugin dirs and its marker -- silently, while logging success.
+    #
+    # Restoring the clipped line does NOT undo that. EpicLoot, Warfare, Armory and
+    # OdinsFoodBarrels register prefabs whose placed instances are persisted as ZDOs in
+    # TreeFellMeFirst.db. Boot once without the DLL and those ZDOs are orphaned; reinstalling the
+    # mod later brings back the item definitions, not the objects players had built or dropped.
+    # That is why this is a hard refusal and not a warning.
+    #
+    # A deliberate removal in this repo is one mod at a time. More than two in a single boot is
+    # the signature of a clipped MODS block, not an intention. Failing the initContainer keeps the
+    # pod down until a human looks -- recoverable. A wrongly pruned world is not.
+    if [ "$doomed_n" -gt 2 ] && [ "${PRUNE_ALLOW_BULK:-}" != "yes" ]; then
+      doomed_list=$(printf '%s\n' "$doomed" | tr '\n' ' ')
+      echo "[FAIL ] prune would remove $doomed_n mods in a single boot: $doomed_list" >&2
+      echo "         Refusing. More than 2 at once usually means the MODS block in" >&2
+      echo "         mods-configmap.yaml was truncated, not that this many mods were dropped." >&2
+      echo "         Check MODS still lists every mod you expect before doing anything else." >&2
+      echo "         If this removal really is intended, add to the fetch-mods container in" >&2
+      echo "         deployment.yaml an env var PRUNE_ALLOW_BULK with value \"yes\", apply, let" >&2
+      echo "         it boot once, then remove it again." >&2
       exit 1
     fi
 
@@ -520,23 +585,27 @@ data:
       for d in "$root"/*/; do
         [ -d "$d" ] || continue
         n=$(basename "$d")
-        if ! printf '%s\n' "$keep" | grep -qxF "$n"; then
+        if ! is_kept "$n"; then
           echo "[prune] $label: removing $n (not in MODS)"
           rm -rf "${root:?}/${n:?}"
         fi
       done
     }
 
-    echo "=== pruning mods no longer in MODS ==="
+    echo "=== pruning mods no longer in MODS ($doomed_n to remove) ==="
     prune_dir "$PLUGINS"      "staged"
     prune_dir "$LIVE_PLUGINS" "live"
 
     # Orphaned install markers go too, so re-adding a mod later reinstalls it cleanly instead of
     # being skipped by a stale version+sha marker.
+    #
+    # Markers are deliberately NOT counted by the breaker above: a marker is regenerable metadata,
+    # and one left behind with no plugin dir is a cosmetic inconsistency, not data loss. The
+    # breaker exits before this loop anyway, so a truncated MODS never reaches it.
     for m in "$STATE"/*; do
       [ -f "$m" ] || continue
       n=$(basename "$m")
-      if ! printf '%s\n' "$keep" | grep -qxF "$n"; then
+      if ! is_kept "$n"; then
         echo "[prune] marker: removing $n"
         rm -f "${STATE:?}/${n:?}"
       fi
