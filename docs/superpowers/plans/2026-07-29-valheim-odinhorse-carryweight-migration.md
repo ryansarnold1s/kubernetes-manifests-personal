@@ -302,7 +302,15 @@ kubectl exec -n valheim $p -c valheim -- sh -c "echo $b64 | base64 -d | sh"
 
 Expected: all three paths listed.
 
-- [ ] **Step 6: Validate and apply**
+- [ ] **Step 6: Validate, apply, and wait for the single rollout**
+
+⚠️ **Do NOT add `kubectl rollout restart` to this step.** Unlike Tasks 2 and 3, this task
+changes `deployment.yaml`, which alters the pod template — so the apply *already* triggers a
+rollout. An explicit restart on top would start a **second** `Recreate` cycle and race the
+first. With `terminationGracePeriodSeconds: 120` that roughly doubles the outage for no gain.
+
+Apply the ConfigMap **first** so the rollout the Deployment triggers already picks up the new
+`install-mods.sh`:
 
 ```powershell
 $env:KUBECONFIG = "C:\Users\RyanArnold\Downloads\kubeconfig"
@@ -311,18 +319,23 @@ kubectl apply -f mods-configmap.yaml --dry-run=server
 kubectl apply -f deployment.yaml --dry-run=server
 kubectl apply -f mods-configmap.yaml
 kubectl apply -f deployment.yaml
+kubectl rollout status deploy/valheim -n valheim --timeout=600s
 ```
 
-Expected: `configmap/valheim-mods configured` and `deployment.apps/valheim configured`.
-**If either says `unchanged`, stop** — you are in the wrong directory or the edit did not save.
+Expected: `configmap/valheim-mods configured`, then `deployment.apps/valheim configured`, then
+a successful rollout. **If either apply says `unchanged`, stop** — you are in the wrong
+directory or the edit did not save.
 
-- [ ] **Step 7: Restart and wait**
+- [ ] **Step 7: Confirm exactly one rollout occurred**
 
 ```powershell
 $env:KUBECONFIG = "C:\Users\RyanArnold\Downloads\kubeconfig"
-kubectl rollout restart deploy/valheim -n valheim
-kubectl rollout status deploy/valheim -n valheim --timeout=600s
+kubectl get rs -n valheim -l app=valheim --sort-by=.metadata.creationTimestamp -o custom-columns=NAME:.metadata.name,DESIRED:.spec.replicas,CREATED:.metadata.creationTimestamp
 ```
+
+Expected: exactly one ReplicaSet with `DESIRED=1`, and only **one** new ReplicaSet created
+during this task. Two new ones means a double restart happened — worth knowing, though not
+itself a failure.
 
 - [ ] **Step 8: Verify the positive case — the synthetic dir is gone**
 
