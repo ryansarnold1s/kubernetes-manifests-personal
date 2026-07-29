@@ -74,6 +74,7 @@ it could destroy.
 | Megingjord | Pin at vanilla `150` | Enabling `[Player]` makes the key live; pinning makes "unchanged" a decision in git rather than an accident |
 | `autoRepair`, `autoEquipShield` | Enable both | Previously requested and refused *only* because `[Player]` was pinned off for SkilledCarryWeight. That objection dies with this change; see §5.1 |
 | `[Workbench] disableRoofCheck` | Enable | Requested mid-execution. One added line — `[Workbench]` is already enabled for `workbenchRange`. See §5.2 |
+| Tool durability `+150%` | Enable | Requested mid-execution. Reverses a deliberate "tools stay at vanilla" decision, so the comment asserting that must be rewritten, not just the values. See §5.3 |
 | V+ `[Wagon]` | **Stays disabled** | Its `wagonBaseMass=20` would stomp the horse cart back to draggable — reintroducing the exact bug this work removes |
 | OdinHorse version | 1.6.5 | See §7 |
 | OdinHorse config | None — ship at defaults | Saddle storage stays off; §5 |
@@ -187,6 +188,41 @@ make repair automatic anywhere.
 
 Not included: `[Hatchery] requireShelter` (*"whether or not an egg requires a roof and fire to
 grow"*) is the same family of restriction but a different feature, and was not asked for.
+
+### 5.3 Tool durability
+
+Requested during execution. `[Durability]` is already enabled at `+100%` on combat gear
+(`weapons`, `axes`, `bows`, `shields`, `armor`); the five tool keys sit at vanilla `0`:
+
+```
+valheim_plus.cfg|Durability|pickaxes|150
+valheim_plus.cfg|Durability|hammer|150
+valheim_plus.cfg|Durability|cultivator|150
+valheim_plus.cfg|Durability|hoe|150
+valheim_plus.cfg|Durability|torch|150
+```
+
+⚠️ **These are percentage modifiers.** V+'s own annotation: *"The value 50 will increase the
+durability from 100 to 150."* So `150` means 100 → **250**, i.e. 2.5×, not "150 units".
+
+**This deliberately puts tools above combat gear (+150% vs +100%), and that asymmetry needs
+defending in the manifest** or someone will "correct" it. The existing comment already
+establishes the reasoning that makes it consistent: durability on combat gear stays adjacent to
+balance — it governs how long you last in a fight before a weapon breaks — while tool durability
+is pure convenience, changing only how often you walk back to a workbench. Tools being the more
+generous number follows from that distinction rather than contradicting it.
+
+**`axes` stays at 100 with the weapons, not with the tools.** An axe is a weapon that also chops
+wood, and it was raised on that basis. Moving it would be a combat-balance change disguised as a
+tools change.
+
+**`torch` is grouped with the tools.** It is a light source rather than a tool, but its
+durability is burn time — the same kind of convenience number.
+
+🚨 **This reverses a documented decision.** The current manifest says *"Tools are deliberately
+left at vanilla 0: pickaxes, hammer, cultivator, hoe, torch. The ask was weapons and armor."*
+That comment is aimed at exactly this edit. It must be **rewritten**, not left standing next to
+contradicting values — a comment that argues against the code beside it is worse than no comment.
 
 **OdinHorse saddle storage stays off.** Version 1.6.1 added it *"disabled by default
 for performance optimization"*. Enabling it would require a second apply — `MOD_CONFIG`

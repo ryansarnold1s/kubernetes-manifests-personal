@@ -646,6 +646,60 @@ Replace it with:
     valheim_plus.cfg|Workbench|disableRoofCheck|true
 ```
 
+- [ ] **Step 4c: Raise tool durability to +150%**
+
+Another separate region of `MOD_CONFIG`. Find the tail of the `[Durability]` comment block and
+its settings:
+
+```
+    # Tools are deliberately left at vanilla 0: pickaxes, hammer, cultivator, hoe, torch. The ask
+    # was weapons and armor. `axes` IS included -- an axe is a weapon -- which also makes
+    # woodcutting cheaper as a side effect.
+    valheim_plus.cfg|Durability|enabled|true
+    valheim_plus.cfg|Durability|weapons|100
+    valheim_plus.cfg|Durability|axes|100
+    valheim_plus.cfg|Durability|bows|100
+    valheim_plus.cfg|Durability|shields|100
+    valheim_plus.cfg|Durability|armor|100
+```
+
+Replace with:
+
+```
+    # Tools are at +150%, HIGHER than the +100% on combat gear above. ⚠️ That asymmetry is
+    # deliberate -- do not "correct" it to match, for the same reason [Armor] and [Durability]
+    # deliberately differ. Combat-gear durability is still adjacent to balance: it governs how
+    # long you last in a fight before a weapon breaks. Tool durability is pure convenience --
+    # it changes only how often you walk back to a workbench. Tools being the MORE generous
+    # number follows from that distinction rather than contradicting it.
+    #
+    # This reverses an earlier decision. These five keys previously sat at vanilla 0 with a
+    # comment saying tools were deliberately excluded because "the ask was weapons and armor".
+    # Raising them was then asked for explicitly, with the convenience-vs-balance split above on
+    # the table.
+    #
+    # `axes` stays at 100 with the WEAPONS, not with the tools. An axe is a weapon that also
+    # chops wood and was raised on that basis; moving it here would be a combat-balance change
+    # wearing a tools-change disguise.
+    #
+    # `torch` is grouped with the tools. It is a light source rather than a tool, but its
+    # durability is burn time -- the same kind of convenience number.
+    valheim_plus.cfg|Durability|enabled|true
+    valheim_plus.cfg|Durability|weapons|100
+    valheim_plus.cfg|Durability|axes|100
+    valheim_plus.cfg|Durability|bows|100
+    valheim_plus.cfg|Durability|shields|100
+    valheim_plus.cfg|Durability|armor|100
+    valheim_plus.cfg|Durability|pickaxes|150
+    valheim_plus.cfg|Durability|hammer|150
+    valheim_plus.cfg|Durability|cultivator|150
+    valheim_plus.cfg|Durability|hoe|150
+    valheim_plus.cfg|Durability|torch|150
+```
+
+⚠️ `150` is a **percentage modifier**, not an absolute — V+'s own annotation is *"The value 50
+will increase the durability from 100 to 150."* So this takes tool durability 100 → **250**.
+
 - [ ] **Step 5: Apply, restart, and watch the prune remove a real mod**
 
 ```powershell
@@ -704,6 +758,8 @@ echo "=== [Wagon] must still be disabled ==="
 awk '/^\[Wagon\]/{f=1} f&&/^\[/&&!/^\[Wagon\]/{f=0} f' "$C" | tr -d '\r' | grep -E '^(enabled|wagonBaseMass) '
 echo "=== [Workbench] roof check ==="
 awk '/^\[Workbench\]/{f=1} f&&/^\[/&&!/^\[Workbench\]/{f=0} f' "$C" | tr -d '\r' | grep -E '^(enabled|workbenchRange|disableRoofCheck) '
+echo "=== [Durability] tools vs combat gear ==="
+awk '/^\[Durability\]/{f=1} f&&/^\[/&&!/^\[Durability\]/{f=0} f' "$C" | tr -d '\r' | grep -E '^(enabled|weapons|axes|bows|shields|armor|pickaxes|hammer|cultivator|hoe|torch) '
 echo "=== total section count ==="
 grep -c '^\[' "$C" | tr -d '\r'
 '@
@@ -729,7 +785,25 @@ wagonBaseMass = 20
 enabled = true
 workbenchRange = 40
 disableRoofCheck = true
+=== [Durability] tools vs combat gear ===
+enabled = true
+axes = 100
+pickaxes = 150
+hammer = 150
+cultivator = 150
+hoe = 150
+weapons = 100
+armor = 100
+bows = 100
+shields = 100
+torch = 150
 ```
+
+⚠️ The `[Durability]` keys print in the file's own order, not the order you wrote them. Two
+things to check specifically:
+- **`axes = 100`** — it must stay with the weapons, not drift to 150 with the tools
+- **exactly five keys at 150** — `pickaxes`, `hammer`, `cultivator`, `hoe`, `torch`. Combat gear
+  (`weapons`, `axes`, `bows`, `shields`, `armor`) all stay at 100
 
 A `[Player]` count of `2` means the applier appended rather than matched — investigate before
 proceeding. `autoUnequipShield = false` confirms only the intended keys were touched.
@@ -893,6 +967,46 @@ the roof check stood, auto-repair only worked under a roof.
 No section count change — `[Workbench]` was already among the enabled sections, so the README's
 **"25 sections are enabled"** figure stays correct.
 
+**(h)** Tool durability — **two** README passages assert tools are at vanilla and both now
+contradict the config. Fix both.
+
+First, replace:
+
+```markdown
+mod. **That gap is now closed** — ValheimPlus's `[Durability]` section does it, and is set to
++100% on combat gear; see "ValheimPlus" below. Do not go looking for a `-modifier` for this.
+```
+
+with:
+
+```markdown
+mod. **That gap is now closed** — ValheimPlus's `[Durability]` section does it, and is set to
++100% on combat gear and +150% on tools; see "ValheimPlus" below. Do not go looking for a
+`-modifier` for this.
+```
+
+Second, replace:
+
+```markdown
+before "fixing" it. `[Durability]` covers `weapons`, `axes`, `bows`, `shields`, `armor`; tools
+(`pickaxes`, `hammer`, `cultivator`, `hoe`, `torch`) are deliberately left at vanilla 0.
+```
+
+with:
+
+```markdown
+before "fixing" it. `[Durability]` is **+100% on combat gear** (`weapons`, `axes`, `bows`,
+`shields`, `armor`) and **+150% on tools** (`pickaxes`, `hammer`, `cultivator`, `hoe`, `torch`).
+
+⚠️ **Tools are deliberately the more generous number.** Combat-gear durability is still adjacent
+to balance — it governs how long you last in a fight before a weapon breaks. Tool durability is
+pure convenience: it changes only how often you walk back to a workbench. `axes` sits with the
+weapons at +100%, not with the tools, because an axe is a weapon that also chops wood. `torch`
+sits with the tools because its durability is burn time.
+```
+
+⚠️ These values are **percentage modifiers** — `150` takes durability 100 → 250.
+
 **Verify no stale references remain** (the mod table row for OdinHorse is added in Task 3):
 
 ```bash
@@ -931,6 +1045,13 @@ Also enables [Workbench] disableRoofCheck, removing vanilla's requirement that
 a workbench be roofed and unexposed to function. One line -- the section was
 already enabled for workbenchRange. Compounds with autoRepair, which fires on
 workbench interaction and would otherwise only work under a roof.
+
+Raises tool durability to +150% (pickaxes, hammer, cultivator, hoe, torch),
+reversing an earlier decision to leave them at vanilla 0. Deliberately higher
+than the +100% on combat gear: combat durability is adjacent to balance, tool
+durability is pure convenience. axes stays at 100 with the weapons -- it is a
+weapon that also chops wood. Both README passages asserting tools were at
+vanilla are rewritten rather than left contradicting the config.
 
 Safe to remove because SkilledCarryWeight is a pure runtime patch that
 registers no prefabs and persists nothing in the world save. This does not
