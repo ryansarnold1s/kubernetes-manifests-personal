@@ -1322,20 +1322,93 @@ disk that failed to load is the failure this catches — `ls` alone would not.
 
 ⚠️ **Restore the mod-count assertions to twelve.** An earlier draft of this plan claimed the
 "Twelve mods are installed" prose needed no change because one mod goes out and one comes in.
-That is wrong *between* the two tasks: Task 2 removes SkilledCarryWeight and leaves the count at
-**eleven**, so Task 2 corrected these three to eleven and Task 3 must put them back:
+That is wrong *between* the two tasks: Task 2 left the count at **eleven** and corrected two
+assertions to match (commit `812ba58`). Put them back:
 
 - `README.md` — "**Eleven mods are installed**" → twelve
 - `README.md` — the installer idempotency example, `0 installed, 11 already present` → `12`
-- `README.md` — "Expect `11 plugins to load`" → `12`
-
-Confirm the last one against a real chainloader log line rather than inferring it:
+- `README.md` — "Expect `12 plugins to load`" — **currently still says 12** and was deliberately
+  left that way, since it was wrong only for the gap between tasks. Confirm it against the real
+  chainloader line rather than assuming it matches the mod count — BepInEx counts loaded plugin
+  *assemblies*, and a package shipping two DLLs would make these numbers differ:
 
 ```powershell
 $env:KUBECONFIG = "C:\Users\RyanArnold\Downloads\kubeconfig"
 $p = kubectl get pod -n valheim -l app=valheim -o jsonpath='{.items[0].metadata.name}'
 (kubectl exec -n valheim $p -c valheim -- cat /opt/valheim/bepinex/BepInEx/LogOutput.log | Select-String "plugins to load") -join "`n"
 ```
+
+If the log prints something other than 12, use the printed value and note the discrepancy.
+
+- [ ] **Step 7b: Absorbed from Task 2's stalled fix round**
+
+Task 2's review raised three documentation defects whose fix round could not run — four subagent
+dispatches were killed by transient 529 API errors. They are folded in here because this task
+already edits both affected files. **These are not optional: unlike the mod counts above, none of
+them self-correct.**
+
+**(i)** `valheim/README.md` — the flat `[Durability]` assertion. Replace exactly:
+
+```markdown
+⚠️ **`[Armor]` and `[Durability]` are different things and are easy to conflate.** `[Armor]`
+raises the armor *value* (damage reduction) and is at **+50%**; `[Durability]` raises how long
+gear lasts before repair and is at **+100%**. The mismatch is deliberate — see the next paragraph
+before "fixing" it. `[Durability]` is **+100% on combat gear** (`weapons`, `axes`, `bows`,
+`shields`, `armor`) and **+150% on tools** (`pickaxes`, `hammer`, `cultivator`, `hoe`, `torch`).
+```
+
+with:
+
+```markdown
+⚠️ **`[Armor]` and `[Durability]` are different things and are easy to conflate.** `[Armor]`
+raises the armor *value* (damage reduction) and is at **+50%**; `[Durability]` raises how long
+gear lasts before repair. The mismatch is deliberate — see the next paragraph before "fixing" it.
+`[Durability]` is **+100% on combat gear** (`weapons`, `axes`, `bows`, `shields`, `armor`) and
+**+150% on tools** (`pickaxes`, `hammer`, `cultivator`, `hoe`, `torch`).
+```
+
+The only change: the stale flat "and is at **+100%**" is dropped, because the precise split
+follows one sentence later and now contradicts it.
+
+**(ii)** `valheim/README.md` — the heading `**Why one is +50% and the other +100%.**` frames a
+two-value comparison that is now three. Change it to
+`**Why armor is +50% and durability is higher.**` and leave the paragraph body untouched.
+
+**(iii)** `valheim/mods-configmap.yaml` — the `[Durability]` block header reads
+`# Durability: +100% (double) on combat gear. DISTINCT FROM [Armor] ABOVE -- that one raises`,
+for a block that now also sets five tool keys. Change the description to
+`# Durability: +100% on combat gear, +150% on tools. DISTINCT FROM [Armor] ABOVE -- that one raises`.
+Keep the rest of the line and the whole comment block below it intact.
+
+**(iv)** Evidence for a load-bearing claim. Both `mods-configmap.yaml` and the README assert that
+*all 24 keys in `[Player]` sit at vanilla-equivalent defaults* — that claim is the entire
+justification for enabling three previously-disabled V+ sections, and it was asserted without ever
+being enumerated. Produce the evidence and paste the literal output into the report:
+
+```powershell
+$env:KUBECONFIG = "C:\Users\RyanArnold\Downloads\kubeconfig"
+$p = kubectl get pod -n valheim -l app=valheim -o jsonpath='{.items[0].metadata.name}'
+$script = @'
+C=/config/bepinex/valheim_plus.cfg
+for S in Player Gathering Experience; do
+  echo "=== [$S] ==="
+  awk -v s="[$S]" '$0==s{f=1;next} f&&/^\[/{f=0} f' "$C" | tr -d '\r' | grep "="
+  echo ""
+done
+'@
+$b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($script))
+kubectl exec -n valheim $p -c valheim -- sh -c "echo $b64 | base64 -d | sh"
+```
+
+Intentionally set: `[Player]` `enabled=true`, `baseMaximumWeight=850`, `baseMegingjordBuff=150`,
+`autoRepair=true`, `autoEquipShield=true`; `[Gathering]` 18 material keys at `100` with
+`dropChance=0`; `[Experience]` only `pickaxes=100`. **Every other key in all three sections must be
+a vanilla-equivalent no-op** — `false`, `0`, or a documented game default such as
+`maxFallDamage = 100`.
+
+🚨 **If any key is NOT a vanilla-equivalent no-op and was not intentionally set, STOP and report
+it.** Do not edit a comment to match it. That would be a real finding about the risk of having
+enabled those sections, not a documentation error.
 
 **(b)** Add to the client install section, after the existing `JsonDotNET` warning:
 
