@@ -92,9 +92,48 @@ tale in the plan.
   identical. **Adding a `nodeAffinity` toward the large nodes would be a no-op** — the taint
   already enforces it. It would only become necessary if a small node were ever untainted, or if
   workers of differing size were added.
-- **Requests are well above observed usage** — 2 CPU / 5Gi requested against ~44m CPU / ~1.3Gi
+- **Requests are well above observed usage** — 2 CPU / 5Gi requested against ~45m CPU / ~2.0Gi
   observed at idle. Deliberate headroom for world simulation under player load, but it is a real
   reservation: a quarter of an 8-core worker is held whether or not anyone is playing.
+
+### Long-term growth check
+
+🚨 **The memory limit is a world-corruption risk, not just an availability one.** An OOMKill is
+`SIGKILL` — it bypasses `terminationGracePeriodSeconds: 120`, which exists precisely so Valheim
+can flush the world on shutdown. Hitting 8Gi means a save interrupted mid-write, not a clean
+restart. Blast radius is bounded (hourly backup zips, four rolling auto-backups, daily Longhorn
+snapshot, CloudCasa) — worst case is under an hour — but it is the one failure mode here with
+teeth. There is **no monitoring stack in this cluster**, so this is checked by hand:
+
+```powershell
+$p = kubectl get pod -n valheim -l app=valheim -o jsonpath='{.items[0].metadata.name}'
+$top = (kubectl top pod -n valheim --no-headers | Where-Object { $_ -match '\S' }) -join "`n"
+if ($top -match '(\d+)m\s+(\d+)Mi') {
+  $cpu = $matches[1]; $memMi = [int]$matches[2]
+  Write-Output "memory : ${memMi}Mi of 8192Mi limit  ($([math]::Round($memMi/8192*100,1))%)"
+  Write-Output "cpu    : ${cpu}m"
+}
+$zdo = ((kubectl logs -n valheim $p -c valheim --tail=600 | Select-String "ZDOS:") | Select-Object -Last 1) -replace '.*ZDOS:(\d+).*','$1'
+$db  = kubectl exec -n valheim $p -c valheim -- stat -c %s /config/worlds_local/TreeFellMeFirst.db
+Write-Output "ZDOs   : $zdo"
+Write-Output "world  : $([math]::Round($db/1MB,1)) MiB"
+```
+
+⚠️ The `-join` and the blank-line filter are load-bearing — `kubectl` returns a string **array**,
+and `--no-headers` can emit a blank line, so parsing it directly yields an empty result.
+
+**Baseline (2026-07-30, idle):** 2009Mi / 8192Mi (24.5%), 45m CPU, 397k ZDOs, 17.5 MiB world.
+Sample it **under player load** too; idle is the floor, not the number that matters.
+
+| Reading | Meaning |
+|---|---|
+| under ~5500Mi | fine, no action |
+| ~5500–6500Mi sustained | raise the limit — it is not a reservation, so on a 24Gi node this is nearly free |
+| over ~6500Mi | raise it now, before a save lands on the ceiling |
+
+**Growth is exploration-driven and self-limiting**, which is the reassuring part. Measured across
+the auto-backups: 0.57 MB/h while players were revealing new map, dropping to 0.10 MB/h once they
+were building in already-explored territory. Structures are cheap; new zones are expensive.
 - **Do not add `SYS_NICE` back, and do not label the namespace privileged.** The cluster
   enforces Pod Security Admission at `baseline` for any namespace without PSA labels, and
   `valheim` carries none — it runs at that stricter default on purpose. `SYS_NICE` is not in
