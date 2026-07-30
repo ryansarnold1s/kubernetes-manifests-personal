@@ -38,6 +38,7 @@ Up to 10 min stale, so a `0` right after someone quits is real, but a `2` may be
 - Longhorn RecurringJobs bind via a label on the **Volume**, not the PVC — a recreated PVC silently stops being snapshotted
 - Off-cluster backup is CloudCasa (`cloudcasa-io`); it deletes its CRs after each run, so an empty `kubectl get backups.cloudcasa.io` proves nothing either way
 - Longhorn snapshots can be taken declaratively: apply a `snapshots.longhorn.io` CR with `spec.volume: <pv-name>` and `spec.createSnapshot: true` (v1.11.3). No UI needed
+- `.claude/settings.json` allows `kubectl get <kind>*`, which **cannot** be made to exclude secrets — prefix rules are defeated by comma-lists (`get pods,secrets`) and flag reordering. **Accepted deliberately**: single-operator home cluster, no untrusted users. Don't re-raise it as a finding
 
 ## Verification
 
