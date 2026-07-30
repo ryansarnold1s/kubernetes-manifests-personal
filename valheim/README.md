@@ -185,11 +185,28 @@ kubectl logs -n valheim deploy/valheim --tail=500 | Select-String "Setting world
 kubectl logs -n valheim deploy/valheim --tail=500 | Select-String "Failed to parse|couldn't be parsed"
 ```
 
-**`SERVER_ARGS` is the source of truth on every boot — modifiers are not persisted into the
-world save.** Verified on this world: `TreeFellMeFirst.fwl` is 56 bytes (version, name, seed,
-uid — nothing else), and the 4.7MB `.db` contains no modifier or global-key state. So reverting
-is just removing the arg and restarting; there is nothing left behind in the world to clean up,
-and no need for the `resetworldkeys` console command.
+🚨 **Modifiers ARE persisted into the world save.** This section previously claimed the opposite,
+on the strength of `TreeFellMeFirst.fwl` measuring 56 bytes. That measurement was taken *before
+any modifier had ever been set*, which made "nothing is stored" indistinguishable from "nothing
+has been stored yet". The file is now **1745 bytes** and contains, repeated ~19 times:
+
+```
+resourcerate 150
+preset combat_default:deathpenalty_default:resources_more:raids_default:portals_default
+```
+
+`resources_more` is the `-modifier resources more` from `SERVER_ARGS`, written into the world.
+(The repetition suggests the preset is appended per save rather than replaced — an observation,
+not a documented behaviour.)
+
+⚠️ **The practical consequence is the reverse of what this section used to say:** removing the
+arg from `SERVER_ARGS` does **not** cleanly revert a modifier, because the world keeps its own
+copy. The `resetworldkeys` console command is therefore not obviously unnecessary. *Verified:
+the preset string is in the `.fwl`. Not tested: whether a boot without the arg falls back to the
+persisted value or to vanilla.* Test on a copy before relying on either.
+
+This also means a modifier is **effectively one-way on a world you care about** — the same class
+of stickiness as a mod that registers prefabs. Decide before setting one, not after.
 
 The practical consequence: **whatever is in `SERVER_ARGS` wins after any restart.** A modifier
 set at runtime via the `setworldmodifier` console command is session-local and any restart
@@ -435,12 +452,12 @@ missed when this key was chosen. The V+ key is kept deliberately, on reversibili
 `configmap.yaml` records that *"modifiers are saved into the world once set"*, whereas this pin is
 undone by editing `mods-configmap.yaml` and restarting.
 
-⚠️ **That rationale rests on an unresolved contradiction — do not treat it as settled.**
-`configmap.yaml` says modifiers persist into the world; the "World modifiers" section of this README
-says they are **not** persisted and are re-read from `SERVER_ARGS` on every boot. Both cannot be
-right. The README's supporting evidence is also stale: it cites `TreeFellMeFirst.fwl` at 56 bytes,
-and the file is now 1745. **Resolve this before adding a second owner of the teleport check** — if
-the README is right, the native modifier is arguably the better owner.
+✅ **That rationale is now confirmed** — it was flagged as an unresolved contradiction between this
+README and `configmap.yaml`, and the contradiction has been settled in `configmap.yaml`'s favour.
+`TreeFellMeFirst.fwl` contains `preset combat_default:deathpenalty_default:resources_more:…`, so
+modifiers really are written into the world; see "World modifiers" above. The V+ key is the more
+reversible owner, and choosing it was right — for a reason that was only asserted at the time and
+is evidenced now.
 
 ⚠️ **Override direction — inferred from patch mechanics, NOT tested.** While `noTeleportPrevention`
 is `true`, a future `-modifier portals hard` is *expected* to be silently overridden, because V+
