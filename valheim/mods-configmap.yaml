@@ -524,6 +524,45 @@ data:
     # caveat as [Gathering] above.
     valheim_plus.cfg|Experience|enabled|true
     valheim_plus.cfg|Experience|pickaxes|100
+    #
+    # --- PlantEverything: crop growth and forage respawn, 4x faster --------------------------
+    # FIRST NON-V+, NON-AZU MOD PINNED HERE. Until now advize.PlantEverything.cfg lived on the
+    # PVC as untracked edits -- the exact drift this block exists to prevent. Anything changed in
+    # that mod from now on belongs here, not in the file on the volume.
+    #
+    # ⚠️ ValheimPlus CANNOT do crop growth. Every V+ section was checked: the only `grow` keys it
+    # has are [Egg] growTime and a [Player] cropNotifier placement warning. The production
+    # STATIONS above ([Windmill], [SpinningWheel], [Beehive], [SapCollector]) were all tuned long
+    # ago; the PLANTS never were, because the mod that can do it is not V+. Do not go looking for
+    # a V+ setting for this.
+    #
+    # These are SECONDS, and lower is faster -- the opposite direction to most values in this
+    # file. Vanilla is 4000-5000s (67-83 min) for a barley or flax cycle; 1000-1250 makes it
+    # 17-21 min. The Min/Max pair is a range the mod randomises within, so keep Min < Max.
+    advize.PlantEverything.cfg|Crops|CropGrowTimeMin|1000
+    advize.PlantEverything.cfg|Crops|CropGrowTimeMax|1250
+    #
+    # Forage respawn, same 4x. Berries were 300s, flowers and debris 240s (fiddlehead 300).
+    # PickableStoneRespawnTime is deliberately NOT listed -- it already ships at 0, which is
+    # instant, and there is nothing to speed up.
+    advize.PlantEverything.cfg|Berries|RaspberryRespawnTime|75
+    advize.PlantEverything.cfg|Berries|BlueberryRespawnTime|75
+    advize.PlantEverything.cfg|Berries|CloudberryRespawnTime|75
+    advize.PlantEverything.cfg|Flowers|ThistleRespawnTime|60
+    advize.PlantEverything.cfg|Flowers|DandelionRespawnTime|60
+    advize.PlantEverything.cfg|Flowers|FiddleheadRespawnTime|75
+    advize.PlantEverything.cfg|Debris|PickableBranchRespawnTime|60
+    advize.PlantEverything.cfg|Debris|PickableFlintRespawnTime|60
+    #
+    # ⚠️ CLIENT CONSISTENCY IS UNVERIFIED HERE, unlike the V+ values above. README lists
+    # PlantEverything as client-OPTIONAL ("works without, minor cosmetic loss"), and crop growth
+    # is driven by the ZDO owner -- often a nearby client rather than the server. A player without
+    # the mod may therefore see vanilla growth on crops they are standing near. V+ pushes its
+    # config to clients via serverSyncsConfig; this mod has no such mechanism. Verify in-game
+    # before assuming everyone sees the same rates.
+    #
+    # Not changed, but adjacent if wanted: [Crops] CropsRequireSunlight is true, so crops will not
+    # grow under a roof -- the same restriction family as the workbench roof check lifted above.
 
   install-mods.sh: |
     #!/bin/bash
