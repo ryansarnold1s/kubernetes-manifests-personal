@@ -393,6 +393,19 @@ data:
     valheim_plus.cfg|Items|baseItemWeightReduction|-75
     valheim_plus.cfg|Items|itemStackMultiplier|100
     valheim_plus.cfg|Items|noTeleportPrevention|true
+    #
+    # droppedItemOnGroundDurationInSeconds: 3600 -> 600. This is a PERFORMANCE setting, not a
+    # convenience one. Every item lying on the ground is a live ZDO held in server memory until
+    # it despawns, so an hour of accumulated clutter is an hour of ZDOs.
+    #
+    # It matters more than it used to: [Gathering] above was set to +100%, which DOUBLED what
+    # every resource node drops. Ground clutter roughly doubled with it, and this was still at
+    # the vanilla hour.
+    #
+    # ⚠️ The tradeoff is real and player-visible: anything deliberately left on the ground is gone
+    # in 10 minutes instead of 60. Death drops are NOT affected -- those are gravestones, a
+    # different mechanism. If players complain about stashes vanishing, this is the setting.
+    valheim_plus.cfg|Items|droppedItemOnGroundDurationInSeconds|600
     # Building: no weather deterioration, structures indestructible.
     valheim_plus.cfg|Building|enabled|true
     valheim_plus.cfg|Building|noWeatherDamage|true
