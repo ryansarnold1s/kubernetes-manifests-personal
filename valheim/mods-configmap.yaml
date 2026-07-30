@@ -191,21 +191,31 @@ data:
     # annotated "Game default is 100"; guardianBuffDuration 300 / Cooldown 1200 match vanilla;
     # iHaveArrivedOnSpawn is true because it is a DISABLE toggle -- "if set to false, disables the
     # 'I have arrived!' message" -- so true is the neutral state, not an opt-in).
-    # That is what makes enabling the section neutral apart from the four pinned below. A future
+    # That is what makes enabling the section neutral apart from the FIVE pin lines below. A future
     # release adding a non-neutral default would now take effect SILENTLY -- a pinned-off section
     # could not do that.
+    #
+    # ⚠️ "Five pins" and "four diff lines" below are BOTH correct and are different counts. Five
+    # lines are pinned here; only four of them differ from V+'s shipped default, because
+    # baseMegingjordBuff 150 is pinned TO the default. Do not reconcile them to a single number --
+    # conflating the two is the exact miscount that put a wrong key count in this comment for
+    # months.
     #
     # ⚠️ The count was 24 here until 2026-07-29 and was wrong; it had been asserted without ever
     # being enumerated. Do not re-verify by eye. ValheimPlus.dll EMBEDS the default cfg it writes
     # on first run, as plain text, so the check is a diff against the shipped defaults rather than
-    # a judgement about what vanilla does -- and it covers [Gathering] and [Experience] too:
+    # a judgement about what vanilla does -- and it covers [Gathering] and [Experience] too. The
+    # runnable command is in README.md, "Re-verify [Player] on any V+ upgrade" -- use that, not a
+    # snippet from here. In outline it is:
     #   D=/opt/valheim/bepinex/BepInEx/plugins/ValheimPlus/ValheimPlus.dll
-    #   tr -c '[:print:]\n' '\n' < "$D" > /tmp/flat    # then, per section:
+    #   tr -c '[:print:]\n' '\n' < "$D" > /tmp/flat    # extracts the SHIPPED DEFAULTS only;
     #   awk -v s='[Player]' '$0==s{f=1;next} f&&/^\[/{f=0} f' /tmp/flat | grep -E '^[A-Za-z]+='
-    # Every line that diff reports must be one of the pins below. At 9.17.1 that was exactly four
-    # -- enabled, baseMaximumWeight, autoRepair, autoEquipShield. baseMegingjordBuff 150 is pinned
-    # but shows NO diff, because 150 is already the shipped default; that is the pin working as
-    # intended, not a missing change.
+    # ...then diff that against the same section of the LIVE /config/bepinex/valheim_plus.cfg.
+    # The two lines above do NOT read the live file and do NOT diff -- they are half the check.
+    # Every line the diff reports must be one of the pins below. At 9.17.1 that was exactly four
+    # diff lines -- enabled, baseMaximumWeight, autoRepair, autoEquipShield. baseMegingjordBuff 150
+    # is the fifth pin and shows NO diff, because 150 is already the shipped default; that is the
+    # pin working as intended, not a missing change.
     valheim_plus.cfg|Player|enabled|true
     valheim_plus.cfg|Player|baseMaximumWeight|850
     valheim_plus.cfg|Player|baseMegingjordBuff|150
@@ -341,9 +351,35 @@ data:
     # and was evaluated and declined because this one line covers most of the want with no new
     # mod, no client install and nothing extra to keep updated. See the note beside MODS above.
     #
+    # ⚠️ THERE ARE THREE POSSIBLE OWNERS OF THIS ONE BEHAVIOUR. Only this key is in use:
+    #   1. this V+ key (in use)
+    #   2. the OdinPlus/TeleportEverything mod -- evaluated and declined, see the note beside MODS
+    #   3. the NATIVE `-modifier portals casual` world modifier, set via SERVER_ARGS in
+    #      configmap.yaml, which lifts the same restriction with NO mod and NO config line
+    #
+    # Owner 3 was missed when this key was chosen -- the native modifier list was not checked, even
+    # though configmap.yaml and README.md both document that `portals` exists in this build. The V+
+    # key is KEPT anyway, deliberately, on reversibility grounds: configmap.yaml records that
+    # "modifiers are saved into the world once set", whereas this pin is undone by editing this
+    # file and restarting. The native route needs no mod but bakes into the world; this one is
+    # reversible by config. That is the whole tradeoff -- re-examine it, do not assume it.
+    #
+    # ⚠️ BUT SEE THE CAVEAT IN README.md: configmap.yaml says modifiers persist into the world,
+    # while README.md's "World modifiers" section says they are NOT persisted and are re-read from
+    # SERVER_ARGS every boot. Those two statements contradict each other and the question is OPEN.
+    # If the README is right, the reversibility argument above is much weaker and the native
+    # modifier may be the better owner. Resolve it before adding a second owner, not after.
+    #
     # ⚠️ IF TeleportEverything IS EVER INSTALLED, SET THIS BACK TO false. Both patch the same
     # "may this item teleport" check and the mod should own it -- same one-owner-per-property
     # discipline as the [Wagon] and [Inventory] pins.
+    #
+    # ⚠️ OVERRIDE DIRECTION -- INFERRED FROM PATCH MECHANICS, NOT TESTED. While this key is true, a
+    # future `-modifier portals hard` is expected to be silently overridden: V+ applies a Harmony
+    # patch to the teleport check at runtime, after the native modifier has been applied. Someone
+    # will eventually set that modifier, see no change, and suspect the modifier never parsed.
+    # Check this key FIRST. This ordering has NOT been verified -- deliberately, because a wrong
+    # world modifier is written into the world and testing it on the live server is not free.
     valheim_plus.cfg|Items|enabled|true
     valheim_plus.cfg|Items|baseItemWeightReduction|-75
     valheim_plus.cfg|Items|itemStackMultiplier|100

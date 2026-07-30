@@ -417,6 +417,38 @@ Two knock-on effects worth knowing, neither a collision:
   Armory's upgraded biome-tier armor variants and EpicLoot's enchanted gear. V+'s own example is
   base armor 14 → 21 at +50%, → 28 at +100%, before either of those applies.
 
+**Ores and ingots now go through portals.** `[Items] noTeleportPrevention = true` lifts vanilla's
+ban on carrying teleport-restricted items — V+'s own description is *"Enables you to teleport with
+ores and other usually teleport restricted objects."* Vanilla default is `false`. Together with the
+raised carry cap above, this is the change players are most likely to notice.
+
+⚠️ **It covers items only.** Ores, ingots and dragon eggs pass; **tamed animals and carts do not**.
+That boundary is deliberate — the OdinPlus/TeleportEverything mod does all of it and was evaluated
+and declined, because this single line in an already-enabled section covers most of the want with
+no new mod, no client install and nothing extra to keep updated. Knowingly given up: animals and
+carts through portals, enemy-follow modes, transport fees.
+
+🚨 **Three things can own this behaviour; only one is in use.** Besides this V+ key and the declined
+TeleportEverything mod, the **native `-modifier portals casual`** world modifier lifts the same
+restriction with no mod and no config line at all — it is in the modifier table above, and was
+missed when this key was chosen. The V+ key is kept deliberately, on reversibility grounds:
+`configmap.yaml` records that *"modifiers are saved into the world once set"*, whereas this pin is
+undone by editing `mods-configmap.yaml` and restarting.
+
+⚠️ **That rationale rests on an unresolved contradiction — do not treat it as settled.**
+`configmap.yaml` says modifiers persist into the world; the "World modifiers" section of this README
+says they are **not** persisted and are re-read from `SERVER_ARGS` on every boot. Both cannot be
+right. The README's supporting evidence is also stale: it cites `TreeFellMeFirst.fwl` at 56 bytes,
+and the file is now 1745. **Resolve this before adding a second owner of the teleport check** — if
+the README is right, the native modifier is arguably the better owner.
+
+⚠️ **Override direction — inferred from patch mechanics, NOT tested.** While `noTeleportPrevention`
+is `true`, a future `-modifier portals hard` is *expected* to be silently overridden, because V+
+patches the teleport check with Harmony at runtime, after the native modifier has been applied. If
+someone sets that modifier and sees no change, **check this key before suspecting a parse error.**
+This has deliberately not been verified: a wrong world modifier is written into the world, so
+testing it on the live server is not free.
+
 ### `[Player]` is enabled
 
 V+ owns carry weight outright — `baseMaximumWeight = 850`, `baseMegingjordBuff = 150` (vanilla).
@@ -428,8 +460,13 @@ change while a new one starts at the old endgame. That was a deliberate trade, n
 
 🚨 **Re-verify `[Player]` on any V+ upgrade.** All 26 keys were enumerated at 9.17.1 and every one
 sits at a vanilla-equivalent default, which is what makes enabling the section neutral apart from
-the four pinned in `MOD_CONFIG`. A future release adding a non-neutral default would take effect
-**silently** — a pinned-off section could not do that.
+the **five pin lines** in `MOD_CONFIG`. A future release adding a non-neutral default would take
+effect **silently** — a pinned-off section could not do that.
+
+⚠️ **"Five pins" and "four diff lines" below are both correct and are different counts.** Five lines
+are pinned; only four of them differ from V+'s shipped default, because `baseMegingjordBuff = 150`
+is pinned *to* the default. Do not reconcile them into one number — conflating the two is the same
+kind of slip that left a wrong key count in these files for months.
 
 ⚠️ **This said "24 keys" until 2026-07-29 and the number was wrong** — it had been asserted
 without anyone enumerating the section. The claim itself held up: all 26 are at V+'s shipped
@@ -456,9 +493,9 @@ kubectl exec -n valheim $p -c valheim -- sh -c "echo $([Convert]::ToBase64String
 ```
 
 Every line the diff reports must be one of the pins in `MOD_CONFIG`. At 9.17.1 `[Player]` showed
-exactly four — `enabled`, `baseMaximumWeight`, `autoRepair`, `autoEquipShield`. `baseMegingjordBuff
-= 150` is pinned but shows **no** diff, because 150 is already the shipped default; that is the pin
-working, not a missing change. `[Gathering]` showed `enabled` plus the 18 material keys with
+exactly **four diff lines** — `enabled`, `baseMaximumWeight`, `autoRepair`, `autoEquipShield`.
+`baseMegingjordBuff = 150` is the fifth pin and shows **no** diff, because 150 is already the
+shipped default; that is the pin working, not a missing change. `[Gathering]` showed `enabled` plus the 18 material keys with
 `dropChance` untouched at `0`, and `[Experience]` showed `enabled` plus `pickaxes` only.
 
 One key looks alarming and is not: `iHaveArrivedOnSpawn = true` is a **disable toggle** — *"if set
