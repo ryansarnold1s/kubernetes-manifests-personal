@@ -364,11 +364,16 @@ data:
     # file and restarting. The native route needs no mod but bakes into the world; this one is
     # reversible by config. That is the whole tradeoff -- re-examine it, do not assume it.
     #
-    # ⚠️ BUT SEE THE CAVEAT IN README.md: configmap.yaml says modifiers persist into the world,
-    # while README.md's "World modifiers" section says they are NOT persisted and are re-read from
-    # SERVER_ARGS every boot. Those two statements contradict each other and the question is OPEN.
-    # If the README is right, the reversibility argument above is much weaker and the native
-    # modifier may be the better owner. Resolve it before adding a second owner, not after.
+    # ✅ THE PERSISTENCE QUESTION IS SETTLED -- modifiers ARE written into the world save. This was
+    # once recorded here as an open contradiction between configmap.yaml and README.md; README.md
+    # was the wrong one and that claim has been deleted. Evidence: TreeFellMeFirst.fwl (1745 bytes)
+    # contains the string
+    # `preset combat_default:deathpenalty_default:resources_more:raids_default:portals_default`
+    # -- `resources_more` is a modifier that was set via SERVER_ARGS and is now baked into the
+    # .fwl. configmap.yaml was right. So the reversibility argument above is
+    # EVIDENCED, not asserted: the native `-modifier portals casual` route really does bake into
+    # the world, while this V+ key is undone by editing this file. Do not reopen this as a question;
+    # if you want to challenge it, re-read the .fwl, do not re-read the docs.
     #
     # ⚠️ IF TeleportEverything IS EVER INSTALLED, SET THIS BACK TO false. Both patch the same
     # "may this item teleport" check and the mod should own it -- same one-owner-per-property
@@ -565,7 +570,7 @@ data:
       unzip -q -o "$zip" -d "$ex"
 
       # Replace rather than merge, so an upgrade cannot leave stale files from the old version.
-      rm -rf "${PLUGINS:?}/$name"
+      rm -rf "${PLUGINS:?}/${name:?}"
       mkdir -p "$PLUGINS/$name"
       case "$layout" in
         plugins) cp -a "$ex/plugins/." "$PLUGINS/$name/" ;;
@@ -690,8 +695,14 @@ data:
     # `grep` exits 1 on no-match. Every caller below puts that in a tested position (`if !` or
     # `||`), where a non-zero exit is the condition being tested and is NOT fatal under `set -e`.
     # Do not call this bare, and do not "simplify" a caller into an untested command.
+    # ⚠️ The herestring is deliberate -- do NOT "simplify" it back to `printf ... | grep -qxF`.
+    # Under `set -o pipefail`, if `grep -q` exits on a match before `printf` has finished writing,
+    # `printf` takes SIGPIPE and the pipeline returns non-zero -- inverting this test and deleting
+    # a mod that MODS still lists, on the same Longhorn volume as the world save. `keep` is ~250
+    # bytes today so it fits the pipe buffer atomically and this cannot fire, but the failure mode
+    # is silent and destructive and the size is not guaranteed. A herestring has no pipeline.
     is_kept() {
-      printf '%s\n' "$keep" | grep -qxF "$1"
+      grep -qxF "$1" <<< "$keep"
     }
 
     # Directory names present under a root that MODS no longer lists.

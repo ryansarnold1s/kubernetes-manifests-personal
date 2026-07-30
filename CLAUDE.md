@@ -44,7 +44,7 @@ Up to 10 min stale, so a `0` right after someone quits is real, but a `2` may be
 - **Verify the negative case.** A check only ever observed passing has not been verified — confirm it fails when it should. A no-op health probe shipped this way once
 - `unchanged` from `kubectl apply` is a silent failure, not a success — usually the wrong cwd
 - After editing a config file in place, re-read it and confirm section/key **counts are unchanged** — an appended duplicate is the signature of a failed match
-- **A container-generated config on the PVC is the source of truth for which keys exist**, not upstream docs — they routinely understate the set (V+ `[Player]`: docs 3 keys, installed build 24). Enumerate the live file before pinning anything
+- **A container-generated config on the PVC is the source of truth for which keys exist**, not upstream docs — they routinely understate the set (V+ `[Player]`: docs 3 keys, installed build 26). Enumerate the live file before pinning anything
 
 ## PowerShell + kubectl
 
