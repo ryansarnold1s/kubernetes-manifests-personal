@@ -1,7 +1,4 @@
 {
-  "env": {
-    "KUBECONFIG": "C:\\Users\\RyanArnold\\Downloads\\kubeconfig"
-  },
   "permissions": {
     "deny": [
       "Bash(kubectl get secret*)",

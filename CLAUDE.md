@@ -31,7 +31,7 @@ Up to 10 min stale, so a `0` right after someone quits is real, but a `2` may be
 
 ## Environment
 
-- `$env:KUBECONFIG = "C:\Users\RyanArnold\Downloads\kubeconfig"` — needed for every kubectl call (machine-specific)
+- `KUBECONFIG` is set in `.claude/settings.local.json` (gitignored, machine-specific) — needed for every kubectl call. **Set it there, don't inline `$env:KUBECONFIG = …` in commands**: a command that starts with an assignment never prefix-matches a `kubectl *` permission rule, so every call prompts
 - Longhorn storage (RWO, reclaimPolicy Delete); MetalLB — use `metallb.io/` annotations, `metallb.universe.tf/` is deprecated
 - CNI is Flannel: **NetworkPolicy is not enforced**. Use `spec.loadBalancerSourceRanges` instead
 - Namespaces without PSA labels enforce `baseline`
