@@ -3,6 +3,14 @@
     "KUBECONFIG": "C:\\Users\\RyanArnold\\Downloads\\kubeconfig"
   },
   "permissions": {
+    "deny": [
+      "Bash(kubectl get secret*)",
+      "PowerShell(kubectl get secret*)",
+      "Bash(kubectl describe secret*)",
+      "PowerShell(kubectl describe secret*)",
+      "Bash(kubectl get *secrets.longhorn.io*)",
+      "PowerShell(kubectl get *secrets.longhorn.io*)"
+    ],
     "allow": [
       "Bash(kubectl get *)",
       "PowerShell(kubectl get *)",
