@@ -1,0 +1,18 @@
+{
+  "env": {
+    "KUBECONFIG": "C:\\Users\\RyanArnold\\Downloads\\kubeconfig"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(kubectl get *)",
+      "PowerShell(kubectl get *)",
+      "Bash(kubectl describe *)",
+      "PowerShell(kubectl describe *)",
+      "Bash(kubectl logs *)",
+      "PowerShell(kubectl logs *)",
+      "Bash(kubectl rollout status *)",
+      "PowerShell(kubectl rollout status *)",
+      "mcp__plugin_microsoft-docs_microsoft-learn__microsoft_docs_search"
+    ]
+  }
+}
