@@ -198,7 +198,7 @@ silently replaces it with the ConfigMap value. If you want a change to stick, pu
 
 ## Modding (BepInEx)
 
-`BEPINEX: "true"` is set in `configmap.yaml`. **Eleven mods are installed**, fetched declaratively
+`BEPINEX: "true"` is set in `configmap.yaml`. **Twelve mods are installed**, fetched declaratively
 by the `fetch-mods` initContainer from `mods-configmap.yaml`:
 
 | Mod | Version | Client install |
@@ -213,6 +213,7 @@ by the `fetch-mods` initContainer from `mods-configmap.yaml`:
 | Armory | 1.3.1 | **required** (custom assets; depends on Warfare 1.8.9) |
 | OdinsFoodBarrels | 1.2.3 | **required** — *"required on both server and client for config sync"* |
 | XPortal | 1.2.24 | **required** — *"All players must run the same version"* |
+| OdinHorse | 1.6.5 | **required** (custom creature/item assets) |
 | PlantEverything | 1.20.0 | recommended (works without, minor cosmetic loss) |
 
 **`TrashItems` is deliberately not installed server-side.** It is a client-side inventory-UI mod
@@ -234,6 +235,11 @@ connection with **`ErrorVersion`** — which looks like a game-version mismatch 
 If a client gets `ErrorVersion`, check its BepInEx log for a failed plugin load before suspecting
 the server.
 
+🚨 **SkilledCarryWeight must be UNINSTALLED client-side.** Removing it from the server is
+necessary but **not sufficient** — it functions as a client-side mod, so a player who keeps it
+retains local Cart Mass Reduction and the Quick Cart hotkey and can still drag OdinHorse's horse
+cart no matter what the server does. There is no server-side control for this.
+
 - **`BEPINEX` and `VALHEIM_PLUS` are mutually exclusive.** Enabling both fails.
 - **Mod config** lives in `/config/bepinex` on the `valheim-data` PVC, so it survives restarts.
   It can also be set from the ConfigMap using `BEPINEXCFG_<Section>_<Variable>` keys.
@@ -254,7 +260,7 @@ extracts it to the PVC. Two package layouts exist and are handled explicitly —
 
 It is **idempotent**: markers in `/config/bepinex/.mod-state` are keyed on version+sha256, so a
 normal restart downloads nothing (verified: re-running the installer reports `0 installed,
-11 already present`). This matters — Warfare alone is 182MB.
+12 already present`). This matters — Warfare alone is 182MB.
 
 A **checksum mismatch fails the pod deliberately.** This is executable code running inside the
 server. Because installs are idempotent, that only ever gates a first install or a version bump,
@@ -319,9 +325,9 @@ exact values.
 
 ⚠️ **`[Armor]` and `[Durability]` are different things and are easy to conflate.** `[Armor]`
 raises the armor *value* (damage reduction) and is at **+50%**; `[Durability]` raises how long
-gear lasts before repair and is at **+100%**. The mismatch is deliberate — see the next paragraph
-before "fixing" it. `[Durability]` is **+100% on combat gear** (`weapons`, `axes`, `bows`,
-`shields`, `armor`) and **+150% on tools** (`pickaxes`, `hammer`, `cultivator`, `hoe`, `torch`).
+gear lasts before repair. The mismatch is deliberate — see the next paragraph before "fixing" it.
+`[Durability]` is **+100% on combat gear** (`weapons`, `axes`, `bows`, `shields`, `armor`) and
+**+150% on tools** (`pickaxes`, `hammer`, `cultivator`, `hoe`, `torch`).
 
 ⚠️ **Tools are deliberately the more generous number.** Combat-gear durability is still adjacent
 to balance — it governs how long you last in a fight before a weapon breaks. Tool durability is
@@ -329,7 +335,7 @@ pure convenience: it changes only how often you walk back to a workbench. `axes`
 weapons at +100%, not with the tools, because an axe is a weapon that also chops wood. `torch`
 sits with the tools because its durability is burn time.
 
-**Why one is +50% and the other +100%.** Armor value is a combat-balance number: it compounds
+**Why armor is +50% and durability is higher.** Armor value is a combat-balance number: it compounds
 with Armory's biome-tier variants and EpicLoot's enchants into a character that is hard to kill,
 which is why it was scaled back from +100%. Durability is a convenience number — it changes how
 often you walk back to a workbench, not whether you survive — so the same compounding argument
@@ -420,10 +426,45 @@ Both are **absolute values, not percentages**, unlike `[Armor]` and `[Durability
 850 is roughly what it granted at average skill level 50, so an established character sees no
 change while a new one starts at the old endgame. That was a deliberate trade, not an oversight.
 
-🚨 **Re-verify `[Player]` on any V+ upgrade.** All 24 keys were checked at 9.17.1 and every one
+🚨 **Re-verify `[Player]` on any V+ upgrade.** All 26 keys were enumerated at 9.17.1 and every one
 sits at a vanilla-equivalent default, which is what makes enabling the section neutral apart from
 the four pinned in `MOD_CONFIG`. A future release adding a non-neutral default would take effect
 **silently** — a pinned-off section could not do that.
+
+⚠️ **This said "24 keys" until 2026-07-29 and the number was wrong** — it had been asserted
+without anyone enumerating the section. The claim itself held up: all 26 are at V+'s shipped
+default apart from the pins. **Do not re-verify by eye.** `ValheimPlus.dll` embeds, as plain text,
+the default config it writes on first run, so the check is a *diff against the shipped defaults*
+rather than a judgement about what vanilla does — and the same command covers `[Gathering]` and
+`[Experience]`, which carry the same caveat:
+
+```powershell
+$env:KUBECONFIG = "C:\Users\RyanArnold\Downloads\kubeconfig"
+$p = kubectl get pod -n valheim -l app=valheim -o jsonpath='{.items[0].metadata.name}'
+$script = @'
+D=/opt/valheim/bepinex/BepInEx/plugins/ValheimPlus/ValheimPlus.dll
+C=/config/bepinex/valheim_plus.cfg
+T=$(mktemp -d); tr -c '[:print:]\n' '\n' < "$D" > "$T/flat"
+for S in Player Gathering Experience; do
+  echo "######## [$S] ########"
+  awk -v s="[$S]" '$0==s{f=1;next} f&&/^\[/{f=0} f' "$T/flat" | grep -E '^[A-Za-z]+=' | sed 's/=/ = /' | sort > "$T/def"
+  awk -v s="[$S]" '$0==s{f=1;next} f&&/^\[/{f=0} f' "$C" | tr -d '\r' | grep "=" | sort > "$T/live"
+  diff "$T/def" "$T/live" || true
+done
+'@
+kubectl exec -n valheim $p -c valheim -- sh -c "echo $([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($script))) | base64 -d | sh"
+```
+
+Every line the diff reports must be one of the pins in `MOD_CONFIG`. At 9.17.1 `[Player]` showed
+exactly four — `enabled`, `baseMaximumWeight`, `autoRepair`, `autoEquipShield`. `baseMegingjordBuff
+= 150` is pinned but shows **no** diff, because 150 is already the shipped default; that is the pin
+working, not a missing change. `[Gathering]` showed `enabled` plus the 18 material keys with
+`dropChance` untouched at `0`, and `[Experience]` showed `enabled` plus `pickaxes` only.
+
+One key looks alarming and is not: `iHaveArrivedOnSpawn = true` is a **disable toggle** — *"if set
+to false, disables the 'I have arrived!' message"* — so `true` is the neutral state rather than an
+opt-in. It is the only non-pinned key in the section that is not `false`, `0`, or an annotated
+game default.
 
 **V+ owns `valheim_plus.cfg` and rewrites it on every load** — it normalises line endings to LF,
 reformats `enabled=false` into `enabled = false`, and prepends a UTF-8 BOM. That is fine and
