@@ -157,6 +157,10 @@ data:
     #                  that weight is the entire reason taming a horse is worth doing. Enabling
     #                  this section would stomp it back to draggable. This pin previously read as
     #                  a SkilledCarryWeight collision; that mod is gone and the pin still stays.
+    #                  ✅ VERIFIED IN-GAME 2026-07-30, with this pin at false: a player on foot
+    #                  could NOT drag the horse cart. That is the whole point of the migration,
+    #                  and it is the negative case -- so if anyone ever finds the cart draggable,
+    #                  check this pin FIRST, before suspecting OdinHorse or a client mod.
     #
     # Everything else in V+ is free to enable -- building, hotkeys, food, stamina, map, etc.
     valheim_plus.cfg|Inventory|enabled|false
