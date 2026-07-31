@@ -254,7 +254,7 @@ silently replaces it with the ConfigMap value. If you want a change to stick, pu
 
 ## Modding (BepInEx)
 
-`BEPINEX: "true"` is set in `configmap.yaml`. **Twelve mods are installed**, fetched declaratively
+`BEPINEX: "true"` is set in `configmap.yaml`. **Thirteen mods are installed**, fetched declaratively
 by the `fetch-mods` initContainer from `mods-configmap.yaml`:
 
 | Mod | Version | Client install |
@@ -270,6 +270,7 @@ by the `fetch-mods` initContainer from `mods-configmap.yaml`:
 | OdinsFoodBarrels | 1.2.3 | **required** — *"required on both server and client for config sync"* |
 | XPortal | 1.2.24 | **required** — *"All players must run the same version"* |
 | OdinHorse | 1.6.5 | **required** (custom creature/item assets) |
+| Recycle_N_Reclaim | 1.4.0 | **required — kicks clients without it** |
 | PlantEverything | 1.20.0 | recommended (works without, minor cosmetic loss) |
 
 **`TrashItems` is deliberately not installed server-side.** It is a client-side inventory-UI mod
@@ -278,9 +279,9 @@ redraws the same inventory screen, and TrashItems pins `BepInExPack 5.4.800` and
 2024-01, so it predates AzuEPI's current version by roughly two years. If the inventory UI
 misbehaves, suspect it first.
 
-🚨 **Vanilla clients can no longer join.** AzuExtendedPlayerInventory *and* AzuContainerSizes each
-run a version check that kicks clients without them, and EpicLoot and Warfare need client-side
-assets. Every player must run the matching set, plus `BepInExPack_Valheim 5.4.2333`. r2modman
+🚨 **Vanilla clients can no longer join.** AzuExtendedPlayerInventory, AzuContainerSizes *and*
+Recycle_N_Reclaim each run a version check that kicks clients without them, and EpicLoot and
+Warfare need client-side assets. Every player must run the matching set, plus `BepInExPack_Valheim 5.4.2333`. r2modman
 pinned to these exact versions is the low-drift path. This reverses what this README said before
 mods existed — BepInEx alone imposed nothing on clients, but these specific mods do.
 
@@ -316,7 +317,7 @@ extracts it to the PVC. Two package layouts exist and are handled explicitly —
 
 It is **idempotent**: markers in `/config/bepinex/.mod-state` are keyed on version+sha256, so a
 normal restart downloads nothing (verified: re-running the installer reports `0 installed,
-12 already present`). This matters — Warfare alone is 182MB.
+13 already present`). This matters — Warfare alone is 182MB.
 
 A **checksum mismatch fails the pod deliberately.** This is executable code running inside the
 server. Because installs are idempotent, that only ever gates a first install or a version bump,
@@ -655,6 +656,37 @@ Verify a setting landed and survived the mod's own save cycle:
 kubectl logs -n valheim deploy/valheim -c fetch-mods | Select-String "\[cfg"
 kubectl exec -n valheim deploy/valheim -c valheim -- grep -B2 "^Extra Inventory Rows" /config/bepinex/Azumatt.AzuExtendedPlayerInventory.cfg
 ```
+
+#### Recycle_N_Reclaim
+
+Ten keys are pinned in `MOD_CONFIG`. Section names are **numbered** — `1 - General`,
+`2 - Inventory Recycle`, `3 - Reclaiming`, `4 - UI` — not the bare names the Thunderstore
+page lists. Pinning the bare names appends duplicate sections that the mod ignores, while
+logging success.
+
+| Setting | Value | Why |
+|---|---|---|
+| `[3 - Reclaiming] RecyclingRate` | `0.5` | Mod default, pinned so it is a recorded decision rather than drift |
+| `ReturnEnchantedResources` (**both** sections) | `false` | EpicLoot's Sacrifice stays the only conversion path for magic gear |
+| `AllowRecyclingUnknownRecipes`, `ReturnUnknownResources` | `false` | Three mods here add loot drops; without this a lucky drop skips a biome in materials |
+| `PreventZeroResourceYields`, `UnstackableItemsAlwaysReturnAtLeastOneResource` | `true` | At 50%, a 1-unit item yields 0.5 → nothing, silently eating cheap gear |
+| `[1 - General] Lock Configuration` | `true` | Clients cannot override server config locally |
+| `[2 - Inventory Recycle] Enabled` | `true` | Both halves of the mod are wanted |
+
+⚠️ **`ReturnEnchantedResources` is pinned twice on purpose.** It exists in both
+`[2 - Inventory Recycle]` and `[3 - Reclaiming]`, covering the discard path and the reclaim
+path independently. Deleting either as a duplicate reopens one of them.
+
+⚠️ **Per-item recycle rates are not achievable.** The mod reads
+`Azumatt.Recycle_N_Reclaim_ExcludeLists.yml`, whose `recycleRates` block overrides the
+global rate per item. `MOD_CONFIG` is INI `key = value` only and cannot manage a YAML
+side-file, so the global `0.5` applies to everything recyclable. Adding per-item rates
+means a new mechanism in `install-mods.sh`.
+
+If the crafting UI misbehaves, toggle `[4 - UI] EnableExperimentalCraftingTabUI` first — it
+ships enabled and appears to *be* the Reclaim tab. If the *inventory* screen misbehaves,
+disable `[2 - Inventory Recycle] Enabled`: that drops the half that contends with
+AzuExtendedPlayerInventory and keeps the Reclaim tab.
 
 ### Confirm the mod stack is healthy
 
