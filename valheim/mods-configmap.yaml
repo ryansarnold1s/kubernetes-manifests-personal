@@ -636,16 +636,35 @@ data:
     # whose recycleRates block overrides RecyclingRate per item. MOD_CONFIG is INI
     # key=value only and cannot manage a YAML side-file, so the global 0.5 applies to
     # everything. Per-item rates would need a new mechanism in install-mods.sh.
-    Azumatt.Recycle_N_Reclaim.cfg|1 - General|Lock Configuration|true
-    Azumatt.Recycle_N_Reclaim.cfg|2 - Inventory Recycle|Enabled|true
-    Azumatt.Recycle_N_Reclaim.cfg|2 - Inventory Recycle|Lock to Admin|false
-    Azumatt.Recycle_N_Reclaim.cfg|2 - Inventory Recycle|ReturnEnchantedResources|false
-    Azumatt.Recycle_N_Reclaim.cfg|2 - Inventory Recycle|ReturnUnknownResources|false
+    # ⚠️ VALUES ARE On/Off, NOT true/false. Every boolean-looking key here is
+    # "Setting type: Toggle" -- a two-member enum {Off, On} -- so BepInEx rejects
+    # `true`/`false` with "Requested value 'true' was not found" and silently keeps the
+    # mod's own default. RecyclingRate is the one genuine primitive (a float).
+    #
+    # 🚨 THIS SHIPPED WRONG ONCE, ON 2026-07-31. All nine Toggle keys were first written as
+    # true/false. The installer logged ten successful [cfg ] lines; nine were discarded by
+    # BepInEx. It was NOT caught by the config-file check either -- the file looked healthy,
+    # because the values in it were the mod's defaults, correctly formatted. The ONLY place
+    # it surfaced was the game container's own log:
+    #   kubectl logs -n valheim deploy/valheim -c valheim | Select-String "could not be parsed"
+    # Six of the nine happened to match the mod's defaults and looked fine. Three did not:
+    # both ReturnEnchantedResources keys stayed On (EpicLoot guard inactive) and
+    # Lock to Admin stayed On (inventory discard admin-only). Add that grep to the checks
+    # after ANY MOD_CONFIG change, for any mod -- a [cfg ] line means the applier wrote
+    # the file, never that the mod accepted the value.
+    #
+    # Before adding a key here, read its "# Setting type:" line in the generated .cfg on the
+    # PVC. Toggle -> On/Off. Do not infer the type from the key reading like a boolean.
+    Azumatt.Recycle_N_Reclaim.cfg|1 - General|Lock Configuration|On
+    Azumatt.Recycle_N_Reclaim.cfg|2 - Inventory Recycle|Enabled|On
+    Azumatt.Recycle_N_Reclaim.cfg|2 - Inventory Recycle|Lock to Admin|Off
+    Azumatt.Recycle_N_Reclaim.cfg|2 - Inventory Recycle|ReturnEnchantedResources|Off
+    Azumatt.Recycle_N_Reclaim.cfg|2 - Inventory Recycle|ReturnUnknownResources|Off
     Azumatt.Recycle_N_Reclaim.cfg|3 - Reclaiming|RecyclingRate|0.5
-    Azumatt.Recycle_N_Reclaim.cfg|3 - Reclaiming|ReturnEnchantedResources|false
-    Azumatt.Recycle_N_Reclaim.cfg|3 - Reclaiming|AllowRecyclingUnknownRecipes|false
-    Azumatt.Recycle_N_Reclaim.cfg|3 - Reclaiming|PreventZeroResourceYields|true
-    Azumatt.Recycle_N_Reclaim.cfg|3 - Reclaiming|UnstackableItemsAlwaysReturnAtLeastOneResource|true
+    Azumatt.Recycle_N_Reclaim.cfg|3 - Reclaiming|ReturnEnchantedResources|Off
+    Azumatt.Recycle_N_Reclaim.cfg|3 - Reclaiming|AllowRecyclingUnknownRecipes|Off
+    Azumatt.Recycle_N_Reclaim.cfg|3 - Reclaiming|PreventZeroResourceYields|On
+    Azumatt.Recycle_N_Reclaim.cfg|3 - Reclaiming|UnstackableItemsAlwaysReturnAtLeastOneResource|On
 
   install-mods.sh: |
     #!/bin/bash

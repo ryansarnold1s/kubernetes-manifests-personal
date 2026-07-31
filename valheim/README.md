@@ -667,15 +667,20 @@ Ten keys are pinned in `MOD_CONFIG`. Section names are **numbered** — `1 - Gen
 page lists. Pinning the bare names appends duplicate sections that the mod ignores, while
 logging success.
 
+🚨 **Values are `On`/`Off`, not `true`/`false`.** Every boolean-looking key here is
+`Setting type: Toggle` — a two-member enum. BepInEx rejects `true`/`false` with
+`Requested value 'true' was not found` and **silently keeps the mod's own default**, while
+the installer still logs a successful `[cfg ]` line. See "When a pin does not take" below.
+
 | Setting | Value | Why |
 |---|---|---|
-| `[3 - Reclaiming] RecyclingRate` | `0.5` | Mod default, pinned so it is a recorded decision rather than drift |
-| `ReturnEnchantedResources` (**both** sections) | `false` | EpicLoot's Sacrifice stays the only conversion path for magic gear |
-| `[3 - Reclaiming] AllowRecyclingUnknownRecipes`, `[2 - Inventory Recycle] ReturnUnknownResources` | `false` | Three mods here add loot drops; without this a lucky drop skips a biome in materials |
-| `PreventZeroResourceYields`, `UnstackableItemsAlwaysReturnAtLeastOneResource` | `true` | At 50%, a 1-unit item yields 0.5 → nothing, silently eating cheap gear |
-| `[1 - General] Lock Configuration` | `true` | Clients cannot override server config locally |
-| `[2 - Inventory Recycle] Enabled` | `true` | Both halves of the mod are wanted |
-| `[2 - Inventory Recycle] Lock to Admin` | `false` | The inventory-recycle half is wanted for players, not just admins |
+| `[3 - Reclaiming] RecyclingRate` | `0.5` | Mod default, pinned so it is a recorded decision rather than drift. The one genuine float here |
+| `ReturnEnchantedResources` (**both** sections) | `Off` | EpicLoot's Sacrifice stays the only conversion path for magic gear |
+| `[3 - Reclaiming] AllowRecyclingUnknownRecipes`, `[2 - Inventory Recycle] ReturnUnknownResources` | `Off` | Three mods here add loot drops; without this a lucky drop skips a biome in materials |
+| `PreventZeroResourceYields`, `UnstackableItemsAlwaysReturnAtLeastOneResource` | `On` | At 50%, a 1-unit item yields 0.5 → nothing, silently eating cheap gear |
+| `[1 - General] Lock Configuration` | `On` | Clients cannot override server config locally |
+| `[2 - Inventory Recycle] Enabled` | `On` | Both halves of the mod are wanted |
+| `[2 - Inventory Recycle] Lock to Admin` | `Off` | The inventory-recycle half is wanted for players, not just admins |
 
 ⚠️ **`ReturnEnchantedResources` is pinned twice on purpose.** It exists in both
 `[2 - Inventory Recycle]` and `[3 - Reclaiming]`, covering the discard path and the reclaim
@@ -691,6 +696,33 @@ If the crafting UI misbehaves, toggle `[4 - UI] EnableExperimentalCraftingTabUI`
 ships enabled and appears to *be* the Reclaim tab. If the *inventory* screen misbehaves,
 disable `[2 - Inventory Recycle] Enabled`: that drops the half that contends with
 AzuExtendedPlayerInventory and keeps the Reclaim tab.
+
+#### When a pin does not take
+
+🚨 **A `[cfg ]` line means the installer wrote the file. It never means the mod accepted
+the value.** After any `MOD_CONFIG` change, for any mod, check the game container's log:
+
+```powershell
+kubectl logs -n valheim deploy/valheim -c valheim | Select-String "could not be parsed"
+```
+
+Empty is the pass. Anything there is a pin that was **discarded**, and the mod is running
+its own default instead.
+
+⚠️ **The config file on the PVC will not reveal this.** A rejected value is overwritten with
+the mod's default, correctly formatted, in the right section — the file looks perfectly
+healthy. Reading it back tells you what the mod *is* using, not whether it is what you
+asked for. The log is the only place the difference shows.
+
+**This happened on 2026-07-31.** All nine Toggle keys of Recycle_N_Reclaim were first
+written as `true`/`false`; the installer logged ten successes and BepInEx discarded nine.
+Six of the nine coincidentally matched the mod's defaults and looked fine. Three did not:
+both `ReturnEnchantedResources` keys stayed `On`, leaving the EpicLoot guard inactive on
+both paths, and `Lock to Admin` stayed `On`, making inventory discard admin-only. It took a
+second apply and restart to fix.
+
+Before pinning a new key, read its `# Setting type:` line in the generated `.cfg` on the
+PVC. `Toggle` → `On`/`Off`. Do not infer the type from a key that reads like a boolean.
 
 ### Confirm the mod stack is healthy
 
