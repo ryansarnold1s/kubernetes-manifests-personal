@@ -740,3 +740,34 @@ git commit -m "Record the in-game verification for Recycle_N_Reclaim"
 | §8 ExcludeLists limitation | Task 1 Step 4 comment; Task 2 Step 6 |
 | §9 rollback | Task 5 Step 8 |
 | §10 risks | Task 4 Step 5; Task 5 Steps 5, 8 |
+
+---
+
+## Correction — 2026-07-31, after Task 3 executed
+
+Tasks 1-4 completed; the values in Task 1 Step 4 were **wrong** and needed a second apply.
+
+`true`/`false` are not valid for this mod's keys — they are `Setting type: Toggle`, an enum
+of `Off`/`On`. Nine of ten pins were discarded by BepInEx on first boot while the installer
+logged ten successes. Corrected in `mods-configmap.yaml` at commit `1276e86`: `On` for every
+`true`, `Off` for every `false`, `RecyclingRate` unchanged at `0.5`.
+
+**Task 1 Step 4's code block above still shows the original wrong values.** It is left as
+written because the task is complete and this repo appends corrections rather than rewriting
+history — but do not copy those ten lines. The manifest is the source of truth.
+
+**Task 4 Step 1-3 could not have caught this**, and the reason matters for future plans: a
+rejected value is replaced by the mod's default, correctly formatted, in the right section.
+The phantom-cfg test, the section/key count check, and the value read-back all pass on a
+file carrying values nobody chose. Add this to Task 3 Step 7 for any future `MOD_CONFIG`
+change:
+
+```powershell
+kubectl logs -n valheim deploy/valheim -c valheim | Select-String "could not be parsed"
+```
+
+Empty is the pass. This is the only check that sees a rejected pin.
+
+Also resolved from the parked residuals: the C4 grep pattern needed no adjustment — BepInEx
+logs the display name as `Loading [Recycle_N_Reclaim 1.4.0]`, matching the pattern as
+written.

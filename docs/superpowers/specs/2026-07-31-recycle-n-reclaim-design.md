@@ -294,3 +294,61 @@ with the server no longer running it, there is nothing to kick on.
 | Section names wrong → duplicate sections, logged as success | Low | Resolved by §4; the §7.3 count check catches any residual |
 | A player joins without the mod during the window | Low | They are kicked, cleanly and reversibly. §7.1 coordinates it |
 | Balance turns out wrong at 50% | Low | Server-synced single value; one line and a restart |
+
+---
+
+## 11. Correction — 2026-07-31, applied same day
+
+**§6.2's ten pin lines were wrong.** They used `true`/`false`. Every boolean-looking key in
+this mod is `Setting type: Toggle`, a two-member enum whose acceptable values are `Off` and
+`On`. BepInEx rejected nine of the ten with `Requested value 'true' was not found` and kept
+the mod's own default. Only `RecyclingRate` — a genuine float — applied as written.
+
+The corrected values are `On` where §6.2 said `true` and `Off` where it said `false`;
+`RecyclingRate` is unchanged at `0.5`. Live values verified after re-apply.
+
+### Why the design's own verification did not catch it
+
+§7.3 was built around the wrong failure mode. It assumed a bad pin would show up as a
+**missing or duplicated section** in the config file, and the phantom-cfg test and count
+check were both aimed there. Neither could see this:
+
+- **A rejected value is not absent from the file.** BepInEx overwrites it with the mod's
+  default, correctly formatted, in the correct section. The file passes every structural
+  check in §7.3 while carrying values nobody chose.
+- **§7.3's value check reads the file back.** That confirms what the mod *is* using, not
+  whether it matches what was asked for. When the default coincides with the intent — six
+  of nine here — the check passes and proves nothing.
+
+The failure was visible in exactly one place, which §7.3 never consulted: the game
+container's log.
+
+```powershell
+kubectl logs -n valheim deploy/valheim -c valheim | Select-String "could not be parsed"
+```
+
+**This check belongs in the verification of any `MOD_CONFIG` change, for any mod.** Empty is
+the pass. It is now documented in `valheim/README.md` under "When a pin does not take".
+
+### What was actually at risk
+
+Six of the nine rejected pins coincidentally matched the mod's defaults. Three did not, and
+all three were decisions from §5:
+
+| Pin | Intended | Ran as | Consequence |
+|---|---|---|---|
+| `[2 - Inventory Recycle] ReturnEnchantedResources` | `Off` | `On` | EpicLoot guard inactive on the discard path |
+| `[3 - Reclaiming] ReturnEnchantedResources` | `Off` | `On` | EpicLoot guard inactive on the reclaim path |
+| `[2 - Inventory Recycle] Lock to Admin` | `Off` | `On` | Inventory discard admin-only — the half §1 wanted for players |
+
+Nobody played during the window, so no magic item was recycled under the wrong setting.
+
+### The generalisable lesson
+
+A `[cfg ]` line in the installer log means the applier wrote the file. It never means the
+mod accepted the value. §4 already warned that `[cfg ]` success lines are not evidence —
+that warning was written about wrong *section names* and turned out to apply just as well
+to wrong *value types*, a case it did not anticipate.
+
+Before pinning a new key, read its `# Setting type:` line in the generated `.cfg` on the
+PVC. Do not infer the type from a key that reads like a boolean.
