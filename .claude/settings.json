@@ -97,6 +97,20 @@
       "PowerShell(kubectl logs *)",
       "Bash(kubectl rollout status *)",
       "PowerShell(kubectl rollout status *)",
+      "Bash(kubectl get ingress*)",
+      "PowerShell(kubectl get ingress*)",
+      "Bash(kubectl get externalsecret*)",
+      "PowerShell(kubectl get externalsecret*)",
+      "PowerShell(cd *)",
+      "PowerShell(Set-Location *)",
+      "PowerShell(Get-ChildItem *)",
+      "PowerShell(Get-Content *)",
+      "PowerShell(Select-String *)",
+      "PowerShell(Select-Object *)",
+      "PowerShell(Sort-Object *)",
+      "PowerShell(Format-Table *)",
+      "PowerShell(Write-Output *)",
+      "PowerShell(Write-Host *)",
       "mcp__plugin_microsoft-docs_microsoft-learn__microsoft_docs_search"
     ]
   }
