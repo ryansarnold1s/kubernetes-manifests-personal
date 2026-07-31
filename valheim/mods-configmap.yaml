@@ -42,7 +42,8 @@ data:
   #
   # Checksums captured from the real downloads (2026-07-27).
   # CLIENT INSTALL: every mod here except PlantEverything must also be on each client.
-  # AzuExtendedPlayerInventory and AzuContainerSizes actively KICK clients that lack them.
+  # AzuExtendedPlayerInventory, AzuContainerSizes and Recycle_N_Reclaim actively KICK
+  # clients that lack them.
   # See README.md for the full client list.
   MODS: |
     Jotunn                     2.29.2   https://thunderstore.io/package/download/ValheimModding/Jotunn/2.29.2/                      c018eb5876ea0b4a509c32b7926055918ea95bc4698610df6b2acc58d72029ad  plugins
@@ -67,6 +68,21 @@ data:
     #
     # ⚠️ Requires the [Wagon] pin in MOD_CONFIG to stay disabled -- see the note there.
     OdinHorse                  1.6.5    https://thunderstore.io/package/download/OdinPlus/OdinHorse/1.6.5/                          23a455aa79c074f2098107ea9f09f044460442d152732d928f511a16023209bc  root
+    # Recycle_N_Reclaim: un-craft items back into components at a crafting station
+    # ([3 - Reclaiming]) and discard items from the inventory screen
+    # ([2 - Inventory Recycle]). Both halves are deliberately enabled -- see MOD_CONFIG.
+    #
+    # 🚨 KICKS CLIENTS THAT LACK IT. Its own README: "Version checks with itself. If
+    # installed on the server, it will kick clients who do not have it installed."
+    # Confirmed statically too: RemoveDisconnectedPeerFromVerified and RPC_*_Version are
+    # present, matching AzuEPI and AzuContainerSizes and absent from PlantEverything and
+    # XPortal. Note that MinimumRequiredVersion and DisconnectClient are NOT discriminating
+    # -- PlantEverything has both and does not kick. Use the other two markers.
+    #
+    # Registers NO prefabs (AssetBundle/LoadAsset/PrefabManager/CustomItem/CustomPrefab/
+    # ItemManager all zero, no bundled assets), so unlike EpicLoot/Warfare/Armory/
+    # OdinsFoodBarrels/OdinHorse this one is free to remove without orphaning ZDOs.
+    Recycle_N_Reclaim          1.4.0    https://thunderstore.io/package/download/Azumatt/Recycle_N_Reclaim/1.4.0/                    919794da00dc630dc2171c9f1daefb9df97117ee15119b4d7fe1f7454aaa4d16  root
     # TrashItems is deliberately NOT here. It is a client-side inventory-UI mod with no server
     # role, and it would contend with AzuExtendedPlayerInventory, which redraws the same screen.
     # Its dependency pin is BepInExPack 5.4.800 and it was last updated 2024-01, so it predates
@@ -576,6 +592,57 @@ data:
     #
     # Not changed, but adjacent if wanted: [Crops] CropsRequireSunlight is true, so crops will not
     # grow under a roof -- the same restriction family as the workbench roof check lifted above.
+    #
+    # Recycle_N_Reclaim. Section names are NUMBERED -- "1 - General", "2 - Inventory
+    # Recycle", "3 - Reclaiming", "4 - UI" -- NOT the bare names the Thunderstore page
+    # lists. Verified against literals in the 1.4.0 DLL. Pinning the bare names would
+    # append four duplicate sections that the mod ignores, while logging four successful
+    # [cfg ] lines.
+    #
+    # ⚠️ ReturnEnchantedResources appears TWICE on purpose. The key genuinely exists in
+    # both [2 - Inventory Recycle] and [3 - Reclaiming], governing the discard path and the
+    # reclaim path independently. Deleting either line as a duplicate reopens one of them.
+    #
+    # Lock Configuration = true: clients cannot override server config locally, matching
+    # this file's rule that MOD_CONFIG is the source of truth and in-game edits are
+    # reverted on the next boot.
+    #
+    # ReturnEnchantedResources = false (both): EpicLoot's Sacrifice at the Enchanter stays
+    # the ONLY conversion path for magic gear, at EpicLoot's own balance. The mod's README
+    # confirms the overlap is real -- "If on and Epic Loot or Jewelcrafting is installed,
+    # discarding an item in the inventory will return resources for Epic Loot".
+    #
+    # AllowRecyclingUnknownRecipes / ReturnUnknownResources = false: EpicLoot, Warfare and
+    # Armory all add loot drops. Without these, a lucky Meadows drop converts into
+    # out-of-tier materials and skips a biome.
+    #
+    # PreventZeroResourceYields / UnstackableItemsAlwaysReturnAtLeastOneResource = true:
+    # at RecyclingRate 0.5 a 1-unit item yields 0.5 -> nothing. Without these, recycling
+    # cheap gear silently consumes it for no return.
+    #
+    # RecyclingRate is pinned at the mod's own default so the value is recorded as a
+    # decision rather than left to drift, the same reason baseMegingjordBuff is pinned at
+    # its vanilla 150 above.
+    #
+    # NOT pinned, deliberately: RequireExactCraftingStationForRecycling (default on, the
+    # author's note says it keeps behaviour close to vanilla); all keybinds (client-side
+    # preference); EnableExperimentalCraftingTabUI (default on, and it appears to BE the
+    # Reclaim tab -- ⚠️ first thing to toggle if the crafting UI misbehaves).
+    #
+    # ⚠️ NOT MANAGEABLE HERE: the mod also reads Azumatt.Recycle_N_Reclaim_ExcludeLists.yml,
+    # whose recycleRates block overrides RecyclingRate per item. MOD_CONFIG is INI
+    # key=value only and cannot manage a YAML side-file, so the global 0.5 applies to
+    # everything. Per-item rates would need a new mechanism in install-mods.sh.
+    Azumatt.Recycle_N_Reclaim.cfg|1 - General|Lock Configuration|true
+    Azumatt.Recycle_N_Reclaim.cfg|2 - Inventory Recycle|Enabled|true
+    Azumatt.Recycle_N_Reclaim.cfg|2 - Inventory Recycle|Lock to Admin|false
+    Azumatt.Recycle_N_Reclaim.cfg|2 - Inventory Recycle|ReturnEnchantedResources|false
+    Azumatt.Recycle_N_Reclaim.cfg|2 - Inventory Recycle|ReturnUnknownResources|false
+    Azumatt.Recycle_N_Reclaim.cfg|3 - Reclaiming|RecyclingRate|0.5
+    Azumatt.Recycle_N_Reclaim.cfg|3 - Reclaiming|ReturnEnchantedResources|false
+    Azumatt.Recycle_N_Reclaim.cfg|3 - Reclaiming|AllowRecyclingUnknownRecipes|false
+    Azumatt.Recycle_N_Reclaim.cfg|3 - Reclaiming|PreventZeroResourceYields|true
+    Azumatt.Recycle_N_Reclaim.cfg|3 - Reclaiming|UnstackableItemsAlwaysReturnAtLeastOneResource|true
 
   install-mods.sh: |
     #!/bin/bash
