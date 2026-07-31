@@ -672,6 +672,7 @@ logging success.
 | `PreventZeroResourceYields`, `UnstackableItemsAlwaysReturnAtLeastOneResource` | `true` | At 50%, a 1-unit item yields 0.5 → nothing, silently eating cheap gear |
 | `[1 - General] Lock Configuration` | `true` | Clients cannot override server config locally |
 | `[2 - Inventory Recycle] Enabled` | `true` | Both halves of the mod are wanted |
+| `[2 - Inventory Recycle] Lock to Admin` | `false` | The inventory-recycle half is wanted for players, not just admins |
 
 ⚠️ **`ReturnEnchantedResources` is pinned twice on purpose.** It exists in both
 `[2 - Inventory Recycle]` and `[3 - Reclaiming]`, covering the discard path and the reclaim
@@ -695,7 +696,7 @@ kubectl logs -n valheim deploy/valheim -c fetch-mods          # installer result
 kubectl logs -n valheim deploy/valheim -c valheim | Select-String "plugins to load|Loading \["
 ```
 
-Expect `12 plugins to load`, a `Loading [...]` line per mod, and `Chainloader startup complete`
+Expect `13 plugins to load`, a `Loading [...]` line per mod, and `Chainloader startup complete`
 (BepInEx 5.4.23.3).
 
 ### If the server goes unreachable after a framework change
