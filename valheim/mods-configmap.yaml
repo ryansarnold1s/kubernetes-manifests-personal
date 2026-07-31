@@ -40,7 +40,7 @@ data:
   # BepInEx/config/ (the live install symlinks it). Only Warfare ships one -- its
   # TherzieTranslations YAMLs. Verified against each zip's actual contents, not assumed.
   #
-  # Checksums captured from the real downloads (2026-07-27).
+  # Checksums captured from the real downloads (2026-07-27; later additions dated at their entry).
   # CLIENT INSTALL: every mod here except PlantEverything must also be on each client.
   # AzuExtendedPlayerInventory, AzuContainerSizes and Recycle_N_Reclaim actively KICK
   # clients that lack them.
@@ -84,7 +84,10 @@ data:
     # OdinsFoodBarrels/OdinHorse this one is free to remove without orphaning ZDOs.
     Recycle_N_Reclaim          1.4.0    https://thunderstore.io/package/download/Azumatt/Recycle_N_Reclaim/1.4.0/                    919794da00dc630dc2171c9f1daefb9df97117ee15119b4d7fe1f7454aaa4d16  root
     # TrashItems is deliberately NOT here. It is a client-side inventory-UI mod with no server
-    # role, and it would contend with AzuExtendedPlayerInventory, which redraws the same screen.
+    # role, and it would contend with AzuExtendedPlayerInventory AND Recycle_N_Reclaim's
+    # [2 - Inventory Recycle] half, both of which already redraw that same screen. That
+    # three-way contention was accepted knowingly -- it is the top risk on Recycle_N_Reclaim's
+    # design spec -- and is gated by an in-game check, not assumed safe.
     # Its dependency pin is BepInExPack 5.4.800 and it was last updated 2024-01, so it predates
     # AzuEPI's current version by ~2 years. Install it per-client and test the inventory UI.
     #
@@ -593,11 +596,11 @@ data:
     # Not changed, but adjacent if wanted: [Crops] CropsRequireSunlight is true, so crops will not
     # grow under a roof -- the same restriction family as the workbench roof check lifted above.
     #
-    # Recycle_N_Reclaim. Section names are NUMBERED -- "1 - General", "2 - Inventory
-    # Recycle", "3 - Reclaiming", "4 - UI" -- NOT the bare names the Thunderstore page
-    # lists. Verified against literals in the 1.4.0 DLL. Pinning the bare names would
-    # append four duplicate sections that the mod ignores, while logging four successful
-    # [cfg ] lines.
+    # --- Recycle_N_Reclaim: un-craft at a station, discard from the inventory ---------------
+    # Section names are NUMBERED -- "1 - General", "2 - Inventory Recycle", "3 - Reclaiming",
+    # "4 - UI" -- NOT the bare names the Thunderstore page lists. Verified against literals in
+    # the 1.4.0 DLL. Pinning the bare names would append four duplicate sections that the mod
+    # ignores, while logging ten successful [cfg ] lines.
     #
     # ⚠️ ReturnEnchantedResources appears TWICE on purpose. The key genuinely exists in
     # both [2 - Inventory Recycle] and [3 - Reclaiming], governing the discard path and the

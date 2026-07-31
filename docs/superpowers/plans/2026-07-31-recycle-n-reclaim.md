@@ -35,6 +35,8 @@
 | Config file | `Azumatt.Recycle_N_Reclaim.cfg` |
 | Sections | `1 - General`, `2 - Inventory Recycle`, `3 - Reclaiming`, `4 - UI` |
 
+Note: `layout=root` copies only `*.dll` at maxdepth 1, so the zip's own `README.md` — source of the "it will kick clients" quote — is discarded and never reaches the PVC; the `MOD_CONFIG` comment in `mods-configmap.yaml` is the only surviving copy.
+
 ---
 
 ## File Structure
@@ -463,6 +465,14 @@ Expected, all four:
 | Prune | `pruning mods no longer in MODS (0 to remove)` |
 | Closing `ls -1` | 13 directories, including `Recycle_N_Reclaim` |
 
+The four rows above all come from `kubectl logs -n valheim deploy/valheim -c fetch-mods` — they prove the **installer** staged the DLL, not that BepInEx actually loaded it. A directory can exist on disk even if the DLL inside it threw on load. The README's claim of `13 plugins to load` is a separate, stronger assertion and is checked with a different command against a different container:
+
+```powershell
+kubectl logs -n valheim deploy/valheim -c valheim | Select-String "plugins to load|Loading \["
+```
+
+Expected: `13 plugins to load`, and a `Loading [...]` line naming Recycle_N_Reclaim among the others. This is the check that actually confirms the README's `13 plugins to load` claim — the directory count in the table above does not.
+
 🚨 If the log shows `[FAIL ] Recycle_N_Reclaim checksum mismatch`, the pod will not start — this is deliberate. Do not "fix" it by editing the sha to match what was downloaded. Re-derive the checksum from a fresh download and confirm it equals `919794da00dc630dc2171c9f1daefb9df97117ee15119b4d7fe1f7454aaa4d16`; if it does not, the artifact changed upstream and that needs a human decision, not a new pin.
 
 🚨 If the prune line reports anything other than `0 to remove`, stop immediately. Nothing in this change removes a mod.
@@ -472,6 +482,14 @@ Expected, all four:
 Re-run the Step 3 command block.
 
 Expected: 13 plugin directories including `Recycle_N_Reclaim`; the marker file now exists and `cat` of it reads `1.4.0 919794da00dc630dc2171c9f1daefb9df97117ee15119b4d7fe1f7454aaa4d16`; the cfg now exists.
+
+⚠️ **First-boot side-file risk.** The mod also reads `Azumatt.Recycle_N_Reclaim_ExcludeLists.yml`, which does not exist yet on this first boot and which nothing in this change creates. The mod is expected to write its own default on first run; if it throws instead, the plugin can silently fail to load while the `fetch-mods` log above still reads clean — that log only proves the installer worked, not that BepInEx loaded the DLL. Cheap check, grep the game container's log for an exception near the plugin's load line:
+
+```powershell
+kubectl logs -n valheim deploy/valheim -c valheim | Select-String -Context 0,5 "Loading \[Recycle_N_Reclaim"
+```
+
+Expected: no `Exception` or stack trace in the lines following the load line.
 
 - [ ] **Step 9: No commit**
 
@@ -492,6 +510,14 @@ This task changes nothing in the repo. Do not create an empty commit.
 
 `set_cfg` **creates** a config file when one is absent. If the mod's real BepInEx GUID is not `Azumatt.Recycle_N_Reclaim`, the installer writes a file nobody reads, the mod runs on its own defaults, and **ten `[cfg ]` success lines are logged anyway.** This step is the only thing that catches it.
 
+⚠️ **Run this only after the mod has actually loaded, not right after Task 3's restart completes.** The `fetch-mods` initContainer runs *before* the game container, so immediately after a restart the config legitimately contains only what `set_cfg` wrote — 3 sections, exactly 10 keys, and zero `##` headers, because `4 - UI` is never pinned. That is the *identical* signature to a wrong-GUID phantom file. Confirm the mod has loaded first:
+
+```powershell
+kubectl logs -n valheim deploy/valheim -c valheim | Select-String "Chainloader startup complete"
+```
+
+Wait for a hit before running the command below.
+
 ```powershell
 $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(@'
 echo "=== all cfg files, newest first ==="
@@ -507,12 +533,13 @@ echo "=== first 30 lines ==="; head -30 "$F"
 kubectl exec -n valheim deploy/valheim -c valheim -- bash -c "echo $b64 | base64 -d | bash"
 ```
 
-Interpretation — this is the whole point of the step:
+Interpretation — this is the whole point of the step. The `ls -lt /config/bepinex/*.cfg` listing is the **primary** evidence: the decisive question is whether a *differently-named* `Azumatt.*Recycl*.cfg` exists. The section/key/header counts below are corroborating, not sufficient on their own — see the pre-load row:
 
 | Observation | Meaning | Action |
 |---|---|---|
 | `## comment headers` > 0, keys ≫ 10, sections ≥ 4 | The **mod** wrote this file. Correct GUID. | Continue to Step 2 |
-| `## comment headers` == 0 **and** keys == 10 | `set_cfg` **invented** this file. Wrong GUID — the pins are inert. | Stop. Go to Step 5 |
+| 3 sections, 10 keys, 0 `##` headers, **and the chainloader has not finished** | Too early — this is what a healthy first boot looks like before the mod has rewritten the file. Not a defect. | Wait for `Chainloader startup complete`, then re-run |
+| `## comment headers` == 0 **and** keys == 10, **after** the chainloader has finished | `set_cfg` **invented** this file. Wrong GUID — the pins are inert. | Stop. Go to Step 5 |
 | A different `Azumatt.*Recycle*.cfg` appears in the listing | The real GUID is that filename. | Stop. Go to Step 5 |
 
 - [ ] **Step 2: Verify all ten pinned values, in their correct sections**
@@ -544,9 +571,19 @@ Expected, exactly these ten:
 
 🚨 **Two `ReturnEnchantedResources` lines must appear, under different section headers.** One line means only one path is guarded. Zero lines under `[3 - Reclaiming]` with two under `[2 - Inventory Recycle]` means a section match failed and both writes landed in the same place.
 
+🚨 **Also confirm `[4 - UI]` exists, spelled exactly that way.** Nothing in `MOD_CONFIG` pins into it, but both this plan and the README recommend `[4 - UI] EnableExperimentalCraftingTabUI` as the first thing to toggle if the crafting UI misbehaves — an unverified string until this runs:
+
+```powershell
+kubectl exec -n valheim deploy/valheim -c valheim -- grep -c "^\[4 - UI\]" /config/bepinex/Azumatt.Recycle_N_Reclaim.cfg
+```
+
+Expected: `1`. A `0` means the documented rollback path names a section header that does not actually exist.
+
 - [ ] **Step 3: Count-stability check across a restart**
 
 An appended duplicate section is the signature of a failed match, and it only shows up on the *second* application of `MOD_CONFIG` — the first run creates, the second run is where a mismatched section name duplicates.
+
+⚠️ **Capture the BEFORE snapshot only after `Chainloader startup complete` has appeared in the log** (per Step 1). If BEFORE is taken pre-load, the file is legitimately still 3 sections / 10 keys, and AFTER — captured post-restart with the mod loaded — will show more of both. That divergence is benign, not a duplicate-section bug, but this check has no way to tell the difference.
 
 ```powershell
 # capture BEFORE

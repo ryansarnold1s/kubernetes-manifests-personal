@@ -277,13 +277,16 @@ by the `fetch-mods` initContainer from `mods-configmap.yaml`:
 with no server role. Install it per-client if wanted, but test it: AzuExtendedPlayerInventory
 redraws the same inventory screen, and TrashItems pins `BepInExPack 5.4.800` and was last updated
 2024-01, so it predates AzuEPI's current version by roughly two years. If the inventory UI
-misbehaves, suspect it first.
+misbehaves, suspect it first — and note that Recycle_N_Reclaim's `[2 - Inventory Recycle]` half
+now also draws on this screen; see the Recycle_N_Reclaim section below for how to disable that
+half without removing the mod.
 
 🚨 **Vanilla clients can no longer join.** AzuExtendedPlayerInventory, AzuContainerSizes *and*
 Recycle_N_Reclaim each run a version check that kicks clients without them, and EpicLoot and
-Warfare need client-side assets. Every player must run the matching set, plus `BepInExPack_Valheim 5.4.2333`. r2modman
-pinned to these exact versions is the low-drift path. This reverses what this README said before
-mods existed — BepInEx alone imposed nothing on clients, but these specific mods do.
+Warfare need client-side assets. Every player must run the matching set, plus
+`BepInExPack_Valheim 5.4.2333`. r2modman pinned to these exact versions is the low-drift path.
+This reverses what this README said before mods existed — BepInEx alone imposed nothing on
+clients, but these specific mods do.
 
 ⚠️ **`JsonDotNET` is the one people skip**, because it reads as a library rather than a mod. Without
 it the client logs `Could not load [Epic Loot] because it has missing dependencies:
@@ -647,7 +650,7 @@ action needed for those. Config filenames available to target:
 ```
 Azumatt.AzuExtendedPlayerInventory.cfg    Azumatt.AzuContainerSizes.cfg
 randyknapp.mods.epicloot.cfg              Therzie.Warfare.cfg
-advize.PlantEverything.cfg
+advize.PlantEverything.cfg                Azumatt.Recycle_N_Reclaim.cfg
 ```
 
 Verify a setting landed and survived the mod's own save cycle:
@@ -668,7 +671,7 @@ logging success.
 |---|---|---|
 | `[3 - Reclaiming] RecyclingRate` | `0.5` | Mod default, pinned so it is a recorded decision rather than drift |
 | `ReturnEnchantedResources` (**both** sections) | `false` | EpicLoot's Sacrifice stays the only conversion path for magic gear |
-| `AllowRecyclingUnknownRecipes`, `ReturnUnknownResources` | `false` | Three mods here add loot drops; without this a lucky drop skips a biome in materials |
+| `[3 - Reclaiming] AllowRecyclingUnknownRecipes`, `[2 - Inventory Recycle] ReturnUnknownResources` | `false` | Three mods here add loot drops; without this a lucky drop skips a biome in materials |
 | `PreventZeroResourceYields`, `UnstackableItemsAlwaysReturnAtLeastOneResource` | `true` | At 50%, a 1-unit item yields 0.5 → nothing, silently eating cheap gear |
 | `[1 - General] Lock Configuration` | `true` | Clients cannot override server config locally |
 | `[2 - Inventory Recycle] Enabled` | `true` | Both halves of the mod are wanted |
