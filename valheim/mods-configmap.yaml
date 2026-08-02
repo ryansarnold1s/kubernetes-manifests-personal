@@ -41,9 +41,10 @@ data:
   # TherzieTranslations YAMLs. Verified against each zip's actual contents, not assumed.
   #
   # Checksums captured from the real downloads (2026-07-27; later additions dated at their entry).
-  # CLIENT INSTALL: every mod here except PlantEverything must also be on each client.
-  # AzuExtendedPlayerInventory, AzuContainerSizes and Recycle_N_Reclaim actively KICK
-  # clients that lack them.
+  # CLIENT INSTALL: every mod here except PlantEverything and LazyVikings must also be on
+  # each client. AzuExtendedPlayerInventory, AzuContainerSizes and Recycle_N_Reclaim actively
+  # KICK clients that lack them. LazyVikings does not kick, but its automation runs on the
+  # ZDO owner, so a player without it may see no auto-cooking -- install it anyway.
   # See README.md for the full client list.
   MODS: |
     Jotunn                     2.29.2   https://thunderstore.io/package/download/ValheimModding/Jotunn/2.29.2/                      c018eb5876ea0b4a509c32b7926055918ea95bc4698610df6b2acc58d72029ad  plugins
@@ -83,6 +84,28 @@ data:
     # ItemManager all zero, no bundled assets), so unlike EpicLoot/Warfare/Armory/
     # OdinsFoodBarrels/OdinHorse this one is free to remove without orphaning ZDOs.
     Recycle_N_Reclaim          1.4.0    https://thunderstore.io/package/download/Azumatt/Recycle_N_Reclaim/1.4.0/                    919794da00dc630dc2171c9f1daefb9df97117ee15119b4d7fe1f7454aaa4d16  root
+    # --- LazyVikings: unattended cooking-station automation, NARROWED to that alone -------
+    #
+    # Fills cooking stations from nearby containers WITHOUT player interaction. This is the
+    # one thing ValheimPlus cannot do: V+ implements the interact-driven half
+    # (CookingStation_FindCookableItem_Transpiler -> PullCookableItemFromNearbyChests, which
+    # DOES work -- press E at a grill and it takes meat from a nearby chest) but has no
+    # unattended engine. Its own patch set shows the gap: Smelter has both
+    # FindCookableItem_Transpiler AND UpdateSmelter_Patch; CookingStation has only the former.
+    # There is no [CookingStation] section in valheim_plus.cfg at all.
+    #
+    # 🚨 EVERY OTHER STATION TYPE IS PINNED OFF in MOD_CONFIG. This mod can also automate
+    # Kilns, Smelters, Windmills, Fermenters, Beehives, SapCollectors, SpinningWheels,
+    # EitrRefineries, Stone Ovens and Fireplaces -- all of which ValheimPlus ALREADY does.
+    # Enabling any of them puts two mods on the same station. See the MOD_CONFIG block.
+    #
+    # Does NOT kick clients: RemoveDisconnectedPeerFromVerified and RPC_*_Version are both 0,
+    # matching PlantEverything and XPortal, unlike AzuEPI and Recycle_N_Reclaim which have
+    # both. It does carry ServerSync, so config still reaches clients.
+    #
+    # Registers no prefabs, so removal is clean. Patches with Harmony Prefix rather than
+    # transpilers, which is why a 2025-10-20 release is still fine against current Valheim.
+    LazyVikings                1.2.3    https://thunderstore.io/package/download/blacks7ar/LazyVikings/1.2.3/                        25cc50aeb44be09d08998b937dde671b60f8a420656d5b36cc236c52c8588437  root
     # TrashItems is deliberately NOT here. It is a client-side inventory-UI mod with no server
     # role, and it would contend with AzuExtendedPlayerInventory AND Recycle_N_Reclaim's
     # [2 - Inventory Recycle] half, both of which already redraw that same screen. That
@@ -746,6 +769,62 @@ data:
     Azumatt.Recycle_N_Reclaim.cfg|3 - Reclaiming|AllowRecyclingUnknownRecipes|Off
     Azumatt.Recycle_N_Reclaim.cfg|3 - Reclaiming|PreventZeroResourceYields|On
     Azumatt.Recycle_N_Reclaim.cfg|3 - Reclaiming|UnstackableItemsAlwaysReturnAtLeastOneResource|On
+    #
+    # --- LazyVikings: ONLY the two cooking stations are enabled ----------------------------
+    #
+    # ⚠️ SECTION NAMES ARE "NN- Name" -- zero-padded, NO space before the dash, one space
+    # after. This is a THIRD convention in this file: Azumatt uses "2 - Inventory Recycle",
+    # ValheimPlus uses bare [Time], this uses "05- Cooking Station". Recovered from literals
+    # in the 1.2.3 DLL. A regex written for one convention silently misses the others -- the
+    # first recon pass here searched for "N - Name" and found nothing, which read as a clean
+    # negative result.
+    #
+    # 🚨 VALUES ARE On/Off, NOT true/false. Every description in the mod reads "If On, ..."
+    # and the setting type is Toggle. This is the same failure that cost two restarts on
+    # Recycle_N_Reclaim on 2026-07-31: BepInEx rejects true/false, keeps the mod's own
+    # default, and the installer logs a successful [cfg ] line anyway. After applying, ALWAYS:
+    #   kubectl logs -n valheim deploy/valheim -c valheim | Select-String "could not be parsed"
+    # Empty is the pass.
+    #
+    # 🚨 THE FOURTEEN "Off" LINES ARE LOAD-BEARING. They are not redundant defaults. Each
+    # names a station ValheimPlus ALREADY automates, and turning one On puts two mods on the
+    # same station:
+    #   03- Beehive        -> V+ [Beehive] autoDeposit
+    #   04- Blast Furnace  -> not present here; off for consistency
+    #   06- Eitr Refinery  -> V+ [EitrRefinery] autoDeposit/autoFuel
+    #   07- Fermenter      -> V+ [Fermenter] autoDeposit/autoFuel
+    #   08- Hot Tub        -> not automated here; off for consistency
+    #   10- Kiln           -> V+ [Kiln] autoDeposit/autoFuel
+    #   11- SapCollector   -> V+ [SapCollector] autoDeposit
+    #   12- Smelter        -> V+ [Smelter] autoDeposit/autoFuel
+    #   13- Spinning Wheel -> V+ [SpinningWheel] autoDeposit/autoFuel
+    #   14- Stone Oven     -> V+ [Oven] autoFuel
+    #   15- Windmill       -> V+ [Windmill] autoDeposit/autoFuel
+    #   16- Fireplace      -> V+ [FireSource] autoFuel
+    #   17- Steel Kiln     -> not present here; off for consistency
+    #   18- Steel Slack Tub-> not present here; off for consistency
+    # DO NOT "tidy up" these lines.
+    #
+    # 02- General is deliberately not pinned -- its keys were not enumerated and nothing here
+    # depends on them. Per-station detection ranges are left at defaults; adjust as a
+    # follow-up if the cooking-station pull radius proves wrong.
+    blacks7ar.LazyVikings.cfg|01- ServerSync|Lock Configuration|On
+    blacks7ar.LazyVikings.cfg|05- Cooking Station|Enable|On
+    blacks7ar.LazyVikings.cfg|09- Iron Cooking Station|Enable|On
+    blacks7ar.LazyVikings.cfg|03- Beehive|Enable|Off
+    blacks7ar.LazyVikings.cfg|04- Blast Furnace|Enable|Off
+    blacks7ar.LazyVikings.cfg|06- Eitr Refinery|Enable|Off
+    blacks7ar.LazyVikings.cfg|07- Fermenter|Enable|Off
+    blacks7ar.LazyVikings.cfg|08- Hot Tub|Enable|Off
+    blacks7ar.LazyVikings.cfg|10- Kiln|Enable|Off
+    blacks7ar.LazyVikings.cfg|11- SapCollector|Enable|Off
+    blacks7ar.LazyVikings.cfg|12- Smelter|Enable|Off
+    blacks7ar.LazyVikings.cfg|13- Spinning Wheel|Enable|Off
+    blacks7ar.LazyVikings.cfg|14- Stone Oven|Enable|Off
+    blacks7ar.LazyVikings.cfg|15- Windmill|Enable|Off
+    blacks7ar.LazyVikings.cfg|16- Fireplace|Enable|Off
+    blacks7ar.LazyVikings.cfg|17- Steel Kiln|Enable|Off
+    blacks7ar.LazyVikings.cfg|18- Steel Slack Tub|Enable|Off
 
   install-mods.sh: |
     #!/bin/bash
