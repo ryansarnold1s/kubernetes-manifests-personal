@@ -124,6 +124,40 @@ data:
     # 266b6d6b1799796555d9d188963fdccd28578c9118aac2bc911d174a301807a8, 308447 bytes, layout root,
     # config file com.kpro.TeleportEverything.cfg. Would compose well with OdinHorse's horse and
     # horse cart, though its ally filter is mask/regex based so a custom creature may need config.
+    #
+    # RecipePinner (KadrioS, 1.3.0) is deliberately NOT here. Evaluated 2026-08-02 and declined
+    # for SERVER install specifically -- it is recommended CLIENT-side. Pins recipes and build
+    # pieces to the HUD and tracks missing materials live, with pin groups and an optional
+    # nearby-chest scan.
+    #
+    # It has NO server role at all. It patches InventoryGui and Hud, neither of which exists on a
+    # headless server, and it persists pins to a local save path -- per-player data that never
+    # touches the world. Installed here it would load, patch nothing, and add 220KB of executable
+    # code inside the server process plus a prune entry, for zero function.
+    #
+    # The evidence, run against four controls already on this PVC (all counts from the DLL):
+    #                       ServerSync  RPCreg  MinReqVer  Disconnect  RemovePeer  ZRoutedRpc
+    #   RecipePinner            0         0         0          0           0           0
+    #   AzuEPI      (kicks)     9         5         1          1           1           2
+    #   Recycle_N_R (kicks)     9         3         1          1           1           1
+    #   XPortal     (no kick)   0         1         0          0           0           1
+    #   PlantEvery. (no kick)  11         7         1          1           0           1
+    # It is the ONLY one with zeros straight across. Even the two non-kicking controls carry RPC
+    # and ZRoutedRpc machinery. ZDOMan, ZoneSystem and ConfigSync are all 0 as well.
+    #
+    # ⚠️ Tell players to check the inventory screen after installing. It references InventoryGui
+    # 20 times, but the symbols are state reads (InventoryGui_Hide_BlockDuringDialog,
+    # IsBlockingInventoryPanelOpen) rather than slot redraws, so it is a far lighter touch than
+    # TrashItems. It would still be the FOURTH thing drawing on that area after vanilla, AzuEPI's
+    # extra rows and Recycle_N_Reclaim's trash slot. Client-side, so the blast radius is one
+    # player's UI, not the server -- which is what makes this a comfortable recommendation.
+    #
+    # Artifact, if it is ever reconsidered for server install: sha256
+    # 812082425eac5c5cf6b0d2ef3fa819d4066f13275387518f19762d7722fe11ff, 219968 bytes, layout
+    # PLUGINS (the zip nests plugins/RecipePinner.dll plus a plugins/RecipePinner_languages/
+    # folder of 39 translation JSONs), GUID com.Kadrio.RecipePinner, sole dependency
+    # denikson-BepInExPack_Valheim-5.4.2333. Registers no prefabs. Soft MyLittleUI integration;
+    # that mod is not installed here and there is no conflict.
 
   # Per-mod BepInEx config, declared here instead of hand-edited on the PVC.
   #

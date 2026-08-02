@@ -281,6 +281,24 @@ misbehaves, suspect it first — and note that Recycle_N_Reclaim's `[2 - Invento
 now also draws on this screen; see the Recycle_N_Reclaim section below for how to disable that
 half without removing the mod.
 
+**`RecipePinner` (KadrioS) is recommended client-side, and deliberately not installed on the
+server.** Install `KadrioS-RecipePinner-1.3.0` in r2modman if you want it. It pins recipes and
+build pieces to the HUD and tracks the materials you still need, with pin groups and an optional
+nearby-chest scan.
+
+It has **no server role whatsoever** — verified against the DLL, not the store page. It carries
+zero `ServerSync`, zero RPC registrations, zero `ZRoutedRpc`, zero `ZDOMan`/`ZoneSystem`
+references; the four installed mods used as controls all carry several. It patches `InventoryGui`
+and `Hud`, neither of which exists on a headless server, and saves pins to a local path, so pins
+are per-player and never touch the world. Installing it server-side would load it, patch nothing,
+and add executable code inside the server process for no function.
+
+⚠️ **Check the inventory screen after installing.** It would be the fourth thing drawing on that
+area, after vanilla, AzuEPI's extra rows and Recycle_N_Reclaim's trash slot. Its `InventoryGui`
+use looks like state reading rather than slot redrawing, so it should be much lighter than
+`TrashItems` — but that screen is already busy. Being client-side, anything that goes wrong
+affects one player's UI, not the server.
+
 🚨 **Vanilla clients can no longer join.** AzuExtendedPlayerInventory, AzuContainerSizes *and*
 Recycle_N_Reclaim each run a version check that kicks clients without them, and EpicLoot and
 Warfare need client-side assets. Every player must run the matching set, plus
