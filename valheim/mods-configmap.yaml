@@ -307,8 +307,26 @@ data:
     # The total cycle is fixed at 1800s, so lengthening night SHORTENS day by the same amount.
     # Deliberately not 0 -- night still needs to exist for night-spawning mobs, light sources and
     # sleeping to remain meaningful.
+    #
+    # The other three keys are pinned at the values V+ 9.17.1 already ships, so they are a
+    # behavioural no-op TODAY. They are here because [Time] is ENABLED, which makes every key in
+    # the section live -- the same reason baseMegingjordBuff is pinned at its vanilla 150 in
+    # [Player]. Unpinned, a future V+ release changing one of these defaults would silently
+    # alter day length or freeze the clock, and MOD_CONFIG would not be the source of truth it
+    # claims to be. All four keys in [Time] are now accounted for.
+    #
+    # ⚠️ totalDayTimeInSeconds is the DENOMINATOR for nightPercent. Changing it silently
+    # rescales night: at nightPercent 23, 1800 -> 6m54s but 3600 -> 13m48s. Its own note warns
+    # it "may change time of day once after activation" on an existing world, so it is not a
+    # free dial -- change it only in a window, and recompute the night arithmetic above.
+    #
+    # forcePartOfDay freezes the clock at forcePartOfDayTime (0 = midnight, 0.5 = midday) and
+    # DISABLES every other setting in this section, nightPercent included. It stays false.
     valheim_plus.cfg|Time|enabled|true
     valheim_plus.cfg|Time|nightPercent|23
+    valheim_plus.cfg|Time|totalDayTimeInSeconds|1800
+    valheim_plus.cfg|Time|forcePartOfDay|false
+    valheim_plus.cfg|Time|forcePartOfDayTime|0.5
     # Fires: torches/sconces/braziers and other fires keep infinite fuel, and pull wood from
     # nearby chests (autoRange stays at the default 10m).
     valheim_plus.cfg|FireSource|enabled|true
@@ -670,6 +688,20 @@ data:
     #
     # Before adding a key here, read its "# Setting type:" line in the generated .cfg on the
     # PVC. Toggle -> On/Off. Do not infer the type from the key reading like a boolean.
+    #
+    # ✅ VERIFIED IN-GAME 2026-08-01, against the CORRECTED On/Off values. All four checks
+    # passed: reclaim returns ~50% at the correct station; an EpicLoot magic item returned NO
+    # enchanting materials by either the reclaim or the discard path; an item whose recipe was
+    # not yet unlocked was REFUSED; a 1-unit item returned 1, not 0. AzuEPI's 5 extra rows and
+    # quick slots still render alongside the trash slot -- the contention accepted above did
+    # not materialise.
+    #
+    # ⚠️ The middle three are the NEGATIVE cases -- each guard was seen REFUSING, not merely
+    # seen not misbehaving. That distinction is load-bearing here: run against the ORIGINAL
+    # true/false pins these same checks would have passed for the wrong reason, because
+    # AllowRecyclingUnknownRecipes and ReturnUnknownResources happened to match the mod's
+    # defaults. The EpicLoot checks would have FAILED, which is what makes them the ones worth
+    # re-running after any version bump.
     Azumatt.Recycle_N_Reclaim.cfg|1 - General|Lock Configuration|On
     Azumatt.Recycle_N_Reclaim.cfg|2 - Inventory Recycle|Enabled|On
     Azumatt.Recycle_N_Reclaim.cfg|2 - Inventory Recycle|Lock to Admin|Off

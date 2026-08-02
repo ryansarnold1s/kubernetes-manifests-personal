@@ -724,6 +724,28 @@ second apply and restart to fix.
 Before pinning a new key, read its `# Setting type:` line in the generated `.cfg` on the
 PVC. `Toggle` → `On`/`Off`. Do not infer the type from a key that reads like a boolean.
 
+#### Recycle_N_Reclaim: verified in-game
+
+✅ **2026-08-01, against the corrected `On`/`Off` values.** All four checks passed:
+
+| Check | Result |
+|---|---|
+| Reclaim a known-recipe item at the correct station | ~50% of components returned |
+| **EpicLoot magic item** (reclaim *and* discard paths) | no enchanting materials returned |
+| **Item whose recipe is not unlocked** | refused |
+| **1-unit item** | returned 1, not 0 |
+| Inventory screen | AzuEPI's 5 rows + quick slots render fine alongside the trash slot |
+
+⚠️ The middle three are **negative** cases — each guard was seen *refusing*, not merely seen
+not misbehaving. That matters more than it looks: run against the original `true`/`false`
+pins, the two progression checks would have passed **for the wrong reason**, because
+`AllowRecyclingUnknownRecipes` and `ReturnUnknownResources` happened to coincide with the
+mod's defaults. Only the EpicLoot checks would have failed. Re-run all four after any
+version bump — and re-run them against the log check above, not just by eye.
+
+The AzuEPI inventory-screen contention accepted when this mod was chosen did **not**
+materialise.
+
 ### Confirm the mod stack is healthy
 
 ```powershell
