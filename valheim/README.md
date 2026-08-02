@@ -462,7 +462,7 @@ generated config — getting any of them wrong silently produces the *opposite* 
 |---|---|
 | `productionSpeed` | **Seconds per item, not a percentage.** "Twice as fast" means *halving* it. Setting 30 → 60 makes smelters twice as **slow**. |
 | `baseItemWeightReduction` | **Reduces on negative** despite the name: *"-50 will reduce item weight by 50%, 50 will increase."* |
-| `nightPercent` | **Absolute, not a modifier:** *"0 is all daytime, 100 is all nighttime."* Not a percent change. Set to **10** — with `totalDayTimeInSeconds = 1800` that is 3 min of night per cycle, down from 9 at the default 30. Deliberately not 0, so night mobs, light sources and sleeping still matter. |
+| `nightPercent` | **Absolute, not a modifier:** *"0 is all daytime, 100 is all nighttime."* Not a percent change. Set to **23** — with `totalDayTimeInSeconds = 1800` that is 6m54s of night per cycle, against 9 min at the default 30 (was 10 → 3 min until 2026-08-01). Deliberately not 0, so night mobs, light sources and sleeping still matter. **Integer field** — V+ writes floats with an explicit decimal (`65.0`, `0.5`, `7.5`) and this one as a bare `10`, so a fractional value truncates. The total cycle is fixed, so a longer night means a correspondingly shorter day. |
 
 **`autoRepair` and `autoEquipShield` are now enabled.** Both live in `[Player]`, which was pinned
 off while SkilledCarryWeight owned carry weight — enabling it would have put two mods on the same

@@ -287,13 +287,28 @@ data:
     # Map: shared exploration.
     valheim_plus.cfg|Map|enabled|true
     valheim_plus.cfg|Map|shareMapProgression|true
-    # Time: night shortened to a third of vanilla, NOT removed. nightPercent is the share of the
-    # whole day cycle that is night ("0 is all daytime, 100 is all nighttime", default 30).
-    # totalDayTimeInSeconds is 1800, so: 30 -> 9 min of night, 10 -> 3 min, 5 -> 1.5 min.
+    # Time: night is SHORTER than vanilla but no longer drastically so. nightPercent is the share
+    # of the whole day cycle that is night ("0 is all daytime, 100 is all nighttime", default 30).
+    # ⚠️ ABSOLUTE, NOT A MODIFIER -- 23 means "night is 23% of the cycle", not "+23%".
+    #
+    # totalDayTimeInSeconds is 1800 and is NOT pinned, so the arithmetic is:
+    #   30 -> 9 min night / 21 min day   (vanilla)
+    #   23 -> 6m54s night / 23m06s day   (current)
+    #   10 -> 3 min night / 27 min day   (previous)
+    #
+    # ⚠️ INTEGER FIELD. V+ serialises float settings with an explicit decimal point --
+    # defaultFOV = 65.0, forcePartOfDayTime = 0.5, Kiln productionSpeed = 7.5 -- and writes
+    # nightPercent as a bare "10". A fractional value here truncates. That is why this is 23 and
+    # not 23.33: 7m00s of night is not reachable at totalDayTimeInSeconds 1800 with an integer
+    # percent. Hitting exactly 7 min would need totalDayTimeInSeconds 1680 with nightPercent 25 --
+    # which shortens the whole cycle and, per the setting's own note, "may change time of day once
+    # after activation" on an existing world. Not worth six seconds.
+    #
+    # The total cycle is fixed at 1800s, so lengthening night SHORTENS day by the same amount.
     # Deliberately not 0 -- night still needs to exist for night-spawning mobs, light sources and
     # sleeping to remain meaningful.
     valheim_plus.cfg|Time|enabled|true
-    valheim_plus.cfg|Time|nightPercent|10
+    valheim_plus.cfg|Time|nightPercent|23
     # Fires: torches/sconces/braziers and other fires keep infinite fuel, and pull wood from
     # nearby chests (autoRange stays at the default 10m).
     valheim_plus.cfg|FireSource|enabled|true
