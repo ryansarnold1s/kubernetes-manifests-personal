@@ -778,10 +778,13 @@ See "When a pin does not take" above.
 `Enable = On`. Plus `01- ServerSync | Lock Configuration | On`.
 
 🚨 **The other fourteen station sections are pinned `Enable = Off`, and those lines are
-load-bearing.** LazyVikings can also automate Kilns, Smelters, Windmills, Fermenters,
-Beehives, SapCollectors, SpinningWheels, EitrRefineries, Stone Ovens and Fireplaces — all of
-which **ValheimPlus already does**. Turning any of them on puts two mods on the same station.
-Do not remove them as redundant.
+load-bearing.** Eleven of them name a station ValheimPlus already automates — Kilns, Smelters,
+Blast Furnaces (ValheimPlus calls that section `[Furnace]`, not `[BlastFurnace]` — which is why
+this one is easy to miss), Windmills, Fermenters, Beehives, SapCollectors, SpinningWheels,
+EitrRefineries, Stone Ovens and Fireplaces — all of which **ValheimPlus already does**. The
+remaining three (`08- Hot Tub`, `17- Steel Kiln`, `18- Steel Slack Tub`) are off purely for
+consistency; ValheimPlus does not touch them. Turning any of the eleven on puts two mods on
+the same station. Do not remove any of the fourteen as redundant.
 
 **Why this mod exists here at all.** ValheimPlus already pulls from chests at a cooking
 station — press E at a grill with meat in a nearby chest and it works. What V+ lacks is the
