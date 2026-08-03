@@ -254,7 +254,7 @@ silently replaces it with the ConfigMap value. If you want a change to stick, pu
 
 ## Modding (BepInEx)
 
-`BEPINEX: "true"` is set in `configmap.yaml`. **Thirteen mods are installed**, fetched declaratively
+`BEPINEX: "true"` is set in `configmap.yaml`. **Fourteen mods are installed**, fetched declaratively
 by the `fetch-mods` initContainer from `mods-configmap.yaml`:
 
 | Mod | Version | Client install |
@@ -271,6 +271,7 @@ by the `fetch-mods` initContainer from `mods-configmap.yaml`:
 | XPortal | 1.2.24 | **required** — *"All players must run the same version"* |
 | OdinHorse | 1.6.5 | **required** (custom creature/item assets) |
 | Recycle_N_Reclaim | 1.4.0 | **required — kicks clients without it** |
+| LazyVikings | 1.2.3 | recommended (does not kick; automation runs on the ZDO owner) |
 | PlantEverything | 1.20.0 | recommended (works without, minor cosmetic loss) |
 
 **`TrashItems` is deliberately not installed server-side.** It is a client-side inventory-UI mod
@@ -338,7 +339,7 @@ extracts it to the PVC. Two package layouts exist and are handled explicitly —
 
 It is **idempotent**: markers in `/config/bepinex/.mod-state` are keyed on version+sha256, so a
 normal restart downloads nothing (verified: re-running the installer reports `0 installed,
-13 already present`). This matters — Warfare alone is 182MB.
+14 already present`). This matters — Warfare alone is 182MB.
 
 A **checksum mismatch fails the pod deliberately.** This is executable code running inside the
 server. Because installs are idempotent, that only ever gates a first install or a version bump,
@@ -764,6 +765,35 @@ version bump — and re-run them against the log check above, not just by eye.
 The AzuEPI inventory-screen contention accepted when this mod was chosen did **not**
 materialise.
 
+#### LazyVikings
+
+Seventeen keys are pinned. Section names are `NN- Name` — **zero-padded, no space before the
+dash**, e.g. `05- Cooking Station`. That is a third convention in this file, alongside
+Azumatt's `2 - Inventory Recycle` and ValheimPlus's bare `[Time]`.
+
+🚨 **Values are `On`/`Off`, not `true`/`false`** — Toggle enums, same as Recycle_N_Reclaim.
+See "When a pin does not take" above.
+
+**Only two stations are enabled:** `05- Cooking Station` and `09- Iron Cooking Station`, each
+`Enable = On`. Plus `01- ServerSync | Lock Configuration | On`.
+
+🚨 **The other fourteen station sections are pinned `Enable = Off`, and those lines are
+load-bearing.** LazyVikings can also automate Kilns, Smelters, Windmills, Fermenters,
+Beehives, SapCollectors, SpinningWheels, EitrRefineries, Stone Ovens and Fireplaces — all of
+which **ValheimPlus already does**. Turning any of them on puts two mods on the same station.
+Do not remove them as redundant.
+
+**Why this mod exists here at all.** ValheimPlus already pulls from chests at a cooking
+station — press E at a grill with meat in a nearby chest and it works. What V+ lacks is the
+*unattended* half. Its own patches show the asymmetry: `Smelter` has both
+`FindCookableItem_Transpiler` **and** `UpdateSmelter_Patch`, while `CookingStation` has only
+the former, and there is no `[CookingStation]` section in `valheim_plus.cfg` at all.
+LazyVikings supplies exactly that missing engine and nothing else.
+
+⚠️ Automation runs on the **ZDO owner**, so a player without the mod standing near a cooking
+station may see no auto-fill while a player with it does — the same caveat as PlantEverything.
+It does not kick, so installing it is recommended rather than enforced.
+
 ### Confirm the mod stack is healthy
 
 ```powershell
@@ -771,7 +801,7 @@ kubectl logs -n valheim deploy/valheim -c fetch-mods          # installer result
 kubectl logs -n valheim deploy/valheim -c valheim | Select-String "plugins to load|Loading \["
 ```
 
-Expect `13 plugins to load`, a `Loading [...]` line per mod, and `Chainloader startup complete`
+Expect `14 plugins to load`, a `Loading [...]` line per mod, and `Chainloader startup complete`
 (BepInEx 5.4.23.3).
 
 ### If the server goes unreachable after a framework change
