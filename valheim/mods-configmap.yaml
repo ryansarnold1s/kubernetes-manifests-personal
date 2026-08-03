@@ -346,6 +346,41 @@ data:
     # Map: shared exploration.
     valheim_plus.cfg|Map|enabled|true
     valheim_plus.cfg|Map|shareMapProgression|true
+    # Ship: 50% faster under sail. Everything else in the section stays vanilla.
+    #
+    # forwardSpeed is a PERCENTAGE MODIFIER, not an absolute -- 50 means +50%, -50 would mean
+    # half speed. Same family as [Armor] and [Durability], and the opposite of [Player]
+    # baseMaximumWeight, which IS absolute. Integer field: V+ writes floats with an explicit
+    # decimal (defaultFOV 65.0, Kiln productionSpeed 7.5) and this one as a bare 0.
+    #
+    # ⚠️ THE FOUR ZEROS BELOW ARE DELIBERATE, NOT PADDING. Enabling a V+ section makes EVERY
+    # key in it live -- the same reason baseMegingjordBuff is pinned at its vanilla 150 in
+    # [Player] and all four [Time] keys are pinned. All four sit at V+'s neutral 0 today, so
+    # they are a behavioural no-op now; unpinned, a future V+ release changing one of these
+    # defaults would silently alter steering or boat damage. rudderSpeed and steerForce at 0
+    # are also a RECORDED DECISION: steering was deliberately left vanilla so that if the
+    # faster hull feels unwieldy, exactly one variable changed and it is obvious which.
+    #
+    # ⚠️ THERE IS NO WIND-DIRECTION SETTING IN [Ship], and none anywhere else in this file.
+    # V+ cannot give a permanent tailwind. [Windmill] ignoreWindIntensity is about power
+    # generation, not sailing. Evaluated 2026-08-03 and left alone: the no-mod route would be
+    # [Player] guardianBuffDuration/Cooldown, but those apply to ALL SIX guardian powers
+    # (permanent Bonemass resistance and Elder chopping, not just Moder), and the mod route is
+    # NaNNaBoaT/Simple_Sailing 2.0.0, which is CLIENT-SIDE ONLY -- unenforceable, and last
+    # flagged compatible with Ashlands while this server runs l-0.221.12. Faster hulls were
+    # chosen instead so headwind stings less without changing anything else.
+    #
+    # 🚨 THE "could not be parsed" CHECK DOES NOT APPLY TO ValheimPlus. V+ reads
+    # valheim_plus.cfg with its OWN INI parser, not BepInEx config binding, so a bad V+ value
+    # produces no BepInEx warning -- that check would come back empty whether these landed or
+    # not. It is only a gate for BepInEx-bound mods (Recycle_N_Reclaim, LazyVikings). Verify a
+    # V+ change by READING THE VALUE BACK off the PVC and confirming exactly one [Ship] header.
+    valheim_plus.cfg|Ship|enabled|true
+    valheim_plus.cfg|Ship|forwardSpeed|50
+    valheim_plus.cfg|Ship|backwardSpeed|0
+    valheim_plus.cfg|Ship|rudderSpeed|0
+    valheim_plus.cfg|Ship|steerForce|0
+    valheim_plus.cfg|Ship|waterImpactDamage|0
     # Time: night is SHORTER than vanilla but no longer drastically so. nightPercent is the share
     # of the whole day cycle that is night ("0 is all daytime, 100 is all nighttime", default 30).
     # ⚠️ ABSOLUTE, NOT A MODIFIER -- 23 means "night is 23% of the cycle", not "+23%".

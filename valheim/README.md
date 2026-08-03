@@ -481,6 +481,7 @@ generated config — getting any of them wrong silently produces the *opposite* 
 |---|---|
 | `productionSpeed` | **Seconds per item, not a percentage.** "Twice as fast" means *halving* it. Setting 30 → 60 makes smelters twice as **slow**. |
 | `baseItemWeightReduction` | **Reduces on negative** despite the name: *"-50 will reduce item weight by 50%, 50 will increase."* |
+| `[Ship] forwardSpeed` | **Percentage modifier**, like `[Armor]` and `[Durability]` — and the opposite of `[Player] baseMaximumWeight`, which is absolute. Set to **50** (2026-08-03) = 50% faster under sail. `backwardSpeed`, `rudderSpeed`, `steerForce` and `waterImpactDamage` are pinned at **0** — vanilla — because enabling the section makes every key in it live. Steering is deliberately unchanged so that if the faster hull feels unwieldy, only one variable moved. |
 | `nightPercent` | **Absolute, not a modifier:** *"0 is all daytime, 100 is all nighttime."* Not a percent change. Set to **23** — with `totalDayTimeInSeconds = 1800` that is 6m54s of night per cycle, against 9 min at the default 30 (was 10 → 3 min until 2026-08-01). Deliberately not 0, so night mobs, light sources and sleeping still matter. **Integer field** — V+ writes floats with an explicit decimal (`65.0`, `0.5`, `7.5`) and this one as a bare `10`, so a fractional value truncates. The total cycle is fixed, so a longer night means a correspondingly shorter day. |
 
 **`autoRepair` and `autoEquipShield` are now enabled.** Both live in `[Player]`, which was pinned
@@ -742,6 +743,25 @@ second apply and restart to fix.
 
 Before pinning a new key, read its `# Setting type:` line in the generated `.cfg` on the
 PVC. `Toggle` → `On`/`Off`. Do not infer the type from a key that reads like a boolean.
+
+🚨 **This check does NOT apply to ValheimPlus.** Two config mechanisms are in play here and
+they fail differently:
+
+| | Parsed by | Values | How a bad pin shows up |
+|---|---|---|---|
+| `Azumatt.*.cfg`, `blacks7ar.*.cfg` | **BepInEx** config binding | `On`/`Off` Toggle enums | `could not be parsed` in the game log; the file looks healthy |
+| `valheim_plus.cfg` | **ValheimPlus's own INI parser** | `true`/`false` and plain numbers | **nothing in the log at all** |
+
+Running the log check after a ValheimPlus change is a **false gate** — it comes back empty
+whether the pin landed or not. Verify a V+ change by **reading the value back off the PVC**
+and confirming the section header appears exactly once:
+
+```powershell
+kubectl exec -n valheim deploy/valheim -c valheim -- grep -c '^\[Ship\]' /config/bepinex/valheim_plus.cfg
+```
+
+The `set_cfg` duplicate-section failure mode is real for both mechanisms; only the
+value-rejection failure mode is BepInEx-specific.
 
 #### Recycle_N_Reclaim: verified in-game
 
