@@ -571,3 +571,36 @@ git commit -m "Record the in-game verification for LazyVikings"
 | §8 client install | Task 1 Step 3; Task 2 Step 6; Task 4 Step 4 |
 | §9 rollback | Task 4 Step 6 |
 | §10 risks | Task 3 Step 4 (fallback); Task 4 Steps 2-3 |
+
+---
+
+## Correction — 2026-08-02, after Task 1 review
+
+Task 1 completed and its comment block for the `MOD_CONFIG` pins was **wrong** in one row.
+
+**Step 4's comment block above groups `04- Blast Furnace` with the genuinely-absent rows**
+(`08- Hot Tub`, `17- Steel Kiln`, `18- Steel Slack Tub`) as "not present here; off for
+consistency." That is false. Checked against the live ValheimPlus config: V+ names the Blast
+Furnace `[Furnace]`, not the more intuitive `[BlastFurnace]`, and that section is
+`enabled = true` with both `autoDeposit` and `autoFuel` on. `04- Blast Furnace` is one of the
+eleven stations V+ already automates, not one of the three that are off merely for
+consistency — enabling it would create exactly the double-automation the pin block exists to
+prevent.
+
+Corrected split: **eleven** rows already owned by ValheimPlus, **three** off for consistency
+(`08- Hot Tub` — V+ `[HotTub]` exists but is `enabled = false`; `17- Steel Kiln` and
+`18- Steel Slack Tub` — OdinSteelWorks pieces, not installed here). Fourteen `Off` pins
+either way — none of the seventeen pin *lines* changed, only the comment block explaining
+them.
+
+**Step 4's code block above still shows the original wrong comment text.** It is left as
+written because the task is complete and this repo appends corrections rather than rewriting
+history — but do not copy that table. `valheim/mods-configmap.yaml` is the source of truth
+and has been corrected there directly. The matching correction is recorded in
+`docs/superpowers/specs/2026-08-02-lazyvikings-cooking-station-design.md` §11.
+
+**Why Task 1's own verification (Steps 5-7) could not have caught this**: all three are
+pin-value and parse checks — field counts, the On/Off/true-false split, and a server-side
+dry run. None of them evaluate whether a comment's prose claim about what ValheimPlus owns
+is factually correct; that requires cross-checking the live V+ config, which was outside
+this task's scope. The review step that follows implementation is what caught it.

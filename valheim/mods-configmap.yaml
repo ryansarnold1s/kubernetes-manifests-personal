@@ -786,23 +786,29 @@ data:
     #   kubectl logs -n valheim deploy/valheim -c valheim | Select-String "could not be parsed"
     # Empty is the pass.
     #
-    # 🚨 THE FOURTEEN "Off" LINES ARE LOAD-BEARING. They are not redundant defaults. Each
-    # names a station ValheimPlus ALREADY automates, and turning one On puts two mods on the
-    # same station:
-    #   03- Beehive        -> V+ [Beehive] autoDeposit
-    #   04- Blast Furnace  -> not present here; off for consistency
-    #   06- Eitr Refinery  -> V+ [EitrRefinery] autoDeposit/autoFuel
-    #   07- Fermenter      -> V+ [Fermenter] autoDeposit/autoFuel
-    #   08- Hot Tub        -> not automated here; off for consistency
-    #   10- Kiln           -> V+ [Kiln] autoDeposit/autoFuel
-    #   11- SapCollector   -> V+ [SapCollector] autoDeposit
-    #   12- Smelter        -> V+ [Smelter] autoDeposit/autoFuel
-    #   13- Spinning Wheel -> V+ [SpinningWheel] autoDeposit/autoFuel
-    #   14- Stone Oven     -> V+ [Oven] autoFuel
-    #   15- Windmill       -> V+ [Windmill] autoDeposit/autoFuel
-    #   16- Fireplace      -> V+ [FireSource] autoFuel
-    #   17- Steel Kiln     -> not present here; off for consistency
-    #   18- Steel Slack Tub-> not present here; off for consistency
+    # 🚨 THE FOURTEEN "Off" LINES ARE LOAD-BEARING. They are not redundant defaults. Eleven
+    # of the fourteen name a station ValheimPlus ALREADY automates, and turning one On would
+    # put two mods on the same station. The remaining three (08- Hot Tub, 17- Steel Kiln,
+    # 18- Steel Slack Tub) are pinned off for consistency instead: V+'s [HotTub] exists but
+    # is disabled, and the Steel pieces come from OdinSteelWorks, which is not installed here.
+    #   03- Beehive         -> V+ [Beehive] autoDeposit
+    #   04- Blast Furnace   -> V+ [Furnace] autoDeposit/autoFuel -- ⚠️ V+ calls the Blast
+    #                          Furnace "[Furnace]", NOT "[BlastFurnace]". This row was
+    #                          originally and wrongly written as "not present here".
+    #   06- Eitr Refinery   -> V+ [EitrRefinery] autoDeposit/autoFuel
+    #   07- Fermenter       -> V+ [Fermenter] autoDeposit/autoFuel
+    #   08- Hot Tub         -> V+ [HotTub] exists but is enabled=false; off for consistency
+    #   10- Kiln            -> V+ [Kiln] autoDeposit/autoFuel
+    #   11- SapCollector    -> V+ [SapCollector] autoDeposit
+    #   12- Smelter         -> V+ [Smelter] autoDeposit/autoFuel
+    #   13- Spinning Wheel  -> V+ [SpinningWheel] autoDeposit/autoFuel
+    #   14- Stone Oven      -> V+ [Oven] autoFuel
+    #   15- Windmill        -> V+ [Windmill] autoDeposit/autoFuel
+    #   16- Fireplace       -> V+ [FireSource] autoFuel
+    #   17- Steel Kiln      -> OdinSteelWorks piece; that mod is not installed here; off for
+    #                          consistency
+    #   18- Steel Slack Tub -> OdinSteelWorks piece; that mod is not installed here; off for
+    #                          consistency
     # DO NOT "tidy up" these lines.
     #
     # 02- General is deliberately not pinned -- its keys were not enumerated and nothing here

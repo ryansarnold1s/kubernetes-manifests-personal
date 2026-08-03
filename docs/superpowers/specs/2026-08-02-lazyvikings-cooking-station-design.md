@@ -345,3 +345,30 @@ deletes config files.
 | Double-automation of a V+ station | High if it occurs | §7.4 negative cases; the fourteen `Off` pins are the control |
 | Per-station detection range wrong for cooking stations | Low | Not pinned; adjust as a follow-up once observed |
 | Mod is 9.5 months old | Low | Author actively publishing; Prefix patches, not transpilers; not deprecated; dependency matches |
+
+---
+
+## 11. Correction — 2026-08-02, after Task 1 review
+
+**§6.2's table (row for `04- Blast Furnace`, `08- Hot Tub`, `17- Steel Kiln`,
+`18- Steel Slack Tub`) was wrong.** It grouped all four under "not present / not automated
+here; off for consistency" — but `04- Blast Furnace` is not in that group.
+
+Checked against the live ValheimPlus config: V+ names the Blast Furnace `[Furnace]`, not
+`[BlastFurnace]`, and that section is `enabled = true` with both `autoDeposit = true` and
+`autoFuel = true`. It belongs with the ten already-owned rows above it, not with the three
+genuinely-absent ones. The naming mismatch (`[Furnace]` vs. the intuitive `[BlastFurnace]`)
+is almost certainly why the original table missed it.
+
+The corrected split is **eleven** rows already owned by ValheimPlus (`03- Beehive`,
+`04- Blast Furnace` → V+ `[Furnace] autoDeposit`/`autoFuel`, `06- Eitr Refinery`,
+`07- Fermenter`, `10- Kiln`, `11- SapCollector`, `12- Smelter`, `13- Spinning Wheel`,
+`14- Stone Oven`, `15- Windmill`, `16- Fireplace`) and **three** pinned off for consistency
+rather than collision (`08- Hot Tub` — V+ `[HotTub]` exists but is `enabled = false`;
+`17- Steel Kiln` and `18- Steel Slack Tub` — OdinSteelWorks pieces, and that mod is not
+installed here). Fourteen total either way; the `Off` pins in `mods-configmap.yaml` did not
+change, only which bucket `04- Blast Furnace` belongs in.
+
+The manifest (`valheim/mods-configmap.yaml`) is the source of truth and has been corrected
+directly, along with its comment block. This section is left as an append per this repo's
+convention of not rewriting shipped decisions — the wrong table above is left as written.
