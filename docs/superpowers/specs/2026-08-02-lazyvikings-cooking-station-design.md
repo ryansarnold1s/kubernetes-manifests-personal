@@ -372,3 +372,23 @@ change, only which bucket `04- Blast Furnace` belongs in.
 The manifest (`valheim/mods-configmap.yaml`) is the source of truth and has been corrected
 directly, along with its comment block. This section is left as an append per this repo's
 convention of not rewriting shipped decisions — the wrong table above is left as written.
+
+**§7.3 also overclaimed, in a related but separate way.** It states that the `could not be
+parsed` log check "catches both things §4 inferred rather than observed — a wrong `Enable` key
+name and a wrong value type." That is false for the key-name half. The check fires only on a
+wrong **value type** (BepInEx's own type coercion rejecting the string, e.g. `true`/`false`
+where a Toggle expects `On`/`Off`). A wrong **section** or **key** name produces no parse error
+at all: `set_cfg`'s awk END block appends `[section]` plus `key = value` when the section is
+not found, BepInEx reads that as an orphan entry, the mod falls back to its own default, and
+the config file looks perfectly healthy. Empty output from the parse check is therefore
+necessary but not sufficient — it is silent on exactly the failure mode (wrong section or key
+name) that §4 was least confident about. The actual gate for section/key correctness is the
+census in the plan's Task 3 Step 6: `sections = 18` exactly, and an `Enable` line present for
+all sixteen station sections. That step has been promoted from confirmatory to mandatory in
+the plan for this reason.
+
+**§5's decisions table carries the same imprecision as §6.2's did.** Its "The other fourteen"
+row says "Each names a station V+ automates" — true for eleven of the fourteen, not for
+`08- Hot Tub`, `17- Steel Kiln` and `18- Steel Slack Tub`, which are off for consistency rather
+than collision. §5 is left as written per this repo's convention of not rewriting shipped
+decisions; read its row with the same correction applied as §6.2's table above.

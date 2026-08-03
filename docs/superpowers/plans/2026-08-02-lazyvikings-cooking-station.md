@@ -421,9 +421,20 @@ The apply must say `configured`. The restart is required because this is a **Con
 kubectl logs -n valheim deploy/valheim -c valheim | Select-String "could not be parsed"
 ```
 
-**Empty is the pass.**
+**Empty is the pass — but it is necessary, not sufficient. Do not stop here.**
 
-🚨 This single check catches both things the design *inferred* rather than observed: a wrong `Enable` key name, and a wrong value type. Any output here names a pin that was **discarded** while the installer logged `[cfg ]` success for it.
+🚨 This check catches only one of the two things the design *inferred* rather than observed: a
+wrong **value type** (e.g. `true`/`false` instead of `On`/`Off`). It does **not** catch a wrong
+`Enable` **key name** or a wrong **section** name. `set_cfg`'s awk END block appends `[section]`
+plus `key = value` whenever the section is not found in the existing file — BepInEx reads that
+as an orphan entry, the mod binds its own default, and the config file looks perfectly healthy.
+Empty output here is no evidence at all about section or key correctness; it would be a
+**false all-clear** on exactly the failure modes §4 inferred rather than observed. **Step 6's
+census below is mandatory, not confirmatory** — continue to Step 5 and Step 6 even when this
+check is empty; do not treat an empty result here as the end of verification.
+
+Any output that *is* present here names a pin that was **discarded** while the installer logged
+`[cfg ]` success for it.
 
 If it is not empty:
 1. Read the real key names: `kubectl exec -n valheim deploy/valheim -c valheim -- head -60 /config/bepinex/blacks7ar.LazyVikings.cfg`
@@ -447,7 +458,13 @@ kubectl logs -n valheim deploy/valheim -c valheim | Select-String "plugins to lo
 
 🚨 If the prune reports anything other than `0 to remove`, stop. Nothing here removes a mod.
 
-- [ ] **Step 6: The phantom-cfg test and the fourteen Off values**
+- [ ] **Step 6: The census — the primary gate for section and key correctness**
+
+🚨 **This step, not Step 4, is what actually proves the seventeen pins landed in the sections
+and keys this design intended.** Step 4's parse-error check only catches a wrong *value type*;
+it is structurally blind to a wrong section or key name, because `set_cfg` silently appends an
+orphan entry in that case instead of ever logging an error. Run this step every time — it is
+mandatory, not merely confirmatory of Step 4.
 
 ⚠️ Run only **after** `Chainloader startup complete` appears in Step 5. The initContainer writes the config before the game starts, so reading it earlier shows only what `set_cfg` wrote, which looks identical to a wrong-GUID phantom.
 
@@ -457,21 +474,41 @@ F=/config/bepinex/blacks7ar.LazyVikings.cfg
 echo "=== authorship: mod-written has ## headers and many keys ==="
 echo "## headers = $(grep -c '^##' $F)   (0 with exactly 17 keys => set_cfg invented it)"
 echo "keys       = $(grep -cE '^[A-Za-z].*=' $F)"
-echo "sections   = $(grep -c '^\[' $F)   (expect 18)"
+echo "sections   = $(grep -c '^\[' $F)   (expect 18 EXACTLY -- 19+ means a section name was wrong and set_cfg invented one)"
 echo
-echo "=== every Enable value, by section ==="
+echo "=== every Enable value, by section (expect one line per station section: 16) ==="
 awk '/^\[/{s=substr($0,2,length($0)-2)} /^Enable *=/{gsub(/^[ \t]+|[ \t]+$/,""); print "  ["s"] "$0}' $F
 echo
 echo "=== Lock Configuration ==="
 awk '/^\[/{s=substr($0,2,length($0)-2)} /^Lock Configuration *=/{print "  ["s"] "$0}' $F
+echo
+echo "=== 02- General -- never enumerated; read before trusting containment ==="
+sed -n '/^\[02- General\]/,/^\[[^0]/p' $F
 '@ -replace "`r`n", "`n"
 $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($s))
 kubectl exec -n valheim deploy/valheim -c valheim -- bash -c "echo $b64 | base64 -d | bash"
 ```
 
-Expected: `## headers` well above 0, `keys` far more than 17, `sections = 18`; `Enable = On` for exactly `05- Cooking Station` and `09- Iron Cooking Station`; **`Enable = Off` for all fourteen others**; `Lock Configuration = On`.
+**The two decisive assertions — these are the actual gate, not Step 4:**
+- **`sections = 18` exactly.** 19 or more means a section name pinned in `MOD_CONFIG` did not
+  match any existing section in the file, and `set_cfg` invented a new one — i.e. a wrong
+  section name, silently.
+- **An `Enable` line present for all sixteen station sections** (every section except
+  `01- ServerSync` and `02- General`). A missing one means the key name pinned for that
+  section was wrong — there is no orphan-entry side effect to reveal that any other way,
+  because `Enable` simply never got written where expected.
+
+Also expected: `## headers` well above 0, `keys` far more than 17; `Enable = On` for exactly
+`05- Cooking Station` and `09- Iron Cooking Station`; **`Enable = Off` for all fourteen
+others**; `Lock Configuration = On`.
 
 🚨 `## headers = 0` **and** `keys = 17` means `set_cfg` invented the file — wrong GUID, all pins inert. Stop and correct the filename.
+
+**Read the `02- General` dump before trusting containment.** That section has never been
+enumerated. If it holds a global automation master switch, the fourteen `Enable = Off` pins
+on individual stations may not be the whole containment story — this repo's own rule is that
+the container-generated config is the source of truth for which keys exist, not an assumption
+carried over from the design phase.
 
 - [ ] **Step 7: No commit**
 
@@ -506,9 +543,16 @@ Expected: **exactly the behaviour as before this change.** ValheimPlus still own
 
 🚨 This is the check the whole design rests on. If the smelter behaves differently — fills faster, drains two chests, double-feeds — then a `14- …|Enable|Off` pin did not take, and Task 3 Step 4's parse check should be re-run immediately.
 
-- [ ] **Step 3: Negative — kiln, windmill and fermenter unchanged**
+- [ ] **Step 3: Negative — kiln, windmill, fermenter and blast furnace unchanged**
 
 Spot-check each. Expected: unchanged from before.
+
+The blast furnace is included deliberately, not as an afterthought: it is the one station this
+change's own comment blocks got wrong three times (V+ owns it via `[Furnace]`, not the more
+intuitive `[BlastFurnace]`), so it is the station most likely to still be mis-pinned. It also
+burns coal and ore continuously, so double-feeding does not look like an obvious glitch — it
+reads as "coal is going faster than I remember." Watch the consumption rate, not just whether
+the furnace runs at all.
 
 - [ ] **Step 4: Client-consistency check**
 

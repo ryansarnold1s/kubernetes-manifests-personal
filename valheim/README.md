@@ -781,10 +781,11 @@ See "When a pin does not take" above.
 load-bearing.** Eleven of them name a station ValheimPlus already automates — Kilns, Smelters,
 Blast Furnaces (ValheimPlus calls that section `[Furnace]`, not `[BlastFurnace]` — which is why
 this one is easy to miss), Windmills, Fermenters, Beehives, SapCollectors, SpinningWheels,
-EitrRefineries, Stone Ovens and Fireplaces — all of which **ValheimPlus already does**. The
-remaining three (`08- Hot Tub`, `17- Steel Kiln`, `18- Steel Slack Tub`) are off purely for
-consistency; ValheimPlus does not touch them. Turning any of the eleven on puts two mods on
-the same station. Do not remove any of the fourteen as redundant.
+EitrRefineries, Stone Ovens and Fireplaces. The remaining three are off for consistency, not
+collision: `08- Hot Tub` — V+'s `[HotTub]` section exists but ships `enabled = false`;
+`17- Steel Kiln` and `18- Steel Slack Tub` — OdinSteelWorks pieces, and that mod is not
+installed here. Turning any of the eleven on puts two mods on the same station. Do not remove
+any of the fourteen as redundant.
 
 **Why this mod exists here at all.** ValheimPlus already pulls from chests at a cooking
 station — press E at a grill with meat in a nearby chest and it works. What V+ lacks is the

@@ -94,10 +94,12 @@ data:
     # FindCookableItem_Transpiler AND UpdateSmelter_Patch; CookingStation has only the former.
     # There is no [CookingStation] section in valheim_plus.cfg at all.
     #
-    # 🚨 EVERY OTHER STATION TYPE IS PINNED OFF in MOD_CONFIG. This mod can also automate
-    # Kilns, Smelters, Windmills, Fermenters, Beehives, SapCollectors, SpinningWheels,
-    # EitrRefineries, Stone Ovens and Fireplaces -- all of which ValheimPlus ALREADY does.
-    # Enabling any of them puts two mods on the same station. See the MOD_CONFIG block.
+    # 🚨 EVERY OTHER STATION TYPE IS PINNED OFF in MOD_CONFIG. Eleven of the fourteen name a
+    # station ValheimPlus ALREADY automates: Kilns, Smelters, Blast Furnaces (⚠️ V+ calls
+    # that section [Furnace], NOT [BlastFurnace] -- which is why this one is easy to miss),
+    # Windmills, Fermenters, Beehives, SapCollectors, SpinningWheels, EitrRefineries, Stone
+    # Ovens and Fireplaces. Enabling any of them puts two mods on the same station. The other
+    # three (Hot Tub, Steel Kiln, Steel Slack Tub) are off for consistency. See MOD_CONFIG.
     #
     # Does NOT kick clients: RemoveDisconnectedPeerFromVerified and RPC_*_Version are both 0,
     # matching PlantEverything and XPortal, unlike AzuEPI and Recycle_N_Reclaim which have
