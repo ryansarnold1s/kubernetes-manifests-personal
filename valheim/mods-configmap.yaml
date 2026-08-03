@@ -524,7 +524,29 @@ data:
     valheim_plus.cfg|StructuralIntegrity|disableStructuralIntegrity|true
     valheim_plus.cfg|StructuralIntegrity|disableDamageToPlayerStructures|true
     # Craft/build/interact using nearby chests (one section covers all three).
+    #
+    # range: raised from the V+ default 20 to 30 metres on 2026-08-02. Integer field -- V+
+    # writes floats with an explicit decimal (defaultFOV 65.0, Kiln productionSpeed 7.5) and
+    # writes this one as a bare number, so a fractional value would truncate.
+    #
+    # ⚠️ THIS IS A DIFFERENT RADIUS FROM THE STATIONS. Crafting scans 30m; every station's
+    # autoRange/autoDepositRange (Smelter, Furnace, Kiln, Fermenter, Windmill, SpinningWheel,
+    # EitrRefinery, Oven, FireSource, Beehive, SapCollector) is 10m and unpinned. A chest that
+    # reliably feeds crafting can still be too far for a smelter sitting next to it to pull
+    # from. That asymmetry is the likely answer to "why won't the smelter take from that chest".
+    #
+    # Why 30 and not more: it narrows a real gap. [Workbench] workbenchRange is pinned to 40
+    # here (vanilla is 20), and checkFromWorkbench is true, which means that when you are
+    # inside a workbench area the chest scan originates AT THE WORKBENCH, not at you. So a
+    # chest could sit inside the 40m workbench area and still fall outside the 20m scan. 30
+    # narrows that dead band without scanning the whole area every lookupInterval (3s).
+    #
+    # Not pinned, and still floating at V+ defaults: checkFromWorkbench (true),
+    # lookupInterval (3), ignorePrivateAreaCheck (false), disableCookingStation (false),
+    # allowCraftingFromCarts (false), allowCraftingFromShips (false). ignorePrivateAreaCheck
+    # is the odd one out -- every station section sets it true and this one is false.
     valheim_plus.cfg|CraftFromChest|enabled|true
+    valheim_plus.cfg|CraftFromChest|range|30
     # Workbench: radius and attachment radius both doubled (meters, absolute).
     #
     # disableRoofCheck removes vanilla's requirement that a workbench be roofed and unexposed
