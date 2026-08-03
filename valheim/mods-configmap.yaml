@@ -835,9 +835,35 @@ data:
     #                          consistency
     # DO NOT "tidy up" these lines.
     #
-    # 02- General is deliberately not pinned -- its keys were not enumerated and nothing here
-    # depends on them. Per-station detection ranges are left at defaults; adjust as a
-    # follow-up if the cooking-station pull radius proves wrong.
+    # 02- General is deliberately not pinned. ENUMERATED 2026-08-02 after first boot: it holds
+    # only "Leave One = On" (never fully drains a chest) and "Must Have = Off". There is NO
+    # global automation master switch, so containment rests entirely on the fourteen Off pins
+    # above -- that assumption is now observed, not assumed.
+    #
+    # ⚠️ Radius = 5 (per station, acceptable 1-50, left at the mod's default). That is TIGHT:
+    # V+ stations use autoRange 10 and V+ [CraftFromChest] uses 30. A chest must be almost
+    # adjacent to the grill. If auto-cooking "does not work", check the chest distance BEFORE
+    # suspecting the pins.
+    #
+    # ⚠️ Automation = Both (per station, default; a THIRD setting type -- "Setting type:
+    # Automation", values Deposit/Fuel/Both). It does not only ADD raw food, it also DEPOSITS
+    # cooked food back into nearby containers. Combined with General's Must Have = Off, cooked
+    # food can land in ANY container within 5m, not only one already holding that item. This is
+    # fuller smelter-parity than the design specified -- recorded because it is behaviour
+    # nobody asked for and someone will eventually report it as a bug.
+    #
+    # ✅ VERIFIED IN-GAME 2026-08-02, immediately after the apply:
+    #   - 09- Iron Cooking Station: a chest built directly beside it and filled with raw meat
+    #     was drawn from, cooked unattended with no player interaction, and the cooked meat was
+    #     deposited back into that chest. Both halves of Automation=Both confirmed.
+    #   - CONTAINMENT (the checks that matter): smelter, blast furnace and the other V+-owned
+    #     stations observed still working as before. The fourteen Off pins held.
+    #   - ⚠️ NOT separately tested: 05- Cooking Station (the regular grill). It carries
+    #     identical pins and identical generated settings to 09, so it is expected equivalent,
+    #     but only 09 was actually exercised. Test it if you ever need certainty.
+    #   - ⚠️ Containment was an operator observation ("working as intended still"), not an
+    #     instrumented measurement of consumption rate. A subtle double-feed would not
+    #     necessarily have shown up. Good enough to proceed; not proof against a slow leak.
     blacks7ar.LazyVikings.cfg|01- ServerSync|Lock Configuration|On
     blacks7ar.LazyVikings.cfg|05- Cooking Station|Enable|On
     blacks7ar.LazyVikings.cfg|09- Iron Cooking Station|Enable|On

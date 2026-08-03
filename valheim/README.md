@@ -798,6 +798,39 @@ LazyVikings supplies exactly that missing engine and nothing else.
 station may see no auto-fill while a player with it does — the same caveat as PlantEverything.
 It does not kick, so installing it is recommended rather than enforced.
 
+#### LazyVikings: what it actually does, and the two surprises
+
+🚨 **`Radius` is 5 metres** (per station, left at the mod's default; acceptable 1–50). That is
+much tighter than anything else here — V+ stations use `autoRange` 10, and V+ crafting uses 30.
+**A chest must be almost touching the cooking station.** If auto-cooking appears not to work,
+check the chest distance *before* suspecting the pins. Raising it is a one-line `MOD_CONFIG`
+change that can ride any future restart.
+
+**It deposits as well as fills.** `Automation` is `Both` (a third setting type — values
+`Deposit`, `Fuel`, `Both`), so cooked food is put **back into a nearby container** rather than
+left on the grill. With `[02- General] Must Have = Off`, it can land in *any* container within
+5 m, not only one already holding that item. This is fuller behaviour than the design asked
+for — if someone reports cooked meat "appearing in the wrong chest", this is why, and it is
+working as configured.
+
+**`[02- General] Leave One = On`** — it never fully drains a chest, deliberately leaving one of
+each material. One lonely raw meat left behind is correct, not a half-failure.
+
+#### LazyVikings: verified in-game
+
+✅ **2026-08-02, immediately after the apply.**
+
+| Check | Result |
+|---|---|
+| `09- Iron Cooking Station` with a chest built directly beside it | raw meat drawn in, cooked **unattended**, cooked meat deposited back into the chest |
+| **Smelter, blast furnace and the other V+-owned stations** | still working as before — the fourteen `Off` pins held |
+
+⚠️ Two honest limits on that record. **`05- Cooking Station` (the regular grill) was not
+separately tested** — it carries identical pins and identical generated settings to `09`, so it
+is expected equivalent, but only `09` was exercised. And **containment was an operator
+observation, not an instrumented measurement** of consumption rate: a subtle double-feed would
+not necessarily have shown up. Good enough to run on; not proof against a slow leak.
+
 ### Confirm the mod stack is healthy
 
 ```powershell
