@@ -254,7 +254,7 @@ silently replaces it with the ConfigMap value. If you want a change to stick, pu
 
 ## Modding (BepInEx)
 
-`BEPINEX: "true"` is set in `configmap.yaml`. **Fourteen mods are installed**, fetched declaratively
+`BEPINEX: "true"` is set in `configmap.yaml`. **Fifteen mods are installed**, fetched declaratively
 by the `fetch-mods` initContainer from `mods-configmap.yaml`:
 
 | Mod | Version | Client install |
@@ -271,6 +271,7 @@ by the `fetch-mods` initContainer from `mods-configmap.yaml`:
 | XPortal | 1.2.24 | **required** — *"All players must run the same version"* |
 | OdinHorse | 1.6.5 | **required** (custom creature/item assets) |
 | Recycle_N_Reclaim | 1.4.0 | **required — kicks clients without it** |
+| BoatAdditions | 1.4.2 | **required** (custom boat/piece assets) — *does not kick, so nothing enforces it* |
 | LazyVikings | 1.2.3 | recommended (does not kick; automation runs on the ZDO owner) |
 | PlantEverything | 1.20.0 | recommended (works without, minor cosmetic loss) |
 
@@ -372,9 +373,9 @@ holds `bepinex/BepInEx/vplus-data/<World>_mapSync.dat`, the V+ shared-map pool �
 respect to the world is not the same as lossless.
 
 🚨 **The prune handles files, not world data.** A mod that registered prefabs — EpicLoot,
-Warfare, Armory, OdinsFoodBarrels, OdinHorse — has its items or creatures persisted as ZDOs in
-`TreeFellMeFirst.db`, and dropping it orphans them. Only pure runtime-patch mods are free to
-remove.
+Warfare, Armory, OdinsFoodBarrels, OdinHorse, BoatAdditions — has its items or creatures persisted
+as ZDOs in `TreeFellMeFirst.db`, and dropping it orphans them. Only pure runtime-patch mods are
+free to remove.
 
 ### ValheimPlus
 
@@ -474,7 +475,7 @@ confirms in-game that a Blast Furnace actually pulls coal and deposits Flametal.
 They consume fuel but produce nothing, so they are deliberately outside the "production station"
 set above. Enable them here if you want them auto-fuelled too — nothing prevents it.
 
-🚨 **Three V+ settings read backwards from their names.** Verified against the comments in the
+🚨 **Five V+ settings read backwards from their names.** Verified against the comments in the
 generated config — getting any of them wrong silently produces the *opposite* effect:
 
 | Setting | Trap |
@@ -482,6 +483,7 @@ generated config — getting any of them wrong silently produces the *opposite* 
 | `productionSpeed` | **Seconds per item, not a percentage.** "Twice as fast" means *halving* it. Setting 30 → 60 makes smelters twice as **slow**. |
 | `baseItemWeightReduction` | **Reduces on negative** despite the name: *"-50 will reduce item weight by 50%, 50 will increase."* |
 | `[Ship] forwardSpeed` | **Percentage modifier**, like `[Armor]` and `[Durability]` — and the opposite of `[Player] baseMaximumWeight`, which is absolute. Set to **50** (2026-08-03) = 50% faster under sail. `backwardSpeed`, `rudderSpeed`, `steerForce` and `waterImpactDamage` are pinned at **0** — vanilla — because enabling the section makes every key in it live. Steering is deliberately unchanged so that if the faster hull feels unwieldy, only one variable moved. |
+| `[Map] exploreRadius` | **Absolute, not a modifier.** The generated cfg calls it *"The radius of the map that you explore when moving"*, and `[Map]` has no *"contains modifiers"* banner — unlike `[Stamina]`, `[StaminaUsage]` and `[Ship]`, which all carry one. Vanilla and V+ both ship **100**, so +50% is **150** (2026-08-04). Writing `50` would **halve** the discovery radius. The section's other four keys were live but unpinned until then; all six are pinned now. |
 | `nightPercent` | **Absolute, not a modifier:** *"0 is all daytime, 100 is all nighttime."* Not a percent change. Set to **23** — with `totalDayTimeInSeconds = 1800` that is 6m54s of night per cycle, against 9 min at the default 30 (was 10 → 3 min until 2026-08-01). Deliberately not 0, so night mobs, light sources and sleeping still matter. **Integer field** — V+ writes floats with an explicit decimal (`65.0`, `0.5`, `7.5`) and this one as a bare `10`, so a fractional value truncates. The total cycle is fixed, so a longer night means a correspondingly shorter day. |
 
 **`autoRepair` and `autoEquipShield` are now enabled.** Both live in `[Player]`, which was pinned

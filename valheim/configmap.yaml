@@ -30,7 +30,13 @@ data:
   BACKUPS_MAX_AGE: "3"
   BACKUPS_IF_IDLE: "false"
   BACKUPS_IDLE_GRACE_PERIOD: "3600"
-  ADMINLIST_IDS: ""
+  # Space-separated SteamID64s. The image writes these to /config/adminlist.txt on start, so a
+  # change here needs a pod restart to take effect -- editing this ConfigMap alone does nothing.
+  # Admin grants the in-game F5 console admin commands (kick/ban/save/ping). It does NOT enable
+  # cheats: those need devcommands, which a dedicated server does not honour.
+  # 76561197963378853 = Ryan. Captured from the server's own "Got connection SteamID" line rather
+  # than from a profile page -- that log line is the ID the server actually authenticates.
+  ADMINLIST_IDS: "76561197963378853"
   # Extra launch args, appended unquoted to the server command line by the image
   # (/usr/local/bin/valheim-server, "$valheim_server" ... $SERVER_ARGS), so space-separated
   # args work but a value containing a space will not.

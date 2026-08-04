@@ -20,8 +20,9 @@
 # staged copy here survives and the bootstrap rsync restores it.
 #
 # ⚠️ The prune handles FILES, not world data. A mod that registered prefabs -- EpicLoot, Warfare,
-# Armory, OdinsFoodBarrels, OdinHorse -- has its items or creatures persisted as ZDOs in the world
-# save, and dropping it orphans them. Only pure runtime-patch mods are free to remove.
+# Armory, OdinsFoodBarrels, OdinHorse, BoatAdditions -- has its items or creatures persisted as
+# ZDOs in the world save, and dropping it orphans them. Only pure runtime-patch mods are free to
+# remove.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -108,6 +109,50 @@ data:
     # Registers no prefabs, so removal is clean. Patches with Harmony Prefix rather than
     # transpilers, which is why a 2025-10-20 release is still fine against current Valheim.
     LazyVikings                1.2.3    https://thunderstore.io/package/download/blacks7ar/LazyVikings/1.2.3/                        25cc50aeb44be09d08998b937dde671b60f8a420656d5b36cc236c52c8588437  root
+    # --- BoatAdditions: 8 new boats, anchors on vanilla boats, and a Boatyard station -------
+    #
+    # Chosen over Marlthon/OdinShip 0.7.6, evaluated 2026-08-04 and declined. OdinShip nests its
+    # DLL one level down (OdinShip/OdinShip.dll plus OdinShip/OSPMusic/) -- a FOURTH zip shape
+    # install_one does not handle. Under layout=root it fails SILENTLY: the find matches no .dll
+    # at maxdepth 1, exits 0, the marker is written and "[ok ]" printed with nothing installed --
+    # and it then skips forever, because the marker matches and mkdir -p already made the dir.
+    # Adding it would mean a new layout type, not a new MODS line. Its author also states server
+    # config sync "is still in development", the same gap that got CookingStationTweaks declined.
+    # Artifact if ever reconsidered: sha256
+    # fbb5c2acb0fa015bc87d41965521a15a6e709b5e8309b68f8ef5d5ee16246385, 40770039 bytes.
+    #
+    # Does NOT kick clients: RemoveDisconnectedPeerFromVerified is 0 and there is no RPC_*_Version
+    # machinery at all -- the cleanest profile in this roster.
+    # ⚠️ RUN THE FULL MARKER, NOT A PREFIX. A truncated "RemoveDisconnected" also matches an
+    # unrelated Unity mesh string present in nearly every DLL, which scores PlantEverything and
+    # LazyVikings identical to the known kickers and makes the check useless. Controls on the
+    # full string: AzuEPI 1, PlantEverything 0.
+    #
+    # 🚨 REGISTERS PREFABS (AssetBundle, PieceManager, ItemManager). Unlike LazyVikings this is
+    # NOT free to remove -- built boats persist as ZDOs. See the prune warning at the top.
+    #
+    # No kick means no enforcement, and it DOES register prefabs, so a client missing it hits
+    # missing prefabs on someone else's boat. Convention, not mechanism: everyone installs it.
+    #
+    # Does NOT collide with AzuContainerSizes [3 - Ships]: its storage keys name its OWN hulls
+    # ("Outrigger Karve storage row size"), and Outrigger Karve is a different prefab from the
+    # vanilla Karve. Does NOT fight V+ [Ship] either -- it touches vanilla boats only to add the
+    # anchor (a velocity lock on the rudder), never the sail stats, so forwardSpeed 50 still
+    # applies and now also applies to the new hulls.
+    #
+    # Config is deliberately NOT pinned yet. The generated file appeared on first boot as
+    # blacks7ar.BoatAdditions.cfg -- 18 sections, 265 keys (enumerated 2026-08-04).
+    #
+    # ⚠️ ITS SECTION NAMES ARE INCONSISTENT, AND SOME ARE NEAR-DUPLICATES. Both spacing styles
+    # exist side by side in the SAME file: [Large Raft] AND [LargeRaft], [Outrigger Karve] AND
+    # [OutriggerKarve], [Outrigger Skeid] AND [OutriggerSkeid]. Capitalisation drifts too --
+    # [Small hull] vs [Sturdy Hull] vs [Large Hull]. A MOD_CONFIG line naming the wrong variant
+    # writes a real-looking key into a section the mod never reads, and nothing logs. Copy the
+    # section name from the generated file verbatim; do not retype it from the boat's display
+    # name. Enumerate first:
+    #   kubectl exec -n valheim deploy/valheim -c valheim -- grep '^\[' \
+    #     /config/bepinex/blacks7ar.BoatAdditions.cfg
+    BoatAdditions              1.4.2    https://thunderstore.io/package/download/blacks7ar/BoatAdditions/1.4.2/                      123bd3fb25002ae067c529b9674e00ceaaed9b0083b5108d3fdd5150c53a629c  root
     # TrashItems is deliberately NOT here. It is a client-side inventory-UI mod with no server
     # role, and it would contend with AzuExtendedPlayerInventory AND Recycle_N_Reclaim's
     # [2 - Inventory Recycle] half, both of which already redraw that same screen. That
@@ -348,9 +393,28 @@ data:
     valheim_plus.cfg|Food|enabled|true
     valheim_plus.cfg|Food|foodDurationMultiplier|100
     valheim_plus.cfg|Food|disableFoodDegradation|true
-    # Map: shared exploration.
+    # Map: shared exploration, and a 50% wider discovery radius.
+    #
+    # ⚠️ exploreRadius IS ABSOLUTE, NOT A PERCENTAGE MODIFIER. The generated cfg describes it as
+    # "The radius of the map that you explore when moving", and [Map] carries no "This section
+    # contains modifiers" banner -- unlike [Stamina], [StaminaUsage] and [Ship], which all do.
+    # Vanilla and V+ both ship 100, so +50% is 150. Writing 50 here would HALVE the radius, the
+    # same reading-backwards trap as nightPercent and productionSpeed. Set 2026-08-04 after
+    # reading the section off the PVC; do not "correct" 150 to 50.
+    #
+    # ⚠️ THE THREE false PINS BELOW ARE DELIBERATE, NOT PADDING. [Map] had been enabled with only
+    # enabled+shareMapProgression pinned, leaving four keys live but unpinned -- exactly the gap
+    # the [Ship] block below warns about. Closed 2026-08-04: all six keys in the section are now
+    # pinned, so a future V+ default change cannot alter map behaviour silently.
+    # shareAllPins stays false on purpose -- exploration is already shared via
+    # shareMapProgression, and auto-sharing every pin would remove the choice to mark something
+    # privately. displayCartsAndBoats stays at vanilla false.
     valheim_plus.cfg|Map|enabled|true
     valheim_plus.cfg|Map|shareMapProgression|true
+    valheim_plus.cfg|Map|exploreRadius|150
+    valheim_plus.cfg|Map|preventPlayerFromTurningOffPublicPosition|false
+    valheim_plus.cfg|Map|shareAllPins|false
+    valheim_plus.cfg|Map|displayCartsAndBoats|false
     # Ship: 50% faster under sail. Everything else in the section stays vanilla.
     #
     # forwardSpeed is a PERCENTAGE MODIFIER, not an absolute -- 50 means +50%, -50 would mean
