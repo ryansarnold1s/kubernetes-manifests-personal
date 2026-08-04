@@ -314,14 +314,19 @@ data:
     #   nightPercent is ABSOLUTE, not a modifier: "0 is all daytime, 100 is all nighttime".
     # Floats are fine -- [Building] areaRepairRadius ships as 7.5.
     #
-    # Stamina: +100% regen, -50% on every drain.
+    # Stamina: +100% regen, -50% on every drain -- except swimming, which is OFF entirely.
     valheim_plus.cfg|Stamina|enabled|true
     valheim_plus.cfg|Stamina|staminaRegen|100
     valheim_plus.cfg|Stamina|staminaRegenDelay|-50
     valheim_plus.cfg|Stamina|runStaminaDrain|-50
     valheim_plus.cfg|Stamina|jumpStaminaDrain|-50
     valheim_plus.cfg|Stamina|sneakStaminaDrain|-50
-    valheim_plus.cfg|Stamina|swimStaminaDrain|-50
+    # -100 is deliberate and is the floor, not a typo for -50. V+ pushes this key onto both
+    # m_swimStaminaDrainMinSkill and m_swimStaminaDrainMaxSkill (the only two fields vanilla uses
+    # for swim drain, at swim skill 0 and 100), so -100 zeroes drain at EVERY skill level --
+    # swimming is unlimited and you cannot drown from running the bar out. Going below -100 buys
+    # nothing. Note this makes the Swimming skill dead weight: it only ever reduced this drain.
+    valheim_plus.cfg|Stamina|swimStaminaDrain|-100
     valheim_plus.cfg|Stamina|dodgeStaminaUsage|-50
     valheim_plus.cfg|Stamina|encumberedStaminaDrain|-50
     valheim_plus.cfg|StaminaUsage|enabled|true
