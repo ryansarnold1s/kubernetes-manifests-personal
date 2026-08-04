@@ -195,6 +195,32 @@ data:
     # config file com.kpro.TeleportEverything.cfg. Would compose well with OdinHorse's horse and
     # horse cart, though its ally filter is mask/regex based so a custom creature may need config.
     #
+    # VikingsDoSwim (blacks7ar) is deliberately NOT here. Evaluated 2026-08-04 for a "+75% swim
+    # speed" request and declined -- deferred, not rejected on quality.
+    #
+    # ⚠️ FIRST, THE FACT THAT MOTIVATED IT: THERE IS NO SWIM SPEED SETTING IN VALHEIM PLUS, and
+    # none anywhere in valheim_plus.cfg. Enumerated off the PVC: the only swim keys in the whole
+    # file are [Experience] swim (XP gain), dontUnequipItemsWhenSwimming, reequipItemsAfterSwimming
+    # and [Stamina] swimStaminaDrain. Every speed/velocity key belongs to a production station, a
+    # projectile or a ship. Do not go looking for this knob again -- it does not exist.
+    #
+    # There is no no-mod route either. In assembly_valheim.dll only m_swimStaminaDrainMinSkill and
+    # m_swimStaminaDrainMaxSkill are skill-paired; m_swimSpeed has no skill variant, so vanilla
+    # swim speed is FLAT and levelling Swimming does not make you faster.
+    #
+    # 🚨 IF IT IS EVER ADDED, IT COLLIDES WITH [Stamina] swimStaminaDrain. Its own feature list
+    # includes "Configurable swim stamina drain min/max skill" -- the exact two fields V+ writes to
+    # implement swimStaminaDrain = -100. Two mods on the same fields with undefined patch ordering,
+    # the same collision class that keeps [Wagon] and [Inventory] pinned off. Decide ownership
+    # first: either pin V+ swimStaminaDrain back to 0 and let the mod own swimming end to end, or
+    # do not install it.
+    #
+    # ⚠️ It also would NOT have delivered a flat +75%. Its knob is "Max Swim Speed at max swim
+    # skill level" and speed ramps with the Swimming skill -- and swimStaminaDrain = -100 may keep
+    # that skill near zero, so the two changes could partly cancel. Artifact NOT downloaded, so
+    # there is no hash here and no kick/prefab recon: run the full evaluation before trusting it.
+    # It also bundles a diving mechanic and underwater brightness/fog, well beyond the ask.
+    #
     # RecipePinner (KadrioS, 1.3.0) is deliberately NOT here. Evaluated 2026-08-02 and declined
     # for SERVER install specifically -- it is recommended CLIENT-side. Pins recipes and build
     # pieces to the HUD and tracks missing materials live, with pin groups and an optional
