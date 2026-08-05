@@ -397,17 +397,25 @@ and both are meta. So it is inert until you enable something. Two sections are *
 | `[Inventory]` | AzuEPI (`playerInventoryRows`) and AzuContainerSizes (every chest/cart/boat row+column) |
 | `[Wagon]` | OdinHorse's horse cart (`wagonBaseMass` would stomp its deliberate heaviness back to draggable) |
 
-**27 sections are enabled** for gameplay tuning: Player, Stamina, StaminaUsage, Food, Map, Time,
-FireSource, Turret, Armor, Durability, Items, Building, StructuralIntegrity, CraftFromChest,
+**28 sections are enabled** for gameplay tuning: Player, Stamina, StaminaUsage, Food, Map, Time,
+FireSource, Turret, Armor, Shields, Durability, Items, Building, StructuralIntegrity, CraftFromChest,
 Workbench, Gathering, Experience, and every production station (Smelter, Furnace, Kiln, Fermenter,
 Beehive, Windmill, SpinningWheel, EitrRefinery, Oven, SapCollector). See `MOD_CONFIG` for the
 exact values.
 
 ⚠️ **`[Armor]` and `[Durability]` are different things and are easy to conflate.** `[Armor]`
-raises the armor *value* (damage reduction) and is at **+50%**; `[Durability]` raises how long
+raises the armor *value* (damage reduction) and is at **+75%**; `[Durability]` raises how long
 gear lasts before repair. The mismatch is deliberate — see the next paragraph before "fixing" it.
 `[Durability]` is **+100% on combat gear** (`weapons`, `axes`, `bows`, `shields`, `armor`) and
 **+150% on tools** (`pickaxes`, `hammer`, `cultivator`, `hoe`, `torch`).
+
+⚠️ **`[Armor]` does not cover shields.** Its four keys are `helmets`, `chests`, `legs`, `capes` —
+nothing else. Block value lives in a separate **`[Shields]` section**, enabled 2026-08-05 with
+`blockRating = 75` to match. Both of its keys are pinned; the section has exactly two.
+
+⚠️ **Three different numbers say "shields".** `[Shields] blockRating = 75` is how much damage a
+shield stops. `[Durability] shields = 100` is how long it lasts before repair. `[StaminaUsage]
+blocking = -50` is what blocking costs. They are unrelated and are not meant to match.
 
 ⚠️ **Tools are deliberately the more generous number.** Combat-gear durability is still adjacent
 to balance — it governs how long you last in a fight before a weapon breaks. Tool durability is
@@ -415,12 +423,20 @@ pure convenience: it changes only how often you walk back to a workbench. `axes`
 weapons at +100%, not with the tools, because an axe is a weapon that also chops wood. `torch`
 sits with the tools because its durability is burn time.
 
-**Why armor is +50% and durability is higher.** Armor value is a combat-balance number: it compounds
-with Armory's biome-tier variants and EpicLoot's enchants into a character that is hard to kill,
-which is why it was scaled back from +100%. Durability is a convenience number — it changes how
-often you walk back to a workbench, not whether you survive — so the same compounding argument
-carries much less weight, and doubling it was chosen deliberately with that distinction in view.
-The effective figure still exceeds +100% on EpicLoot-enchanted and Warfare gear.
+**Why armor is held below +100% while durability is not.** Armor value is a combat-balance number:
+it compounds with Armory's biome-tier variants and EpicLoot's enchants into a character that is
+hard to kill. Durability is a convenience number — it changes how often you walk back to a
+workbench, not whether you survive — so the same compounding argument carries much less weight,
+and doubling it was chosen deliberately with that distinction in view. The effective figure still
+exceeds +100% on EpicLoot-enchanted and Warfare gear.
+
+⚠️ **`[Armor]` has been changed three times; check the history before moving it again.** It shipped
+at **+100%** (`4fbbbeb`, 2026-07-28), was scaled back to **+50%** the same day (`ca08bb8`) on the
+compounding argument, then raised to **+75%** (2026-08-05) because +50% did not read as a large
+enough difference in play. 75 is a deliberate middle point, not a settled answer — it concedes the
+compounding concern was partly right rather than discarding it. `[Armor]` and `[Shields]` are the
+two numbers to walk back first if the characters start feeling unkillable; `[Durability]` is not,
+and has correctly stayed at 100 through all three moves.
 
 **Workbenches no longer need a roof.** `[Workbench] disableRoofCheck = true` removes vanilla's
 requirement that a bench be sheltered and unexposed before it functions — V+'s own description
@@ -495,9 +511,11 @@ Two knock-on effects worth knowing, neither a collision:
 
 - `[Items] baseItemWeightReduction = -75` compounds with the raised cap — lighter items *and*
   more of them. At `baseMaximumWeight = 850` that is roughly 3400 vanilla-equivalent capacity.
-- `[Armor]` is **+50%, scaled back from +100%**, because it multiplies on top of two other sources:
-  Armory's upgraded biome-tier armor variants and EpicLoot's enchanted gear. V+'s own example is
-  base armor 14 → 21 at +50%, → 28 at +100%, before either of those applies.
+- `[Armor]` is **+75%**, held below +100% because it multiplies on top of two other sources:
+  Armory's upgraded biome-tier armor variants and EpicLoot's enchanted gear. V+'s own example
+  scale is base armor 14 → 21 at +50%, → 24.5 at +75%, → 28 at +100%, before either of those
+  applies. `autoEquipShield` pairs with `[Shields] blockRating = 75` — the auto-equipped shield
+  is picked by highest block power, which this raises.
 
 **Ores and ingots now go through portals.** `[Items] noTeleportPrevention = true` lifts vanilla's
 ban on carrying teleport-restricted items — V+'s own description is *"Enables you to teleport with

@@ -527,15 +527,49 @@ data:
     valheim_plus.cfg|Turret|enabled|true
     valheim_plus.cfg|Turret|ignorePlayers|true
     valheim_plus.cfg|Turret|unlimitedAmmo|true
-    # Armor: +50% on every slot, scaled back from +100%. This multiplier compounds with two
-    # other sources -- Armory's upgraded biome-tier armor variants and EpicLoot's enchanted gear
-    # -- so doubling it on top of both stacked up faster than any of the three assumed alone.
-    # V+'s own example: base armor 14 -> 21 at +50%, -> 28 at +100%, before those other two.
+    # Armor: +75% on every slot. This multiplier compounds with two other sources -- Armory's
+    # upgraded biome-tier armor variants and EpicLoot's ModifyArmor / ModifyArmorLowHealth
+    # enchants (both confirmed present in magiceffects.json) -- so it deliberately stops short
+    # of doubling. V+'s own example scale: base armor 14 -> 21 at +50%, -> 24.5 at +75%,
+    # -> 28 at +100%, before either of those other two sources applies.
+    #
+    # ⚠️ SECOND CORRECTION TO THIS NUMBER -- read before changing it again. It shipped at +100%
+    # (4fbbbeb), was scaled back to +50% the same day (ca08bb8) on the compounding argument
+    # above, and was raised to +75% on 2026-08-05 because +50% did not read as a large enough
+    # difference in play. 75 is the deliberate middle: it concedes the compounding concern was
+    # partly right rather than discarding it. The pattern to notice is that this key has been
+    # moved three times and the compounding argument has been correct each time -- if the
+    # characters start feeling unkillable, THIS and [Shields] below are the two to walk back
+    # first, not [Durability], which is a convenience number (see the block after Shields).
+    #
+    # ⚠️ These four keys are the WHOLE of [Armor]: helmets, chests, legs, capes. Shields are NOT
+    # covered here -- they live in their own [Shields] section immediately below.
     valheim_plus.cfg|Armor|enabled|true
-    valheim_plus.cfg|Armor|helmets|50
-    valheim_plus.cfg|Armor|chests|50
-    valheim_plus.cfg|Armor|legs|50
-    valheim_plus.cfg|Armor|capes|50
+    valheim_plus.cfg|Armor|helmets|75
+    valheim_plus.cfg|Armor|chests|75
+    valheim_plus.cfg|Armor|legs|75
+    valheim_plus.cfg|Armor|capes|75
+    # Shields: +75% block rating, matched to [Armor] above and moved at the same time (2026-08-05)
+    # so that one survivability tier covers both the passive side (armor, always on) and the
+    # active side (blocking, only when you actually raise the shield). They are NOT equivalent
+    # buffs -- if only one of them is ever walked back, that asymmetry is the reason to pick.
+    #
+    # The section shipped enabled=false with blockRating 0, so this is a move from vanilla rather
+    # than an increase on an existing bonus. Both keys in the section are pinned: enabling a
+    # section makes every key in it live, and [Shields] has exactly these two.
+    #
+    # Percent modifier, same convention as [Armor] and [Durability]: 50 = 50% more block rating,
+    # -50 = 50% less.
+    #
+    # ⚠️ DISTINCT FROM `Durability|shields` in the block below, which is at 100. That governs how
+    # long a shield survives before repair; this governs how much damage it stops. Two unrelated
+    # numbers that both say "shields" -- do not reconcile them to each other.
+    #
+    # Compounds with EpicLoot the same way [Armor] does: ModifyBlockPower, ModifyBlockPowerLowHealth,
+    # ModifyBlockForce and AddBlockingSkill are all present in magiceffects.json. [StaminaUsage]
+    # blocking is already at -50, so blocking is cheap as well as strong now.
+    valheim_plus.cfg|Shields|enabled|true
+    valheim_plus.cfg|Shields|blockRating|75
     # Durability: +100% on combat gear, +150% on tools. DISTINCT FROM [Armor] ABOVE -- that one raises
     # the armor VALUE (damage reduction), this one raises how long gear lasts before repair.
     # Enabling this section is what turns it on at all; it shipped enabled=false with every value
@@ -543,12 +577,14 @@ data:
     #
     # Percent modifier, same convention as [Armor]: 100 takes durability 100 -> 200, -50 -> 50.
     #
-    # ⚠️ DO NOT "fix" this to 50 for consistency with [Armor] above. The two look like they should
-    # match and deliberately do not. [Armor] was scaled back from +100% because armor value is a
+    # ⚠️ DO NOT "fix" this to match [Armor] above (currently 75). The two look like they should
+    # match and deliberately do not. [Armor] is held below +100% because armor value is a
     # COMBAT BALANCE number -- it compounds with Armory's biome-tier variants and EpicLoot's
     # enchants into a character that is hard to kill. Durability is a CONVENIENCE number: it
     # changes how often you walk back to a workbench, not whether you survive. Doubling it was
-    # asked for explicitly with that distinction on the table.
+    # asked for explicitly with that distinction on the table. [Armor] has now moved 100 -> 50
+    # -> 75 across three commits without this number following it. That is the intended
+    # behaviour, not drift -- these two are not coupled and never have been.
     #
     # Still compounds with two other sources, so the effective number exceeds +100% on some gear:
     #   EpicLoot's ModifyDurability enchant (a % roll on top of this, in magiceffects.json)
