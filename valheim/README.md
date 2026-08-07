@@ -447,8 +447,9 @@ already worked at 40m without it.
 It compounds with `[Player] autoRepair`: repair fires on interacting with a workbench, so while
 the roof check stood, auto-repair only worked under a roof.
 
-**Mining yield and pickaxe skill.** `[Gathering]` is at **+100%** on every resource dropped from
-a node broken with a tool, and `[Experience] pickaxes` is at **+100%**.
+**Mining yield and skill gain.** `[Gathering]` is at **+100%** on every resource dropped from
+a node broken with a tool, and **every one of the 23 `[Experience]` skills** is at **+100%** —
+all weapons, blocking, both magic schools, and every gathering, movement and crafting skill.
 
 These were asked for as "increase tool damage". 🚨 **V+ cannot do that** — verified by
 enumerating all 58 sections and every key containing `damage`: the complete set is monster
@@ -457,8 +458,24 @@ per-weapon-type modifier. Do not go looking for one.
 
 The two settings split the goal:
 - `[Gathering]` is a **yield** change — a rock takes the same swings, you mine fewer rocks
-- `[Experience] pickaxes` is the only real **damage** route, since skill level scales tool
-  damage in vanilla. It is self-limiting: at Pickaxes 100 it stops contributing
+- `[Experience]` is the only real **damage** route, since skill level scales both tool *and*
+  weapon damage in vanilla. Self-limiting: a skill at 100 stops contributing
+
+⚠️ **`[Experience]` at +100% across the board is a progression change, not a convenience one.**
+Combat difficulty is largely gated by how slowly weapon skills climb. Lowering these values
+later only slows *future* gains — banked XP cannot be rolled back, so widen with that in mind.
+
+Two interactions that are easy to misread:
+- `swim` is effectively a no-op. `[Player] swimStaminaDrain = -100` already zeroes swim stamina
+  drain at every skill level, and that drain was the only thing Swimming affected. Pinned for
+  completeness, not effect
+- `blocking` **compounds** with V+ armor +75% and `[Shields]` +75% block rating. Block strength
+  scales with the skill too, so the real increase exceeds the 75% those settings name
+
+Every key the section defines is now pinned, so — unlike `[Gathering]` and `[Player]` — no
+unpinned V+ default remains here. The re-verify-on-upgrade caveat narrows to **new** keys: a V+
+release adding a skill leaves it unpinned and live. Enumerate the section off the PVC after any
+upgrade and pin whatever appeared.
 
 ⚠️ **`[Gathering]` compounds with `-modifier resources more`** in `configmap.yaml`, a native
 global drop multiplier already one step above normal. The effective multiplier is **more than

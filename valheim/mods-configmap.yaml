@@ -824,18 +824,59 @@ data:
     valheim_plus.cfg|Gathering|feather|100
     valheim_plus.cfg|Gathering|flametalOre|100
     valheim_plus.cfg|Gathering|proustitePowder|100
-    # --- Experience: faster Pickaxes skill --------------------------------------------------
-    # This is the ONLY route V+ offers to genuinely more pickaxe DAMAGE. Skill level scales tool
-    # damage in vanilla, so levelling Pickaxes faster means fewer swings per rock. Unlike
-    # [Gathering] above, this really is a damage increase rather than a yield increase.
+    # --- Experience: EVERY skill levels at double rate ---------------------------------------
+    # Was pickaxes-only. Now all 23 skill keys are at +100%, which is what "match pickaxes"
+    # asked for. The pickaxe rationale generalises: skill level scales WEAPON damage in vanilla
+    # exactly as it scales tool damage, so this is the only route V+ offers to more damage per
+    # swing -- there is no [Damage] section and no per-weapon-type modifier (see [Gathering]
+    # above). Faster levelling is therefore a real power increase, not just faster numbers.
     #
-    # Self-limiting: once Pickaxes reaches 100 this contributes nothing further.
+    # Self-limiting across the board: a skill at 100 gains nothing further from this.
     #
-    # Only pickaxes is raised. Every other skill stays at 0 (no-op); the section being enabled
-    # makes them live, so adding another later is a one-line change. Same re-verify-on-upgrade
-    # caveat as [Gathering] above.
+    # ⚠️ This is a PROGRESSION change, not a convenience one, and it is the reason to think twice
+    # before widening it again. Combat difficulty in Valheim is largely gated by how slowly your
+    # weapon skills climb; doubling that removes the gate. Nothing here can be un-levelled once
+    # players have banked the XP -- lowering these values later only slows FUTURE gains, it does
+    # not roll anyone back.
+    #
+    # Two specific interactions worth knowing before anyone reads a line here as load-bearing:
+    #   - swim is very nearly a no-op. [Player] swimStaminaDrain = -100 already zeroes swim
+    #     stamina drain at every skill level, and reducing that drain was the only thing the
+    #     Swimming skill did. It is pinned for completeness, not effect.
+    #   - blocking COMPOUNDS with the recent armor/block work (V+ armor +75%, [Shields] enabled
+    #     at +75% block rating). Block strength scales with the skill as well, so the effective
+    #     increase is larger than the 75% those settings name.
+    #
+    # Every key the section defines is now pinned, so unlike [Gathering] and [Player] there is no
+    # unpinned V+ default left in here to change under us. The re-verify-on-upgrade caveat
+    # narrows to NEW keys: a V+ release that adds a skill would leave it unpinned and live.
+    # Enumerate the section off the PVC after any upgrade and pin whatever appeared.
+    #
+    # Key order matches the installed build's config file, to keep diffing the two cheap.
     valheim_plus.cfg|Experience|enabled|true
+    valheim_plus.cfg|Experience|swords|100
+    valheim_plus.cfg|Experience|knives|100
+    valheim_plus.cfg|Experience|clubs|100
+    valheim_plus.cfg|Experience|polearms|100
+    valheim_plus.cfg|Experience|spears|100
+    valheim_plus.cfg|Experience|blocking|100
+    valheim_plus.cfg|Experience|axes|100
+    valheim_plus.cfg|Experience|bows|100
+    valheim_plus.cfg|Experience|elementalMagic|100
+    valheim_plus.cfg|Experience|bloodMagic|100
+    valheim_plus.cfg|Experience|unarmed|100
     valheim_plus.cfg|Experience|pickaxes|100
+    valheim_plus.cfg|Experience|woodCutting|100
+    valheim_plus.cfg|Experience|crossbows|100
+    valheim_plus.cfg|Experience|jump|100
+    valheim_plus.cfg|Experience|sneak|100
+    valheim_plus.cfg|Experience|run|100
+    valheim_plus.cfg|Experience|swim|100
+    valheim_plus.cfg|Experience|fishing|100
+    valheim_plus.cfg|Experience|cooking|100
+    valheim_plus.cfg|Experience|farming|100
+    valheim_plus.cfg|Experience|crafting|100
+    valheim_plus.cfg|Experience|ride|100
     #
     # --- PlantEverything: crop growth and forage respawn, 4x faster --------------------------
     # FIRST NON-V+, NON-AZU MOD PINNED HERE. Until now advize.PlantEverything.cfg lived on the
