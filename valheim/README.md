@@ -125,6 +125,20 @@ and `--no-headers` can emit a blank line, so parsing it directly yields an empty
 **Baseline (2026-07-30, idle):** 2009Mi / 8192Mi (24.5%), 45m CPU, 397k ZDOs, 17.5 MiB world.
 Sample it **under player load** too; idle is the floor, not the number that matters.
 
+**Reading (2026-08-08, 4 players in Ashlands):** 2931Mi / 8192Mi (35.8%), ~63m CPU,
+**1.26M ZDOs, 59.7 MiB world.**
+
+🚨 **That is 3.2× the ZDOs and 3.4× the world size in nine days**, and it is the first growth
+that has had a *gameplay* consequence rather than just a memory one: it is what pushed the
+autosave freeze to ~3.2s (see `-saveinterval` above). Memory is still comfortable — the table
+above is about OOM risk and nothing here is close to 5500Mi. **ZDO count now matters on its own,
+independently of memory.** Per-hour growth (~0.20 MB/h averaged over those nine days) is still
+inside the 0.10–0.57 MB/h band measured earlier, so this is sustained exploration, not a leak —
+but "self-limiting" should not be read as "harmless".
+
+⚠️ The freeze scales with world size, so `-saveinterval` will need revisiting as this grows.
+Raising it again only trades crash-loss for comfort; the only real fix is fewer ZDOs.
+
 | Reading | Meaning |
 |---|---|
 | under ~5500Mi | fine, no action |
@@ -161,9 +175,20 @@ were building in already-explored territory. Structures are cheap; new zones are
   entirely while anyone is online. Left on deliberately for memory hygiene on a long-running
   server. To disable it, add `RESTART_CRON: ""` to `configmap.yaml` — and note it takes an
   explicit empty string for the same `${VAR-default}` reason as `UPDATE_CRON`.
-- **`SAVEINTERVAL` is unset**, so the image default of 1800s (30 min) applies. Up to ~30
-  minutes of world progress can be lost on an ungraceful termination (e.g. node failure).
-  The ConfigMap is unchanged; noted here for awareness.
+- **Autosave is `-saveinterval 3600` (1 hour), set in `SERVER_ARGS`.** Raised from the stock
+  1800s on 2026-08-08 because the autosave was freezing the entire server for **~3.2s every
+  30 minutes** — measured across 7 of 7 consecutive saves. Up to ~60 minutes of world progress
+  can now be lost on an ungraceful termination, instead of ~30.
+
+  🚨 **There is no `SAVEINTERVAL` env var — this bullet used to claim there was.** It stated
+  the image applied "the image default of 1800s" through one. It does not:
+  `grep -rn saveinterval /usr/local/bin/` inside the container returns **nothing**. 1800s was
+  Valheim's *own* built-in default, and `SERVER_ARGS` is the only route. Do not add a
+  `SAVEINTERVAL` key to `configmap.yaml` expecting it to do anything.
+
+  ⚠️ This halves the frequency and **cannot** shorten the freeze — see `configmap.yaml` for the
+  mechanism (`PrepareSave` clones world state in memory on the main thread; the disk write is
+  already async, so faster storage buys nothing).
 - **`externalTrafficPolicy: Local` + pod reschedule = brief outage.** If the pod moves to a
   different node (eviction, node drain, etc.), MetalLB has to re-announce the address from
   the new node. There's a short gap where `192.168.130.155:2456` is unreachable until that

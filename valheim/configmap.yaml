@@ -49,7 +49,35 @@ data:
   #
   # Modifiers are saved into the world once set. A malformed -modifier arg logs a parse
   # error and is otherwise silently ignored, so check the logs after changing this.
-  SERVER_ARGS: "-modifier resources more"
+  #
+  # -saveinterval 3600: raised from the stock 1800 on 2026-08-08. The autosave was freezing
+  # the whole server for ~3.2s every 30 minutes -- measured, not estimated, across 7 of 7
+  # consecutive saves: 3522/3204/2937/3167/2987/3121/3578 ms.
+  #
+  # ⚠️ THIS HALVES THE FREQUENCY, IT DOES NOT SHORTEN THE FREEZE. Each save still costs ~3.2s.
+  # The duration is set by world size (59.7 MB / 1.26M ZDOs), so it will creep back up as the
+  # world grows, and raising this again only trades more crash-loss for less annoyance. The
+  # actual fix is fewer ZDOs.
+  #
+  # 🚨 DO NOT "FIX" THIS WITH FASTER STORAGE. The disk write is ALREADY asynchronous --
+  # m_saveThread, SaveThread, SaveAsync and PrepareSave are all present in
+  # assembly_valheim.dll. The blocking part is PrepareSave cloning world state in MEMORY on
+  # the main thread. Evidence: cgroup io.pressure totalled 0.32s cumulative over a pod
+  # lifetime containing ~22s of save freezes. If it were I/O those numbers would match.
+  #
+  # ⚠️ Hosting blogs claim "there's no built-in way to change the autosave interval". That is
+  # WRONG for this build: `saveinterval` is present in assembly_valheim.dll alongside savedir,
+  # backups, backupshort, backuplong, crossplay and instanceid. Recon the binary, not the docs.
+  #
+  # Tradeoff accepted: an unclean crash now loses up to 60 minutes instead of 30. Hourly zip
+  # backups (BACKUPS_CRON), Longhorn snapshots and CloudCasa all still apply, and a clean
+  # shutdown saves regardless.
+  #
+  # ⚠️ VERIFYING THIS NEEDS THE NEGATIVE CASE. The arg appearing in /proc/<pid>/cmdline only
+  # proves it was PASSED, not honoured -- a bad value is silently ignored, same as -modifier.
+  # The real check is a save that does NOT happen: confirm no "World saved" line at boot+30m,
+  # then one at boot+60m. Timing the gap between two saves is the only proof.
+  SERVER_ARGS: "-modifier resources more -saveinterval 3600"
   BEPINEX: "true"
   PUID: "10000"
   PGID: "10000"
