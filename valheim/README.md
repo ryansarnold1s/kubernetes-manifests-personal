@@ -448,8 +448,11 @@ It compounds with `[Player] autoRepair`: repair fires on interacting with a work
 the roof check stood, auto-repair only worked under a roof.
 
 **Mining yield and skill gain.** `[Gathering]` is at **+100%** on every resource dropped from
-a node broken with a tool, and **every one of the 23 `[Experience]` skills** is at **+100%** —
+a node broken with a tool, and **every one of the 23 `[Experience]` skills** is at **+200%** —
 all weapons, blocking, both magic schools, and every gathering, movement and crafting skill.
+
+⚠️ **`+200%` is TRIPLE rate, not double.** These keys are percentage modifiers, so the earlier
+`+100%` was already double. Do not read `200` as "200% of vanilla".
 
 These were asked for as "increase tool damage". 🚨 **V+ cannot do that** — verified by
 enumerating all 58 sections and every key containing `damage`: the complete set is monster
@@ -461,9 +464,16 @@ The two settings split the goal:
 - `[Experience]` is the only real **damage** route, since skill level scales both tool *and*
   weapon damage in vanilla. Self-limiting: a skill at 100 stops contributing
 
-⚠️ **`[Experience]` at +100% across the board is a progression change, not a convenience one.**
-Combat difficulty is largely gated by how slowly weapon skills climb. Lowering these values
-later only slows *future* gains — banked XP cannot be rolled back, so widen with that in mind.
+⚠️ **`[Experience]` at +200% across the board is a progression change, not a convenience one.**
+Combat difficulty is largely gated by how slowly weapon skills climb; tripling that removes the
+gate outright. Lowering these values later only slows *future* gains — banked XP cannot be rolled
+back, so widen with that in mind.
+
+🚨 **This compounds with the death penalty being off.** `[Player] deathPenaltyMultiplier = -100`
+zeroes skill drain on death, and that 5%-per-death drain was the only thing that ever took banked
+XP back. Skills are now **monotonic at triple rate** — they only ever go up. The two settings
+shipped together; if the death penalty is ever restored, re-read this pairing before *also*
+lowering these values, or the correction lands twice.
 
 Two interactions that are easy to misread:
 - `swim` is effectively a no-op. `[Player] swimStaminaDrain = -100` already zeroes swim stamina
@@ -660,6 +670,18 @@ items in slots that no longer exist — take a Longhorn snapshot before reducing
 **Carry weight** — `[Player] baseMaximumWeight = 850`, flat. This replaced SkilledCarryWeight,
 which summed `Coefficient × level` across 24 skills for roughly +550 over a 300 base at average
 level 50. See "`[Player]` is enabled" above.
+
+**Death penalty** — `[Player] deathPenaltyMultiplier = -100`, so dying costs **no skill progress**
+(vanilla drains 5% of every skill). `-100` is the floor: the key is a modifier where "-50 will
+reduce it by 50%", so going lower buys nothing.
+
+⚠️ **Skill loss only — you still drop a gravestone.** The key patches `Skills.LowerAllSkills`
+(verified by class name in `ValheimPlus.dll`); item drops are a separate mechanism and are
+untouched, so the corpse run is unchanged. If someone asks to "turn off the death penalty" and
+means the corpse run, that needs `-modifier deathpenalty casual` in `configmap.yaml` — a different
+tradeoff, because native modifiers **bake permanently into `TreeFellMeFirst.fwl`** while this key
+is undone by editing `mods-configmap.yaml` and restarting. The reversible route was chosen
+deliberately.
 
 🚨 **Zero-width characters can be load-bearing in a mod's `.cfg`.** SkilledCarryWeight prefixed
 keys and sections with U+200B (`E2 80 8B`) to force sort order in its config manager — its real
