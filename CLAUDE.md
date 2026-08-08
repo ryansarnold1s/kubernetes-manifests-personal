@@ -67,7 +67,7 @@ Recon the artifact inside the running container before adding it — sha256, zip
 section/key names, kick behaviour, prefab registration. The store page is routinely wrong.
 
 - **Strip nulls before mining .NET strings**: `tr -d '\000' | tr -cs '[:print:]' '\n'`. Without it, every UTF-16 literal containing a space reads as absent — a clean-looking false negative
-- Kick detection: `RemoveDisconnectedPeerFromVerified` and `RPC_*_Version` discriminate; `MinimumRequiredVersion` / `DisconnectClient` do **not** (PlantEverything has both and does not kick). Always run a known-kicker and a known-non-kicker control
+- Kick detection: **`RemoveDisconnectedPeerFromVerified` is the ONLY symbol that discriminates.** `RPC_*_Version`, `MinimumRequiredVersion` and `DisconnectClient` do **not**. ⚠️ This bullet claimed `RPC_*_Version` discriminated too until 2026-08-08, when running the controls disproved it — it is *anti*-correlated. Measured across four installed mods: known kickers AzuContainerSizes and Recycle_N_Reclaim both score `RemoveDisconnectedPeerFromVerified=1, RPC_*Version=0`; known non-kicker PlantEverything scores `0, 1`; known non-kicker BoatAdditions `0, 0`. Both non-kickers also carry `DisconnectClient=1`. Trusting `RPC_*_Version` would have wrongly condemned BetterNetworking (`0, 1`) as a kicker. **This is exactly why the control run is mandatory — it caught a wrong heuristic in this file.** Always run a known-kicker and a known-non-kicker control, and distrust this bullet over the controls if they ever disagree again
 - `AssetBundle`/`PrefabManager`/`CustomItem` all 0 → registers no prefabs → removal is clean, no orphaned ZDOs
 - Client-side-only mods do nothing on a headless server; record them as declined-for-server in `MODS`, install per-client
 

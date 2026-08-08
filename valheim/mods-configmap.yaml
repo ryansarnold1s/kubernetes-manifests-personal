@@ -1238,9 +1238,15 @@ data:
     # README's escalation for this exact symptom is Queue Size _48KB plus Update Rate _75 -- NOT
     # applied yet, because moving two networking variables at once makes the result
     # unattributable. Measure _32KB first. Escalate only if mobs still skip.
-    # ⚠️ Before raising Queue Size, confirm whether every player is on the LAN. The author's
-    # caution ("can overload a player's internet") does not apply to LAN peers but absolutely
-    # does to anyone connecting from outside.
+    # ✅ EVERY PLAYER IS ON THE LAN (confirmed by the owner 2026-08-08). That retires ONE of the
+    # two cautions on raising Queue Size, not both:
+    #   - "can overload a player's internet" -> DOES NOT APPLY. Sub-millisecond gigabit LAN,
+    #     measured 0% loss. Bandwidth is not the constraint here.
+    #   - "deprioritizes IMPORTANT objects" -> STILL APPLIES, and is independent of bandwidth.
+    #     A bigger queue ships more data per flush but reorders what gets in it, so bigger is
+    #     NOT monotonically better even on a perfect network. This is the reason _80KB is not
+    #     simply the right answer.
+    # ⚠️ If a remote player is ever added, the first caution comes back and this note is stale.
     #
     # Compression Enabled is true but is a NO-OP until clients install BN -- compression requires
     # the mod at BOTH ends. It costs nothing server-side and starts working per-player as people

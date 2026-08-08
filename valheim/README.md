@@ -357,6 +357,13 @@ backlog, zero PSI pressure on cpu/io/memory. Nine layers were measured and elimi
 had everything available and would not use it. Raising CPU, memory, storage tier or touching
 MetalLB will do nothing.
 
+**All players are on the LAN** (confirmed 2026-08-08). This matters for tuning: BN's warning that
+a large queue size "can overload a player's internet" does not apply here, so `Queue Size` can be
+raised without bandwidth risk. Its *other* warning — that a bigger queue "deprioritizes important
+objects" — still applies and is independent of bandwidth, so `_80KB` is **not** automatically the
+right answer. Escalate one step at a time and measure. If a remote player ever joins, the
+bandwidth caution returns.
+
 ⚠️ **It predates Ashlands.** Last updated 2023-11-12; its README claims Mistlands compatibility.
 Re-check the BepInEx log for Harmony patch failures after every Valheim update, not just after
 install. Removal is clean — it registers no prefabs, so deleting its `MODS` line and restarting
