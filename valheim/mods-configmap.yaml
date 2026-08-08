@@ -42,11 +42,14 @@ data:
   # TherzieTranslations YAMLs. Verified against each zip's actual contents, not assumed.
   #
   # Checksums captured from the real downloads (2026-07-27; later additions dated at their entry).
-  # CLIENT INSTALL: every mod here except PlantEverything and LazyVikings must also be on
-  # each client. AzuExtendedPlayerInventory, AzuContainerSizes and Recycle_N_Reclaim actively
-  # KICK clients that lack them. LazyVikings does not kick, but its automation runs on the
-  # ZDO owner, so a player without it may see no auto-cooking -- install it anyway.
-  # See README.md for the full client list.
+  # CLIENT INSTALL: every mod here except PlantEverything, LazyVikings and BetterNetworking
+  # must also be on each client. AzuExtendedPlayerInventory, AzuContainerSizes and
+  # Recycle_N_Reclaim actively KICK clients that lack them. LazyVikings does not kick, but its
+  # automation runs on the ZDO owner, so a player without it may see no auto-cooking -- install
+  # it anyway. BetterNetworking does not kick either and is useful server-only, but it is only
+  # HALF effective that way: its compression needs BN at both ends, and the client that owns a
+  # creature's ZDO is the one sending its updates. Install it per-client too once the
+  # server-side effect has been measured. See README.md for the full client list.
   MODS: |
     Jotunn                     2.29.2   https://thunderstore.io/package/download/ValheimModding/Jotunn/2.29.2/                      c018eb5876ea0b4a509c32b7926055918ea95bc4698610df6b2acc58d72029ad  plugins
     JsonDotNET                 13.0.4   https://thunderstore.io/package/download/ValheimModding/JsonDotNET/13.0.4/                  a221c7be7163ab9739274b962fbd1f63abde65b1418839a62f02aca210868147  plugins
@@ -153,6 +156,79 @@ data:
     #   kubectl exec -n valheim deploy/valheim -c valheim -- grep '^\[' \
     #     /config/bepinex/blacks7ar.BoatAdditions.cfg
     BoatAdditions              1.4.2    https://thunderstore.io/package/download/blacks7ar/BoatAdditions/1.4.2/                      123bd3fb25002ae067c529b9674e00ceaaed9b0083b5108d3fdd5150c53a629c  root
+    # BetterNetworking: raises Valheim's hardcoded per-peer ZDO send queue cap. Added 2026-08-08
+    # to fix mobs teleporting/skipping in the Ashlands.
+    #
+    # WHY THIS AND NOT A SERVER TUNE: the bottleneck is a CONSTANT COMPILED INTO THE GAME, not a
+    # resource limit. ZDOMan.SendZDOToPeers refuses to send once a peer's socket queue exceeds
+    # 10240 bytes:
+    #     if (!flush && sendQueueSize > 10240) { return false; }
+    # Measured against that ceiling, the server was idling: 0.063 cores, ~95 KB/s tx on a <1ms
+    # gigabit LAN, zero UDP drops, zero rx_queue backlog, zero PSI pressure on cpu/io/memory.
+    # It had every resource available and would not use them. Do NOT go looking for a CPU,
+    # memory, disk or MetalLB fix -- all nine were measured and eliminated on 2026-08-08.
+    #
+    # ⚠️ THE MOD TARGETS THAT EXACT CALL, verified in the artifact rather than believed from the
+    # store page: it registers BN_Patch_QueueSize containing Steamworks_GetSendQueueSize and
+    # PlayFab_GetSendQueueSize -- the same GetSendQueueSize() the 10240 check reads. Other patch
+    # classes: BN_Patch_SendRate, _UpdateRate, _Compression, _NewConnectionBuffer,
+    # _DedicatedServer, _ForceCrossplay, _ChangePlayerLimit.
+    #
+    # 🚨 PLAYER-LIMIT COLLISION -- DECIDED UP FRONT, NOT DISCOVERED LATER. BN ships
+    # BN_Patch_ChangePlayerLimit (configPlayerLimit -> SetPlayerLimit, applied at
+    # DedicatedServerInit) and ValheimPlus [Server] maxPlayers = 10 already owns that property.
+    # Two mods, one property -- the same situation as the [Wagon]/OdinHorse and [Inventory]/AzuEPI
+    # pins. DECISION: V+ keeps ownership at 10, and BN's player limit is PINNED TO THE SAME 10 so
+    # the result is identical whichever patch applies last. This deliberately does NOT depend on
+    # undocumented patch ordering -- that is the same reasoning recorded for [Wagon]. The pin
+    # cannot be written until the key name is known; see the second-apply note below. It is NOT
+    # optional and NOT deferred-by-choice.
+    #
+    # ⚠️ THE ARTIFACT IS STALE AND THIS IS THE REAL RISK. Last updated 2023-11-12; its own README
+    # tops out at "Now compatible with Mistlands!". It PREDATES ASHLANDS -- the biome it is being
+    # installed to fix -- and is ~16 months older than Warfare, already the oldest thing here.
+    # Not deprecated, 158k downloads, and BepInEx 5.4.2333 installed satisfies its 5.4.2202 pin.
+    # If Valheim has moved those method signatures since, the Harmony patch fails to apply.
+    # CHECK THE LOG FOR PATCH FAILURES AFTER ANY VALHEIM UPDATE, not just after this install.
+    #
+    # ✅ DOES NOT KICK -- control-verified 2026-08-08, not taken from the author's README.
+    # Ran the discriminating grep against two known kickers and two known non-kickers:
+    #   AzuContainerSizes [kicker]     RemoveDisconnectedPeerFromVerified=1
+    #   Recycle_N_Reclaim [kicker]     RemoveDisconnectedPeerFromVerified=1
+    #   PlantEverything   [non-kicker] RemoveDisconnectedPeerFromVerified=0  RPC_*Version=1
+    #   BoatAdditions     [non-kicker] RemoveDisconnectedPeerFromVerified=0
+    #   BetterNetworking               RemoveDisconnectedPeerFromVerified=0  RPC_*Version=1
+    # BN carries NO MinimumRequiredVersion and NO DisconnectClient at all -- less kick-capable
+    # than either non-kicker control. Vanilla clients can still join.
+    #
+    # ⚠️ That run also DISPROVED half of the kick heuristic in CLAUDE.md, which claims
+    # RemoveDisconnectedPeerFromVerified and RPC_*_Version both discriminate. RPC_*Version is 0 on
+    # BOTH known kickers and 1 on a known non-kicker -- anti-correlated in this sample. Only
+    # RemoveDisconnectedPeerFromVerified separates them cleanly. Trusting RPC_*Version alone would
+    # have wrongly condemned this mod as a kicker.
+    #
+    # AssetBundle/PrefabManager/CustomItem/ItemManager/PieceManager all 0 -> registers no prefabs
+    # -> removal is clean, no orphaned ZDOs. Deleting this line and restarting fully reverts it.
+    #
+    # CLIENT INSTALL: not required (it does not kick), so this is deliberately deployed
+    # SERVER-FIRST to measure before asking four people to install anything. But server-side is a
+    # PARTIAL fix by design: compression only works between two BN-equipped peers, and mob updates
+    # travel owner-client -> server -> other clients. This install only widens the second hop.
+    # The mod's own README: "The player who arrives in an area first is responsible for lag
+    # there" -- which independently matches what the ownership evidence showed.
+    #
+    # Config is deliberately NOT pinned yet -- SECOND APPLY REQUIRED, same as OdinHorse above.
+    # Sections seen in the DLL are [Networking], [Compression] and [Crossplay], with options
+    # NetworkQueueSize, NetworkSendRateMin, NetworkSendRateMax, NetworkUpdateRate,
+    # NetworkCompression, ForceCrossplay and Logger_LogLevel -- but those are SYMBOL names, not
+    # verified .cfg key names. Enumerate the generated file before pinning anything, and read
+    # "# Setting type:" for each key; do not retype these from here:
+    #   kubectl exec -n valheim deploy/valheim -c valheim -- \
+    #     grep -n '^\[\|^# Setting type\|^[A-Za-z]' /config/bepinex/CW_Jesse.BetterNetworking.cfg
+    # Tuning targets from the mod README once the real keys are known: default queue size 32 KB
+    # (already 3.2x the vanilla 10240); "if NPCs are skipping, reduce update rate to 75% and
+    # raise queue size to 48 KB" -- which is this server's exact symptom.
+    BetterNetworking_Valheim   2.3.2    https://thunderstore.io/package/download/CW_Jesse/BetterNetworking_Valheim/2.3.2/            1e4a654d091e87ece8ccb507dc1df8f2c7944a44372d5b8ec42185dabf146c10  root
     # TrashItems is deliberately NOT here. It is a client-side inventory-UI mod with no server
     # role, and it would contend with AzuExtendedPlayerInventory AND Recycle_N_Reclaim's
     # [2 - Inventory Recycle] half, both of which already redraw that same screen. That
@@ -1118,6 +1194,65 @@ data:
     blacks7ar.LazyVikings.cfg|16- Fireplace|Enable|Off
     blacks7ar.LazyVikings.cfg|17- Steel Kiln|Enable|Off
     blacks7ar.LazyVikings.cfg|18- Steel Slack Tub|Enable|Off
+    #
+    # --- BetterNetworking: all 8 keys pinned ------------------------------------------------
+    #
+    # Enumerated off the generated /config/bepinex/CW_Jesse.BetterNetworking.cfg on 2026-08-08,
+    # first boot after install. 4 sections, 8 keys. Section names are verbatim from that file --
+    # note [Networking (Steamworks)] carries PARENTHESES and [Dedicated Server] a space.
+    #
+    # 🚨 ENUM VALUES CARRY A LEADING UNDERSCORE. It is `_32KB`, not `32KB`; `_100`, not `100`.
+    # This is not cosmetic -- a value in the wrong form is rejected and replaced by the mod's own
+    # default, correctly formatted, in the right section, logging nothing. The file would look
+    # healthy either way. Copy these from the generated cfg, never retype them.
+    # Acceptable sets, from the file itself:
+    #   Queue Size         _80KB _64KB _48KB _32KB _vanilla
+    #   Update Rate        _100 _75 _50
+    #   Send Rate Min/Max  _1024KB _768KB _512KB _256KB _150KB
+    #   Force Crossplay    vanilla playfab steamworks        (NO underscore on these three)
+    # Player Limit is a plain Int32 (range 1-127) and Compression Enabled a plain true/false --
+    # two different value conventions in the SAME file. Read `# Setting type:` per key.
+    #
+    # 🚨 `Player Limit` = 10 IS THE COLLISION PIN, and it is the reason this section exists.
+    # BN_Patch_ChangePlayerLimit sets the player limit at DedicatedServerInit; ValheimPlus
+    # [Server] maxPlayers = 10 sets the same property. Two mods, one property. BN's default
+    # happens to be 10 already, so nothing is broken TODAY -- which is exactly why this is pinned
+    # rather than left alone. Unpinned, a future BN default change would silently disagree with
+    # V+ and the winner would come down to undocumented patch ordering. Same discipline as the
+    # [Wagon]/OdinHorse pin. ⚠️ IF V+ maxPlayers EVER CHANGES, CHANGE THIS LINE IN THE SAME EDIT.
+    #
+    # ⚠️ SEVEN OF THESE EIGHT PINS ARE INERT BY CONSTRUCTION -- they match BN's defaults. That is
+    # deliberate (explicit state beats implicit), but it means they cannot be verified by reading
+    # values back: they would "pass" even if the section name were wrong, because the default is
+    # already the expected value. This is the exact trap recorded above for Recycle_N_Reclaim,
+    # where two pins passed for the wrong reason.
+    #   -> `Log Level` is therefore pinned to `info`, a NON-default, on purpose. It is the only
+    #      key here whose written value differs from what the mod would produce on its own, so it
+    #      is the one line that actually proves the applier reached this file and parsed these
+    #      section names. It also buys extra visibility while a 2023-era mod is on trial.
+    #      Returning it to `message` is fine once BN is trusted -- but then NO pin in this block
+    #      is verifiable any more. Re-verify the block by flipping one key if you do.
+    #
+    # Networking values are at defaults DELIBERATELY, not lazily. Queue Size _32KB is already
+    # 3.2x vanilla's hardcoded 10240-byte cap, which is the entire problem being fixed. The mod
+    # README's escalation for this exact symptom is Queue Size _48KB plus Update Rate _75 -- NOT
+    # applied yet, because moving two networking variables at once makes the result
+    # unattributable. Measure _32KB first. Escalate only if mobs still skip.
+    # ⚠️ Before raising Queue Size, confirm whether every player is on the LAN. The author's
+    # caution ("can overload a player's internet") does not apply to LAN peers but absolutely
+    # does to anyone connecting from outside.
+    #
+    # Compression Enabled is true but is a NO-OP until clients install BN -- compression requires
+    # the mod at BOTH ends. It costs nothing server-side and starts working per-player as people
+    # install it, so it is on from the start rather than switched on later and forgotten.
+    CW_Jesse.BetterNetworking.cfg|Dedicated Server|Force Crossplay|vanilla
+    CW_Jesse.BetterNetworking.cfg|Dedicated Server|Player Limit|10
+    CW_Jesse.BetterNetworking.cfg|Logging|Log Level|info
+    CW_Jesse.BetterNetworking.cfg|Networking|Compression Enabled|true
+    CW_Jesse.BetterNetworking.cfg|Networking|Update Rate|_100
+    CW_Jesse.BetterNetworking.cfg|Networking|Queue Size|_32KB
+    CW_Jesse.BetterNetworking.cfg|Networking (Steamworks)|Minimum Send Rate|_256KB
+    CW_Jesse.BetterNetworking.cfg|Networking (Steamworks)|Maximum Send Rate|_1024KB
 
   install-mods.sh: |
     #!/bin/bash

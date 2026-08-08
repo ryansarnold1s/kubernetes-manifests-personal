@@ -299,6 +299,7 @@ by the `fetch-mods` initContainer from `mods-configmap.yaml`:
 | BoatAdditions | 1.4.2 | **required** (custom boat/piece assets) — *does not kick, so nothing enforces it* |
 | LazyVikings | 1.2.3 | recommended (does not kick; automation runs on the ZDO owner) |
 | PlantEverything | 1.20.0 | recommended (works without, minor cosmetic loss) |
+| BetterNetworking_Valheim | 2.3.2 | recommended (does not kick; **server-only is half-effective** — see below) |
 
 **`TrashItems` is deliberately not installed server-side.** It is a client-side inventory-UI mod
 with no server role. Install it per-client if wanted, but test it: AzuExtendedPlayerInventory
@@ -339,6 +340,27 @@ com.ValheimModding.NewtonsoftJsonDetector`, EpicLoot never loads, and Jotunn the
 connection with **`ErrorVersion`** — which looks like a game-version mismatch and is not one.
 If a client gets `ErrorVersion`, check its BepInEx log for a failed plugin load before suspecting
 the server.
+
+**`BetterNetworking_Valheim` is installed server-side and is worth installing per-client too.**
+It raises Valheim's hardcoded per-peer ZDO send queue cap — the constant behind mobs teleporting
+in the Ashlands. It does **not** kick, so client installs are optional and can be staged.
+
+⚠️ **Server-only is deliberately half a fix.** Compression only works between two BN-equipped
+peers, and creature updates travel **owning client → server → other clients**. The server install
+widens the second hop only. Whoever reaches an area first owns its creatures and sends their
+updates, so the players most worth installing it on are the ones who tend to be out in front.
+
+🚨 **Do not chase this with infrastructure.** The bottleneck is a constant compiled into
+`assembly_valheim.dll`, not a resource limit. Measured 2026-08-08 with four players in Ashlands:
+**0.063 cores**, ~95 KB/s tx on a sub-millisecond gigabit LAN, zero UDP drops, zero receive-queue
+backlog, zero PSI pressure on cpu/io/memory. Nine layers were measured and eliminated. The server
+had everything available and would not use it. Raising CPU, memory, storage tier or touching
+MetalLB will do nothing.
+
+⚠️ **It predates Ashlands.** Last updated 2023-11-12; its README claims Mistlands compatibility.
+Re-check the BepInEx log for Harmony patch failures after every Valheim update, not just after
+install. Removal is clean — it registers no prefabs, so deleting its `MODS` line and restarting
+fully reverts it with no orphaned ZDOs.
 
 🚨 **SkilledCarryWeight must be UNINSTALLED client-side.** Removing it from the server is
 necessary but **not sufficient** — it functions as a client-side mod, so a player who keeps it
