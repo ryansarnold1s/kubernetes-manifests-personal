@@ -35,6 +35,11 @@ disagree, trust the sockets:
 kubectl logs -n valheim deploy/valheim -c valheim --since=5m | Select-String "Got connection|Closing socket"
 ```
 
+**Re-check connections in the same action as the restart, not before the edits.** A check that was
+accurate when run goes stale while you edit, review or wait for approval — one here went ~9.5h stale
+and dropped four players mid-session. Several `Got connection` lines within ~90s of a cold pod means
+*you* dropped them and they auto-reconnected.
+
 ## Environment
 
 - `KUBECONFIG` is set in `.claude/settings.local.json` (gitignored, machine-specific) — needed for every kubectl call. **Set it there, don't inline `$env:KUBECONFIG = …` in commands**: a command that starts with an assignment never prefix-matches a `kubectl *` permission rule, so every call prompts
@@ -60,6 +65,8 @@ kubectl logs -n valheim deploy/valheim -c valheim --since=5m | Select-String "Go
   `kubectl logs -n valheim deploy/valheim -c valheim | Select-String "could not be parsed"`
 - **A `[cfg ]` line means the applier wrote the file, never that the mod accepted the value.** A rejected value is replaced by the mod's own default, correctly formatted, in the right section — the PVC config looks healthy either way
 - Section-name conventions differ per mod: Azumatt `2 - Inventory Recycle`, V+ bare `[Time]`, blacks7ar `05- Cooking Station`. A pattern written for one silently misses the others
+- **A pin whose value equals the mod's default is inert and unverifiable** — it reads back correct even if the section name is wrong. When pinning an all-defaults block, set one harmless key (a log level) to a NON-default sentinel; it is the only line that proves the applier reached that file
+- The game **binary** is also a source of truth for CLI args. Hosting blogs insisted the autosave interval "cannot be changed"; `saveinterval` is in `assembly_valheim.dll` beside `savedir`, `backups`, `backupshort`, `backuplong`, `crossplay`, `instanceid`
 
 ## Evaluating a new mod
 
@@ -70,6 +77,20 @@ section/key names, kick behaviour, prefab registration. The store page is routin
 - Kick detection: **`RemoveDisconnectedPeerFromVerified` is the ONLY symbol that discriminates.** `RPC_*_Version`, `MinimumRequiredVersion` and `DisconnectClient` do **not**. ⚠️ This bullet claimed `RPC_*_Version` discriminated too until 2026-08-08, when running the controls disproved it — it is *anti*-correlated. Measured across four installed mods: known kickers AzuContainerSizes and Recycle_N_Reclaim both score `RemoveDisconnectedPeerFromVerified=1, RPC_*Version=0`; known non-kicker PlantEverything scores `0, 1`; known non-kicker BoatAdditions `0, 0`. Both non-kickers also carry `DisconnectClient=1`. Trusting `RPC_*_Version` would have wrongly condemned BetterNetworking (`0, 1`) as a kicker. **This is exactly why the control run is mandatory — it caught a wrong heuristic in this file.** Always run a known-kicker and a known-non-kicker control, and distrust this bullet over the controls if they ever disagree again
 - `AssetBundle`/`PrefabManager`/`CustomItem` all 0 → registers no prefabs → removal is clean, no orphaned ZDOs
 - Client-side-only mods do nothing on a headless server; record them as declined-for-server in `MODS`, install per-client
+- Use `grep -o` on the extracted strings, never plain `grep` — .NET metadata is one multi-hundred-KB line, so any match prints the entire heap and buries the answer
+- **Does it push config to clients?** `ServerSync`/`ConfigSync`/`SyncedConfigEntry` counts discriminate, with the same controls as kick detection: OdinHorse/Recycle_N_Reclaim/AzuContainerSizes score 11–16; BetterNetworking scores 0 and syncs nothing, so its `MOD_CONFIG` pins are server-only
+
+## Diagnosing performance
+
+- Eliminate resource contention in one shot — `nr_throttled 0` plus PSI `avg10/60/300 = 0.00` on all three means the container is not starved, so stop looking at CPU, RAM, disk and CNI. Label the files; bare `cat` of all four emits three identical-looking PSI blocks you cannot tell apart:
+
+  ```powershell
+  kubectl exec -n valheim deploy/valheim -c valheim -- sh -c 'for f in cpu.stat cpu.pressure io.pressure memory.pressure; do echo "== $f"; cat /sys/fs/cgroup/$f; done'
+  ```
+- Cumulative PSI settles "was it I/O?" retrospectively: `io.pressure` totalling 0.32s over a pod lifetime containing ~22s of save freezes proved the freeze was an in-memory clone, not disk
+- **Short samples lie.** A 10s window showed a 76:1 rx/tx asymmetry and a "steady" 400 KB/s; both dissolved at 30s. Sample ≥30s and more than once before concluding anything from throughput
+- `ps %CPU` averages over process **lifetime** — useless for a long-running server. Delta `usage_usec` from `cpu.stat` across a fixed `sleep` instead
+- A server that is **idle *and* slow** is rate-limited by design, not starved. Valheim's `ZDOMan` refuses to send past a hardcoded 10240-byte per-peer queue; no amount of CPU, RAM or faster storage touches it
 
 ## PowerShell + kubectl
 
