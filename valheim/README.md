@@ -369,6 +369,50 @@ Re-check the BepInEx log for Harmony patch failures after every Valheim update, 
 install. Removal is clean — it registers no prefabs, so deleting its `MODS` line and restarting
 fully reverts it with no orphaned ZDOs.
 
+### BetterNetworking client config — the server pushes nothing
+
+🚨 **`MOD_CONFIG` does not reach clients for this mod, and neither does ValheimPlus.** BN ships
+**no config-sync machinery at all** — verified against three installed mods known to have it:
+
+| Mod | `ServerSync` | `ConfigSync` | `SyncedConfigEntry` |
+|---|---|---|---|
+| OdinHorse | 12 | 16 | 1 |
+| Recycle_N_Reclaim | 12 | 15 | 1 |
+| AzuContainerSizes | 11 | 13 | 1 |
+| **BetterNetworking** | **0** | **0** | **0** |
+
+Its single RPC is the `RPC_CompressionVersion` handshake, which negotiates compression — not
+settings. V+ `serverSyncsConfig = true` syncs **V+'s own** config only, never another mod's. So
+the pins in `MOD_CONFIG` govern the **server's** behaviour and nothing else.
+
+**This is correct, not a shortcoming.** A BN setting controls *that peer's own outgoing data*:
+the server's `Queue Size` governs server→clients, and each client's governs that client→server.
+Syncing them would be wrong, which is why the mod's own tuning advice is written per-peer
+("Player B: increase queue size").
+
+**Installing on a client: change nothing.** Every value pinned server-side is BN's own default,
+so a fresh install already matches:
+
+| Setting | Client default | Server pin |
+|---|---|---|
+| `Queue Size` | `_32KB` | `_32KB` ✅ |
+| `Update Rate` | `_100` | `_100` ✅ |
+| `Compression Enabled` | `true` | `true` ✅ |
+| `Log Level` | `message` | `info` — evaluation only, leave clients alone |
+
+The `[Dedicated Server]` section (`Force Crossplay`, `Player Limit`) is server-only and ignored
+on clients, so nobody needs to touch the player-limit setting. Install
+`CW_Jesse-BetterNetworking_Valheim-2.3.2` in r2modman and stop there.
+
+🚨 **Escalating `Queue Size` means hand-editing every client, with no drift detection.** If
+`_32KB` proves insufficient and the group moves to `_48KB` + `Update Rate _75`, each player must
+edit their own `BepInEx/config/CW_Jesse.BetterNetworking.cfg` (r2modman's config editor, or F1
+in-game if they run ConfigurationManager). Nothing pushes it and **nothing on the server can tell
+you who missed it** — one player left on defaults is silent and invisible. This is exactly the
+"correct client config would be convention, not mechanism" objection recorded above for
+CookingStationTweaks; here it was accepted rather than disqualifying, because BN is useful
+server-only and does not kick. Budget for a manual round of config checks if you ever escalate.
+
 🚨 **SkilledCarryWeight must be UNINSTALLED client-side.** Removing it from the server is
 necessary but **not sufficient** — it functions as a client-side mod, so a player who keeps it
 retains local Cart Mass Reduction and the Quick Cart hotkey and can still drag OdinHorse's horse

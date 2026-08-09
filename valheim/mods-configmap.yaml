@@ -1197,6 +1197,15 @@ data:
     #
     # --- BetterNetworking: all 8 keys pinned ------------------------------------------------
     #
+    # 🚨 THESE PINS ARE SERVER-ONLY AND REACH NO CLIENT. BN ships zero config-sync: ServerSync,
+    # ConfigSync and SyncedConfigEntry are all 0 in its DLL, against 11-16 for OdinHorse,
+    # Recycle_N_Reclaim and AzuContainerSizes. V+ serverSyncsConfig covers V+'s OWN config only.
+    # Every player configures their own copy by hand. That is CORRECT, not a gap -- a BN setting
+    # governs that peer's OWN OUTGOING data, so the server's Queue Size is server->clients and a
+    # client's is client->server. Do not "fix" this by looking for a sync switch; there isn't one.
+    # ⚠️ Consequence: changing Queue Size here fixes HALF the path. See README.md,
+    # "BetterNetworking client config", before assuming an escalation took effect group-wide.
+    #
     # Enumerated off the generated /config/bepinex/CW_Jesse.BetterNetworking.cfg on 2026-08-08,
     # first boot after install. 4 sections, 8 keys. Section names are verbatim from that file --
     # note [Networking (Steamworks)] carries PARENTHESES and [Dedicated Server] a space.
