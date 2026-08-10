@@ -3,7 +3,8 @@
 Talos k8s manifests, one directory per workload. Each has its own README with operational
 detail and inline warnings — read it before changing anything in that directory.
 
-- `valheim/` — game server, 12 BepInEx mods installed declaratively via an initContainer. The complex one
+- `valheim/` — game server, BepInEx mods installed declaratively via an initContainer (the `MODS` table
+  in `valheim/mods-configmap.yaml` is the count of record — a number here drifted 12→16 unnoticed). The complex one
 - `mumble/` — voice server
 - `docs/superpowers/{specs,plans}` — design specs and implementation plans. When a shipped decision turns
   out wrong, append a correction rather than rewriting history; several already carry them
@@ -56,6 +57,7 @@ and dropped four players mid-session. Several `Got connection` lines within ~90s
 ## Verification
 
 - **Verify the negative case.** A check only ever observed passing has not been verified — confirm it fails when it should. A no-op health probe shipped this way once
+- Interval-based proofs die on any restart; the clock restarts with the pod. Sequence restarts **before** arming a long verification, or expect to re-arm it
 - `unchanged` from `kubectl apply` is a silent failure, not a success — usually the wrong cwd
 - After editing a config file in place, re-read it and confirm section/key **counts are unchanged** — an appended duplicate is the signature of a failed match
 - **A container-generated config on the PVC is the source of truth for which keys exist**, not upstream docs — they routinely understate the set (V+ `[Player]`: docs 3 keys, installed build 26). Enumerate the live file before pinning anything
@@ -79,6 +81,8 @@ section/key names, kick behaviour, prefab registration. The store page is routin
 - Client-side-only mods do nothing on a headless server; record them as declined-for-server in `MODS`, install per-client
 - Use `grep -o` on the extracted strings, never plain `grep` — .NET metadata is one multi-hundred-KB line, so any match prints the entire heap and buries the answer
 - **Does it push config to clients?** `ServerSync`/`ConfigSync`/`SyncedConfigEntry` counts discriminate, with the same controls as kick detection: OdinHorse/Recycle_N_Reclaim/AzuContainerSizes score 11–16; BetterNetworking scores 0 and syncs nothing, so its `MOD_CONFIG` pins are server-only
+- Installing a new mod costs **two applies and two restarts** — the mod does not generate its `.cfg` until it has booted once, and `MOD_CONFIG` cannot name sections that do not exist yet
+- Check staleness before downloading: `curl -sL https://thunderstore.io/api/experimental/package/<ns>/<name>/` returns `version_number`, `download_url`, `dependencies`, `date_updated`. BetterNetworking's 2023-11 date was the biggest risk finding on it — nothing in the DLL said so
 
 ## Diagnosing performance
 
@@ -91,6 +95,7 @@ section/key names, kick behaviour, prefab registration. The store page is routin
 - **Short samples lie.** A 10s window showed a 76:1 rx/tx asymmetry and a "steady" 400 KB/s; both dissolved at 30s. Sample ≥30s and more than once before concluding anything from throughput
 - `ps %CPU` averages over process **lifetime** — useless for a long-running server. Delta `usage_usec` from `cpu.stat` across a fixed `sleep` instead
 - A server that is **idle *and* slow** is rate-limited by design, not starved. Valheim's `ZDOMan` refuses to send past a hardcoded 10240-byte per-peer queue; no amount of CPU, RAM or faster storage touches it
+- **Creatures are simulated by the client that OWNS their ZDO, not by the server.** A solo test is therefore a false pass — alone you own every mob near you and they always look smooth. Reproducing "mobs skip" needs 2+ players in one area, with whoever arrived **second** doing the watching
 
 ## PowerShell + kubectl
 
