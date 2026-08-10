@@ -3,8 +3,8 @@
 Talos k8s manifests, one directory per workload. Each has its own README with operational
 detail and inline warnings — read it before changing anything in that directory.
 
-- `valheim/` — game server, BepInEx mods installed declaratively via an initContainer (the `MODS` table
-  in `valheim/mods-configmap.yaml` is the count of record — a number here drifted 12→16 unnoticed). The complex one
+- `valheim/` — game server, BepInEx mods installed declaratively via an initContainer. The complex one.
+  The `MODS` table in `valheim/mods-configmap.yaml` is the authoritative list — don't hardcode a count here
 - `mumble/` — voice server
 - `docs/superpowers/{specs,plans}` — design specs and implementation plans. When a shipped decision turns
   out wrong, append a correction rather than rewriting history; several already carry them
@@ -76,7 +76,7 @@ Recon the artifact inside the running container before adding it — sha256, zip
 section/key names, kick behaviour, prefab registration. The store page is routinely wrong.
 
 - **Strip nulls before mining .NET strings**: `tr -d '\000' | tr -cs '[:print:]' '\n'`. Without it, every UTF-16 literal containing a space reads as absent — a clean-looking false negative
-- Kick detection: **`RemoveDisconnectedPeerFromVerified` is the ONLY symbol that discriminates.** `RPC_*_Version`, `MinimumRequiredVersion` and `DisconnectClient` do **not**. ⚠️ This bullet claimed `RPC_*_Version` discriminated too until 2026-08-08, when running the controls disproved it — it is *anti*-correlated. Measured across four installed mods: known kickers AzuContainerSizes and Recycle_N_Reclaim both score `RemoveDisconnectedPeerFromVerified=1, RPC_*Version=0`; known non-kicker PlantEverything scores `0, 1`; known non-kicker BoatAdditions `0, 0`. Both non-kickers also carry `DisconnectClient=1`. Trusting `RPC_*_Version` would have wrongly condemned BetterNetworking (`0, 1`) as a kicker. **This is exactly why the control run is mandatory — it caught a wrong heuristic in this file.** Always run a known-kicker and a known-non-kicker control, and distrust this bullet over the controls if they ever disagree again
+- Kick detection: **`RemoveDisconnectedPeerFromVerified` is the only symbol that discriminates.** `RPC_*_Version`, `MinimumRequiredVersion` and `DisconnectClient` do **not** — across four installed mods `RPC_*_Version` is *anti*-correlated (0 on both known kickers, 1 on a known non-kicker). Always run a known-kicker and a known-non-kicker control; that run is what caught this bullet asserting the opposite until 2026-08-08. Trust the controls over this line if they ever disagree
 - `AssetBundle`/`PrefabManager`/`CustomItem` all 0 → registers no prefabs → removal is clean, no orphaned ZDOs
 - Client-side-only mods do nothing on a headless server; record them as declined-for-server in `MODS`, install per-client
 - Use `grep -o` on the extracted strings, never plain `grep` — .NET metadata is one multi-hundred-KB line, so any match prints the entire heap and buries the answer
