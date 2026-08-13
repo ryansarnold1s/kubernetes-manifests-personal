@@ -341,3 +341,158 @@ three instances and both poolers, start times still `2026-07-27T16:35:18Z` /
 `16:37:32Z` / `16:37:45Z`. Creating a database and revoking an ACL are catalog operations —
 no rollout, no failover. Afterwards, zero `mealie` sessions remain in `pg_stat_activity` and
 no probe pods remain in `default`.
+
+## Task 4: Deployed against Postgres
+
+`namespace.yaml`, `pvc.yaml`, `deployment.yaml`, `service.yaml` applied 2026-08-12. Mealie
+v3.22.0 is running in ns `mealie`, Service `mealie:9000` (ClusterIP, no ingress yet — that's
+Task 5). Not reachable from outside the cluster on purpose.
+
+### Migration duration (Ruling 3 — for tightening `statement_timeout` later)
+
+Every Alembic `Running upgrade …` line in the boot log — all ~55 migrations, `Initial tables`
+through `add table for ai providers` — plus `Database contains no users, initializing...` and
+`end: database initialization` carry the **identical timestamp** `2026-08-12T19:21:00`. Log
+resolution is 1-second, so the true figure is somewhere under 1 second, not the ~55 discrete
+steps the migration count might suggest. This was against an **empty** database (Task 3
+proved `mealie` had zero tables going in); a future re-migration on a populated database will
+take longer, but "first boot" — the case `statement_timeout='300s'` was sized for — completed
+in a fraction of a second. 300s is therefore enormous headroom, not a tight fit. Tightening it
+is a reasonable follow-up but was left alone here per Ruling 3 (record evidence, don't
+re-scope Task 3's decision).
+
+### Schema landed in Postgres, not SQLite
+
+```
+$ kubectl exec -n finance finance-service-cluster-1 -c postgres -- psql -d mealie -tAc \
+    "SELECT count(*) FROM pg_tables WHERE schemaname='public';"
+66
+```
+
+Non-zero — `DB_ENGINE=postgres` took effect. No extension error occurred (Ruling 4 not
+triggered): the migration log has no `CREATE EXTENSION` failure, and `pg_tables` populated
+cleanly. `cnpg-database.yaml` was **not** modified.
+
+### PostgreSQL 18 compatibility (Step 8)
+
+`kubectl logs … | Select-String sqlalchemy|psycopg|ProgrammingError|OperationalError|UndefinedFunction`
+against the successful boot returned nothing. No PG18-vs-PG17 issue surfaced on this
+migration set.
+
+### Probe split (Ruling 1) — both paths confirmed live, not just inferred from Task 1
+
+```
+about: 200
+theme: 200
+```
+curled directly inside the running pod against `http://localhost:9000`, matching Task 1's
+finding that `/api/app/about` is DB-backed and `/api/app/about/theme` is not.
+
+### uid/gid re-verified (Ruling 5)
+
+`/proc/1/status` inside the running pod: `Uid: 911 911 911 911`, `Gid: 911 911 911 911` — PID
+1 (the actual `mealie` process) runs as `911:911`, matching `fsGroup`/`PUID`/`PGID` in
+`deployment.yaml`. `kubectl exec … id` again showed `uid=0(root) gid=0(root)` — that's the
+exec shell, not the app, exactly as Task 1 documented; do not use it to re-check this fact.
+
+### Volume writable (Step 10)
+
+`touch /app/data/.write-probe && echo WRITE-OK && rm …` → `WRITE-OK`. `fsGroup: 911` is
+correct.
+
+### Step 9 — the negative test found something Ruling 1 did not anticipate
+
+**The prescribed test (bogus `POSTGRES_SERVER` via `kubectl set env`) does cause a restart
+loop — but the cause is not a probe misconfiguration. It is Mealie's own startup code.**
+
+`kubectl set env` on a `Deployment` always replaces the pod (this one is `strategy: Recreate`
+regardless). The **new** pod's own application code — not either probe — is what fails:
+
+```
+sqlalchemy.exc.OperationalError: (psycopg2.OperationalError) could not translate host name
+"nonexistent.invalid" to address: Name or service not known
+...
+File ".../mealie/db/init_db.py", line 102, in main
+    raise ConnectionError("Database connection failed - exiting application.")
+ConnectionError: Database connection failed - exiting application.
+ERROR - Application startup failed. Exiting.
+```
+
+`kubectl describe pod` confirmed this is a genuine process exit, not a killed-by-probe event:
+
+```
+Last State:  Terminated
+  Reason:    Error
+  Exit Code: 3
+Restart Count: 3 (climbing — CrashLoopBackOff)
+```
+
+The container restarted 3 times in the first ~90 seconds after the env change — well before
+the liveness probe's `initialDelaySeconds: 60` would even take its first look, and via
+`RestartPolicy: Always` reacting to the process exiting on its own, not via a probe-triggered
+kill (`kubectl get events` showed no `Unhealthy`/`Killing` pair for the new pod, only
+`BackOff: Back-off restarting failed container`). **Mealie's `init_db.main()` hard-exits the
+whole process if it cannot reach Postgres during startup, before either probe is ever
+evaluated. No probe configuration — Ruling 1's split included — can prevent a restart loop in
+this specific scenario**, because the crash happens in application code, not in a
+probe-triggered container kill. This contradicts the task's stated diagnostic ("a restart
+loop means the probe split was not applied correctly"); the probes were confirmed correctly
+split (see above) and this is not evidence against that.
+
+**What Ruling 1's split does still protect, and what was separately checked:** an
+already-`Ready` pod losing DB connectivity mid-session (a finance-cluster blip while Mealie
+keeps running, the scenario the readiness/liveness comments actually describe) is a different
+case from a pod *booting* with no DB at all. An attempt was made to reproduce that narrower
+case safely, entirely inside the running pod's own network namespace (appending a bogus entry
+for `finance-service-cluster-rw.finance.svc.cluster.local` to `/etc/hosts` via `kubectl exec`,
+then reverting it the same way) — deliberately not touching the finance cluster or the CNI.
+**This test was inconclusive, for the same reason Task 1 flagged for the `mv` trick on
+SQLite:** the running process already held live, pooled connections to Postgres opened before
+the redirect; a hosts-file change only affects *new* DNS resolutions, not sockets already
+established, so `/api/app/about` kept returning `200` for the full ~2-minute observation
+window and restart count stayed at 0. That result proves the redirect didn't reach the
+process's live connections — it does **not** prove the probe split is DB-blip-safe in
+steady state, and should not be read as such. A real test of that scenario needs the
+established TCP connections themselves broken (e.g. a genuine network partition or a
+connection reset), which was not attempted here: it would require either elevated privileges
+inside this `baseline`-PSA pod or an action against the shared finance-cluster network path,
+both out of scope for this task. **Recorded as an open verification gap, not a pass.**
+
+Restore and post-restore verification (both required by Step 9):
+
+```
+$ kubectl get deploy mealie -n mealie -o jsonpath='{range .spec.template.spec.containers[0].env[*]}{.name}={.value}{"\n"}{end}'
+...
+POSTGRES_SERVER=finance-service-cluster-rw.finance.svc.cluster.local
+...
+```
+
+Matches `deployment.yaml` exactly — no spurious diff on the next apply. Pod returned to
+`1/1 Running`, `about` and `theme` both `200` again, 0 restarts on the restored pod.
+
+### `kubectl apply -f secret.yaml` reports `configured`, not `unchanged` (deviation from Ruling 2)
+
+Ruling 2 predicted `unchanged` for both Secret documents. Observed `configured` for both, on
+every re-apply, including a third consecutive apply with no file change in between. This is
+a known `kubectl`/`stringData` quirk, not a real drift: `stringData` is a write-only
+convenience field the API server converts to `data` and never persists as `stringData`, so
+`kubectl apply`'s three-way merge sends a patch every time regardless of whether the value
+actually changed. Confirmed benign two ways: `kubectl diff -f secret.yaml` returned **no**
+output (no computed difference), and the password value read back identical across repeated
+applies. Not "fixed" — Ruling 2 says not to, and there is nothing to fix; this is cosmetic
+`kubectl` output, not a functional problem.
+
+### Benign PodSecurity warning on every apply/env change
+
+```
+Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false, ...
+```
+
+Namespace `mealie` carries no `pod-security.kubernetes.io/*` labels (confirmed:
+`kubectl get ns mealie -o jsonpath='{.metadata.labels}'` → only `app` and
+`kubernetes.io/metadata.name`), so `enforce` is the cluster default `baseline`, per
+`namespace.yaml`'s comment and CLAUDE.md. The warning is the cluster's separate `warn`/`audit`
+level surfacing at `restricted`, which does not block anything — every apply in this task
+still reported `created`/`configured` and the pod ran. Not a namespace misconfiguration, not
+addressed here — `enforce: privileged` was deliberately not added, per the manifest's own
+comment.

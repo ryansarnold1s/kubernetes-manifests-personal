@@ -1,0 +1,10 @@
+# Deliberately no pod-security.kubernetes.io labels here. The cluster default is
+# baseline, which is the intended posture for this namespace — Mealie needs no
+# privileged capabilities, no host networking and no hostPath. Do not add
+# `enforce: privileged` to work around an unrelated failure.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mealie
+  labels:
+    app: mealie

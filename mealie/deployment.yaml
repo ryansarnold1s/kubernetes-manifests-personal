@@ -1,0 +1,104 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mealie
+  namespace: mealie
+  labels:
+    app: mealie
+spec:
+  replicas: 1
+  # Longhorn is RWO: a RollingUpdate deadlocks because the new pod cannot attach
+  # the volume until the old one releases it. Every apply is a brief outage.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mealie
+  template:
+    metadata:
+      labels:
+        app: mealie
+    spec:
+      securityContext:
+        # Must match PGID below, or the Longhorn volume is not group-writable
+        # and Mealie fails to write uploads. Value verified from the image in
+        # README.md (Verified image facts): PID 1 runs 911:911, read from
+        # /proc/1/status, not from `kubectl exec -- id` (that's the exec shell).
+        fsGroup: 911
+      containers:
+      - name: mealie
+        image: ghcr.io/mealie-recipes/mealie:v3.22.0
+        ports:
+        - name: http
+          containerPort: 9000
+        env:
+        - name: DB_ENGINE
+          value: postgres
+        - name: POSTGRES_SERVER
+          # Fully qualified because this is cross-namespace. `-rw` is the CNPG
+          # primary service; `-ro` would silently break every write on failover.
+          value: finance-service-cluster-rw.finance.svc.cluster.local
+        - name: POSTGRES_PORT
+          value: "5432"
+        - name: POSTGRES_DB
+          value: mealie
+        - name: POSTGRES_USER
+          value: mealie
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mealie-db
+              key: password
+        # POSTGRES_URL_OVERRIDE is deliberately unset — it would put the
+        # password into a plain env value instead of a secretKeyRef.
+        - name: BASE_URL
+          # Used for notification links and OIDC callbacks. Must match the
+          # IngressRoute host, scheme included.
+          value: https://mealie.arnoldtech.io
+        - name: ALLOW_SIGNUP
+          value: "false"
+        - name: TZ
+          value: America/Phoenix
+        - name: PUID
+          value: "911"
+        - name: PGID
+          value: "911"
+        volumeMounts:
+        - name: data
+          mountPath: /app/data
+        readinessProbe:
+          # DB-backed (verified in Task 1): correctly pulls the pod out of the
+          # Service when Postgres is unreachable, and restores it when Postgres
+          # returns. Do NOT point liveness here — see below.
+          httpGet:
+            path: /api/app/about
+            port: http
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          # Deliberately a DIFFERENT endpoint from readiness. /theme is static
+          # config and does not touch the database, so a database outage marks
+          # Mealie unready (recoverable) instead of killing the container and
+          # restart-looping it. Do not "simplify" this to match readiness.
+          httpGet:
+            path: /api/app/about/theme
+            port: http
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            # Recipe scraping is bursty; the limit sits well above the request
+            # on purpose.
+            memory: "1Gi"
+            cpu: "1000m"
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: mealie-data

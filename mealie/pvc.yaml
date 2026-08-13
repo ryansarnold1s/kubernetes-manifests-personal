@@ -1,0 +1,14 @@
+# /app/data holds recipe images, user uploads and Mealie's own backup exports.
+# The database lives on finance-service-cluster, NOT here.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mealie-data
+  namespace: mealie
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi
