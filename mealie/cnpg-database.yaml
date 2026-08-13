@@ -1,0 +1,24 @@
+# NOTE: this file deploys into the `finance` namespace, NOT `mealie`. CNPG's
+# Database CR is namespace-scoped to its Cluster, so it has to live alongside
+# finance-service-cluster. It is kept here because it is Mealie's object and
+# Mealie's lifecycle owns it.
+#
+# This CR does NOT carry the database's ACL hardening or the role's session
+# timeouts — CNPG has no field for either. They were applied as ad-hoc SQL and
+# are recorded in mealie/README.md under "Ad-hoc SQL applied alongside this CR".
+# Read that section before assuming this file is the whole story.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: mealie
+  namespace: finance
+spec:
+  cluster:
+    name: finance-service-cluster
+  name: mealie
+  # The role added to the Cluster's spec.managed.roles. It must already exist —
+  # CNPG will not create it from here.
+  owner: mealie
+  encoding: UTF8
+  # Explicit, not defaulted: deleting this CR must never drop the database.
+  databaseReclaimPolicy: retain
