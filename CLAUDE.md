@@ -6,6 +6,10 @@ detail and inline warnings — read it before changing anything in that director
 - `valheim/` — game server, BepInEx mods installed declaratively via an initContainer. The complex one.
   The `MODS` table in `valheim/mods-configmap.yaml` is the authoritative list — don't hardcode a count here
 - `mumble/` — voice server
+- `mealie/` — recipe manager. Its database is a `Database` CR on the **shared** `finance-service-cluster`
+  in the `finance` namespace, and the owning role lives in that Cluster's `spec.managed.roles` — which is
+  defined in the *finance-manager* repo, not this one. Two files in `mealie/` deploy outside the `mealie`
+  namespace; read the README before applying
 - `docs/superpowers/{specs,plans}` — design specs and implementation plans. When a shipped decision turns
   out wrong, append a correction rather than rewriting history; several already carry them
 

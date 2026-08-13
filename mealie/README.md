@@ -1,14 +1,41 @@
 # mealie
 
-Recipe manager at https://mealie.arnoldtech.io. LAN-only by deliberate decision.
+Recipe manager at https://mealie.arnoldtech.io. LAN-only by deliberate decision — there is
+no ingress rule or DNS record exposing it beyond the LAN, and no `loadBalancerSourceRanges`
+is needed because Traefik's IngressRoute is itself only reachable on the LAN-facing IP.
 
-Its database lives on the **shared** `finance-service-cluster` in the `finance`
-namespace — see "Where the database lives" below before changing anything.
+Its database lives on the **shared** `finance-service-cluster` in the `finance` namespace —
+see "Where the database lives" below before changing anything. That is the sharpest
+consequence of this deployment and it is not optional reading.
+
+**Two files in this directory deploy outside the `mealie` namespace**: `cnpg-database.yaml`
+→ `finance`, `recurringjob.yaml` → `longhorn-system`. `kubectl apply -f *.yaml` from this
+directory is still correct — each file targets its own namespace via `metadata.namespace` —
+but `kubectl get all -n mealie` will never show either object.
+
+## Layout
+
+| File | Purpose | Namespace |
+|---|---|---|
+| `namespace.yaml` | Namespace `mealie`, no PSA labels (cluster default `baseline` applies) | `mealie` |
+| `pvc.yaml` | `mealie-data` (`/app/data`) — recipe images, uploads, Mealie's own backup exports. **Not** the database | `mealie` |
+| `secret.yaml.template` | Template for **two** Secret objects sharing one password — see "Where the database lives" | `finance` + `mealie` |
+| `deployment.yaml` | The app | `mealie` |
+| `service.yaml` | ClusterIP, port 9000 | `mealie` |
+| `middleware.yaml` | Traefik headers/CSP, a per-namespace copy of the shared one | `mealie` |
+| `ingressroute.yaml` | `mealie.arnoldtech.io`, wildcard cert via `TLSStore/default` | `mealie` |
+| `cnpg-database.yaml` | The `mealie` `Database` CR against `finance-service-cluster` | **`finance`** |
+| `recurringjob.yaml` | Longhorn daily snapshot of `mealie-data` | **`longhorn-system`** |
+
+`secret.yaml` is gitignored; copy the template and set a real password before first apply.
+
+The database **role** itself (`spec.managed.roles` on the Cluster object) is not in this
+repo at all — see "The cross-repo dependency" below.
 
 ## Verified image facts
 
-Read out of a throwaway container running the real image on 2026-08-12, not from
-upstream docs. Re-verify these on any image bump; none of them are guaranteed stable.
+Read out of a throwaway container running the real image on 2026-08-12, not from upstream
+docs. Re-verify these on any image bump; none of them are guaranteed stable.
 
 | Fact | Value | How it was checked |
 |---|---|---|
@@ -17,68 +44,48 @@ upstream docs. Re-verify these on any image bump; none of them are guaranteed st
 | Runtime uid:gid | `911:911` | `kubectl exec … -- id` showed `uid=0(root)` — that's the exec shell, not the app. The actual PID 1 process (`/opt/mealie/bin/python3 /opt/mealie/bin/mealie`) runs as `911:911`, read from `/proc/1/status` (`Uid`/`Gid` lines) |
 | `/app/data` owner | `911:911` | `stat -c '%u %g %n' /app/data` |
 | Unauthenticated GET routes | 28 paths with no `security` key in `openapi.json`, but only 3 return a genuine 200 with no query params: `/api/app/about`, `/api/app/about/startup-info`, `/api/app/about/theme`. The rest are parameterized (`{group_slug}`, `{recipe_id}`, …) or fail for unrelated reasons (`/api/auth/oauth` → 500 unconfigured OAuth, `/api/media/docker/validate.txt` → 404 no such asset, `/api/utils/download` → 400 missing required param) | `curl localhost:9000/openapi.json`, filtered for `paths.*.get` with no `.security`, then each candidate re-curled individually |
-| Health endpoint used | `/api/app/about` | see below |
+| Health endpoint used for readiness | `/api/app/about` | see "Probes" below |
 
-### Does the health endpoint cover the database?
-
-**Yes for `/api/app/about` — it is genuinely DB-backed, which contradicts what the task brief
-predicted. `/api/app/about/startup-info` is also DB-backed. `/api/app/about/theme` is not
-(it returns static, hardcoded color values and never touches the database).**
-
-Tested by breaking the database out from under a running container and re-requesting
-every unauthenticated 200-yielding endpoint. First attempt was a plain `mv` of
-`mealie.db` to `mealie.db.bak`: all three endpoints kept returning 200. **This result is
-misleading, not a pass** — on Linux, `mv` within the same filesystem is a rename, and the
-app already held the SQLite file open by file descriptor/inode, so it kept reading and
-writing the exact same data under the new name. The rename never actually broke anything
-the app could observe.
-
-To get a real answer, the renamed file's *contents* were then overwritten in place
-(`dd if=/dev/zero of=/app/data/mealie.db.bak bs=1024 count=50 conv=notrunc`) — same inode,
-so the app's already-open fd sees the corruption immediately, no restart needed. Re-testing
-after that:
-
-- `/api/app/about` started returning `500`, consistently, across repeated requests. The
-  server log traceback shows `get_app_info` (in `mealie/routes/app/app_about.py`) calling
-  `public_repos.groups.get_by_name(settings.DEFAULT_GROUP)`, which raises
-  `sqlalchemy.exc.DatabaseError: (sqlite3.DatabaseError) file is not a database`. This is a
-  real, unambiguous DB query failure, not an artifact of the corruption method.
-- `/api/app/about/startup-info` also started returning `500`, same root cause
-  (`get_startup_info` runs `db.query(User).filter_by(email=...).count()`, same
-  `file is not a database` error).
-- `/api/app/about/theme` kept returning `200` throughout, with the same static color JSON
-  body. It never touches the database.
-
-Results:
-
-| Endpoint | HTTP, DB healthy | HTTP, DB broken (rename only — misleading, see above) | HTTP, DB broken (contents corrupted in place) | DB-backed? |
-|---|---|---|---|---|
-| `/api/app/about` | 200 | 200 | 500 | **Yes** |
-| `/api/app/about/startup-info` | 200 | 200 | 500 | **Yes** |
-| `/api/app/about/theme` | 200 | 200 | 200 | No |
-
-This matters because a probe that only ever passes has not been verified, and this repo
-has shipped a no-op probe before. It also means Task 4 cannot use `/api/app/about` as a
-"the process is alive" liveness check without accepting that it will also fail (correctly)
-if the database is unreachable — which is actually the desired readiness-probe behavior,
-but it is the opposite of what the task brief assumed going in. No endpoint among the
-unauthenticated candidates is both DB-independent AND a meaningful liveness signal beyond
-"the HTTP server is up" — `/api/app/about/theme` is DB-independent but proves nothing about
-the app being functional beyond serving a static config.
+Re-verified inside the running pod after Task 4's deploy (`about: 200`, `theme: 200`, curled
+directly against `http://localhost:9000`) — matches this table, not just inferred from a
+throwaway container.
 
 ## Where the database lives
 
 Mealie does **not** get its own PostgreSQL cluster. It shares
 `finance/finance-service-cluster` — the 3-instance CloudNativePG cluster that the
-personal-finance app runs on. This is a deliberate co-tenancy decision, and it is the
-reason every change in this directory that touches the database is treated as a change to
-a live production system.
+personal-finance app runs on — as its **third** tenant, alongside `finance` (the app the
+cluster was built for) and `attendance`. This is a deliberate co-tenancy decision, made
+because standing up a fourth Postgres cluster for a low-traffic recipe manager was judged
+not worth it, and it is the reason every change in this directory that touches the database
+is treated as a change to a live production system.
+
+**This repo's own precedent runs the other way.** `wger` (in the `finance-manager` repo, not
+here) gets a dedicated `wger-db` CNPG cluster rather than a role on an existing one.
+Co-tenanting Mealie was a deliberate departure from that pattern, not an oversight — record it
+as a choice, not a default.
+
+**Consequences of that choice, stated plainly:**
+
+- **There is no way to restore Mealie's database without rolling finance back to the same
+  point in time, and vice versa.** The only existing backup, `finance-db-daily-backup`, is a
+  cluster-wide `volumeSnapshot` with no `barmanObjectStore` configured — no PITR, no
+  per-database restore. A snapshot captures the whole `finance-service-cluster` PGDATA
+  volume, all three tenants at once. That coupling did not exist before this deployment; see
+  "Backups" below.
+- **PostgreSQL has no per-database quota.** Mealie's data grows inside the same 15Gi Longhorn
+  volume finance and attendance already share. Nothing here caps how large Mealie's tables can
+  get, and a full PGDATA volume takes the **whole cluster** down — finance and attendance
+  included, not just Mealie.
+- **NetworkPolicy is not enforced on this cluster** (Flannel CNI). Nothing at the network
+  layer stops the Mealie pod from reaching the finance database; the role's own privileges —
+  verified below — are the only isolation that exists.
 
 What Mealie owns on that cluster:
 
 | Object | Where | Created by |
 |---|---|---|
-| Login role `mealie` | `finance-service-cluster`, via `spec.managed.roles` | patched into the live Cluster object, 2026-08-12 |
+| Login role `mealie` | `finance-service-cluster`, via `spec.managed.roles` | patched into the live Cluster object, 2026-08-12 — canonical copy lives in `finance-manager/k8s/database/cluster.yaml`, a **different repo** (see "The cross-repo dependency") |
 | Secret `mealie-db` (`kubernetes.io/basic-auth`) | ns `finance` | `secret.yaml` (gitignored; see `secret.yaml.template`) |
 | Secret `mealie-db` (`Opaque`) | ns `mealie` | same file, same password |
 | Database `mealie` | `finance-service-cluster` | `cnpg-database.yaml` |
@@ -87,13 +94,32 @@ What Mealie owns on that cluster:
 `managed.roles[].passwordSecret` in the *Cluster's* namespace (`finance`); Mealie reads its
 own copy from `mealie`. A mismatch presents as Mealie failing authentication while the CNPG
 Cluster still reports the role reconciled — the Cluster is telling the truth about the role,
-it just knows nothing about Mealie's copy.
+it just knows nothing about Mealie's copy. See "Rotation" below for the safe order of
+operations.
 
 The `finance` Secret carries `cnpg.io/reload: "true"`. **Do not remove it.** Without that
 label the operator does not watch the Secret at all: initial creation still works, but a
 later password *rotation* silently no-ops — you edit the Secret, CNPG never reconciles, the
 Postgres password never changes, and Mealie fails auth while `managedRolesStatus` still
 shows `mealie` under `reconciled`.
+
+### Corrections to the spec, the plan, and `finance-manager/k8s/database/cluster.yaml`
+
+Two figures are wrong in the design spec, the implementation plan, and the stale
+`finance-manager/k8s/database/cluster.yaml` (which nothing reconciles against live — no
+kustomization references it, and the live object's `last-applied-configuration` annotation is
+empty). Both were checked against `pg_settings` on the live cluster, not assumed from those
+documents:
+
+- **The live cluster runs `max_connections = 300` and `shared_buffers = 512MB`**, not the
+  100 / 256MB those three sources all claim (`source=configuration file` for both, confirmed
+  via `pg_settings`; ~17 sessions in use at the time of the check).
+- **`connectionLimit: 20` for the `mealie` role is tested, not assumed.** 20 concurrent
+  sessions connected successfully and the 21st was rejected with
+  `FATAL: too many connections for role "mealie"` — see the isolation-test table below (test 6).
+  Because the real `max_connections` is 300, not 100, this bound is more conservative than it
+  was designed to be, not less — it stands as-is, but anything downstream that still hardcodes
+  100 or 256MB is repeating a stale number.
 
 ### Role attributes as actually created
 
@@ -109,14 +135,6 @@ mealie |t       |f    |f       |f         |t      |f          |f        |20     
 (PostgreSQL 18's `password_encryption` default, confirmed `source=default` in `pg_settings`).
 The role is a member of no other role — `pg_auth_members` returns zero rows for it — so it
 inherits no privileges from anywhere.
-
-`connectionLimit: 20` is a deliberate bound so Mealie cannot exhaust the pool the finance
-app depends on. Note that **the live cluster runs `max_connections = 300`, not 100** — the
-figure of 100 in the design spec and in the review artifact was wrong (live `pg_settings`:
-`max_connections = 300`, `shared_buffers = 512MB`, both `source=configuration file`; ~17
-sessions in use at the time of the change). The bound of 20 is therefore more conservative
-than intended, not less, so it stands — but anything downstream that hardcodes 100 or 256MB
-is repeating a stale number.
 
 ### The exact role block that was applied
 
@@ -143,7 +161,7 @@ spec:
         name: mealie-db
 ```
 
-## The postgres-expert review of the role change (gate)
+### The postgres-expert review of the role change (gate)
 
 The role patch and the `Database` CR were reviewed by the `postgres-expert` agent **before**
 being applied, file-only, per the mandatory review gate for shared-database changes. The
@@ -209,6 +227,22 @@ Confirmed at the time of the change, not assumed:
   the literal password string and for `CREATE ROLE`/`ALTER ROLE` returned zero occurrences
   on each.
 
+## The cross-repo dependency
+
+The `mealie` role does not live in this repo at all. It lives in `spec.managed.roles` on the
+`Cluster` object defined in `finance-manager/k8s/database/cluster.yaml` — a different
+repository, owned by the finance deployment. This repo only carries the `Database` CR
+(`cnpg-database.yaml`, which requires the role to already exist) and the two password
+Secrets.
+
+**Deleting or reverting that role block does not fail loudly here.** It breaks Mealie's login
+with `FATAL: password authentication failed for user "mealie"` or `role "mealie" does not
+exist` — an error that looks exactly like a Mealie bug (bad password, bad Secret, app
+misconfiguration) and gives no hint that the actual cause is a role definition that lives in
+an entirely different repository. If Mealie's auth breaks with no local change having been
+made, check `finance-manager/k8s/database/cluster.yaml` and the live Cluster's
+`spec.managed.roles` before debugging anything in this directory.
+
 ## The `mealie` database
 
 Created 2026-08-12 by `cnpg-database.yaml`. The CR reports
@@ -228,7 +262,9 @@ without dropping the database.
 **This SQL is live on the cluster and lives in no manifest.** CNPG's `Database` CR has no
 field for database ACLs, and role-level GUCs live in `pg_db_role_setting`, which CNPG does
 not manage at all. Nothing will re-apply either of these if they are undone — and nothing
-will warn you. If you recreate this database, run both again.
+will warn you. **If you recreate this database, run both again.** An undocumented `REVOKE`
+is exactly the kind of thing a future operator undoes by accident while "cleaning up" — it is
+recorded here, prominently, for that reason.
 
 ```sql
 -- Executed as `postgres` on finance-service-cluster-1 (the primary), 2026-08-12.
@@ -306,7 +342,7 @@ password-free URI — never a password embedded in the connection string.
 
 Notes that matter more than the table:
 
-- **Test 1 is the one that had to pass.** Ownership being real is what Task 4's first boot
+- **Test 1 is the one that had to pass.** Ownership being real is what the first boot
   depends on; `permission denied for schema public` here would have surfaced later as an
   opaque crash loop instead of a clear failure now.
 - **Test 3 is not redundant with test 4.** Reads are not the whole surface. Had `finance`
@@ -335,78 +371,175 @@ Notes that matter more than the table:
 ### Finance was undisturbed
 
 Cluster health, per-pod restart counts and pod start times were captured before and after and
-are **byte-identical** to the Task 2 baseline: `ready=3/3`,
+are **byte-identical** to the pre-change baseline: `ready=3/3`,
 `primary=finance-service-cluster-1` (unchanged, also `targetPrimary`), zero restarts on all
-three instances and both poolers, start times still `2026-07-27T16:35:18Z` /
-`16:37:32Z` / `16:37:45Z`. Creating a database and revoking an ACL are catalog operations —
-no rollout, no failover. Afterwards, zero `mealie` sessions remain in `pg_stat_activity` and
-no probe pods remain in `default`.
+three instances and both poolers, start times unchanged. Creating a database and revoking an
+ACL are catalog operations — no rollout, no failover. Afterwards, zero `mealie` sessions
+remain in `pg_stat_activity` and no probe pods remain in `default`.
 
-## Task 4: Deployed against Postgres
+## Deploying
 
-`namespace.yaml`, `pvc.yaml`, `deployment.yaml`, `service.yaml` applied 2026-08-12. Mealie
-v3.22.0 is running in ns `mealie`, Service `mealie:9000` (ClusterIP, no ingress yet — that's
-Task 5). Not reachable from outside the cluster on purpose.
-
-### Migration duration (Ruling 3 — for tightening `statement_timeout` later)
-
-Every Alembic `Running upgrade …` line in the boot log — all ~55 migrations, `Initial tables`
-through `add table for ai providers` — plus `Database contains no users, initializing...` and
-`end: database initialization` carry the **identical timestamp** `2026-08-12T19:21:00`. Log
-resolution is 1-second, so the true figure is somewhere under 1 second, not the ~55 discrete
-steps the migration count might suggest. This was against an **empty** database (Task 3
-proved `mealie` had zero tables going in); a future re-migration on a populated database will
-take longer, but "first boot" — the case `statement_timeout='300s'` was sized for — completed
-in a fraction of a second. 300s is therefore enormous headroom, not a tight fit. Tightening it
-is a reasonable follow-up but was left alone here per Ruling 3 (record evidence, don't
-re-scope Task 3's decision).
-
-### Schema landed in Postgres, not SQLite
-
-```
-$ kubectl exec -n finance finance-service-cluster-1 -c postgres -- psql -d mealie -tAc \
-    "SELECT count(*) FROM pg_tables WHERE schemaname='public';"
-66
+```powershell
+cd mealie/
+Copy-Item secret.yaml.template secret.yaml   # then edit secret.yaml and set a real password
+kubectl apply -f namespace.yaml -f pvc.yaml -f secret.yaml -f deployment.yaml -f service.yaml
+kubectl apply -f cnpg-database.yaml          # deploys into ns finance — role must already exist there
+kubectl apply -f middleware.yaml -f ingressroute.yaml
+kubectl apply -f recurringjob.yaml           # deploys into ns longhorn-system
 ```
 
-Non-zero — `DB_ENGINE=postgres` took effect. No extension error occurred (Ruling 4 not
-triggered): the migration log has no `CREATE EXTENSION` failure, and `pg_tables` populated
-cleanly. `cnpg-database.yaml` was **not** modified.
+**`strategy: Recreate` is set** (Longhorn is RWO; a RollingUpdate would deadlock waiting for
+the old pod to release the volume), so every `deployment.yaml` apply is a brief outage.
 
-### PostgreSQL 18 compatibility (Step 8)
+**Post-deploy, required — a brand-new `mealie-data` PVC's Longhorn Volume starts unlabeled**,
+same as a recreated one. See "Backups" below for the labeling command; do it right after the
+PVC is bound, or the RecurringJob will run and silently snapshot nothing.
 
-`kubectl logs … | Select-String sqlalchemy|psycopg|ProgrammingError|OperationalError|UndefinedFunction`
-against the successful boot returned nothing. No PG18-vs-PG17 issue surfaced on this
-migration set.
+### Verified after first boot (2026-08-12)
 
-### Probe split (Ruling 1) — both paths confirmed live, not just inferred from Task 1
+- **Migration duration.** Every Alembic `Running upgrade …` line in the boot log — all ~55
+  migrations, `Initial tables` through `add table for ai providers` — plus `Database contains
+  no users, initializing...` and `end: database initialization` carry the **identical
+  timestamp**. Log resolution is 1-second, so the true figure is somewhere under 1 second, not
+  the ~55 discrete steps the migration count might suggest. This was against an **empty**
+  database; a future re-migration on a populated database will take longer, but "first boot" —
+  the case `statement_timeout='300s'` was sized for — completed in a fraction of a second. 300s
+  is therefore enormous headroom, not a tight fit.
+- **Schema landed in Postgres, not SQLite:**
+  ```
+  $ kubectl exec -n finance finance-service-cluster-1 -c postgres -- psql -d mealie -tAc \
+      "SELECT count(*) FROM pg_tables WHERE schemaname='public';"
+  66
+  ```
+  Non-zero — `DB_ENGINE=postgres` took effect. No `CREATE EXTENSION` failure appeared in the
+  migration log, and `cnpg-database.yaml` was not modified to add one.
+- **PostgreSQL 18 compatibility:**
+  `kubectl logs … | Select-String sqlalchemy|psycopg|ProgrammingError|OperationalError|UndefinedFunction`
+  against the successful boot returned nothing. No PG18-vs-PG17 issue surfaced on this
+  migration set.
+- **uid/gid:** `/proc/1/status` inside the running pod: `Uid: 911 911 911 911`,
+  `Gid: 911 911 911 911` — PID 1 (the actual `mealie` process) runs as `911:911`, matching
+  `fsGroup`/`PUID`/`PGID` in `deployment.yaml`. `kubectl exec … id` shows `uid=0(root)
+  gid=0(root)` — that's the exec shell, not the app; don't use it to re-check this fact.
+- **Volume writable:** `touch /app/data/.write-probe && echo WRITE-OK && rm …` → `WRITE-OK`.
+  `fsGroup: 911` is correct.
+
+### Two benign quirks seen on every apply
+
+- **`kubectl apply -f secret.yaml` reports `configured`, not `unchanged`, on every re-apply —
+  even with no file change.** This is a known `kubectl`/`stringData` quirk, not real drift:
+  `stringData` is a write-only convenience field the API server converts to `data` and never
+  persists as `stringData`, so the three-way merge sends a patch every time regardless of
+  whether the value actually changed. Confirmed benign two ways: `kubectl diff -f secret.yaml`
+  returns **no** output, and the password value reads back identical across repeated applies.
+- **A `PodSecurity "restricted:latest"` warning appears on every apply/env change**
+  (`allowPrivilegeEscalation != false, ...`). Namespace `mealie` carries no
+  `pod-security.kubernetes.io/*` labels, so `enforce` is the cluster default `baseline`, per
+  `namespace.yaml`'s comment. The warning is the cluster's separate `warn`/`audit` level
+  surfacing at `restricted`, which does not block anything — every apply still reports
+  `created`/`configured` and the pod runs. Not addressed here, and not a misconfiguration.
+
+## Rotation
+
+Changing the database password touches **two** Secret objects in **two** namespaces plus a
+restart, and the order matters — reversing steps 1 and 3 breaks Mealie until CNPG catches up:
+
+1. Update the `mealie-db` Secret in the **`finance`** namespace (the one CNPG reads for
+   `managed.roles[].passwordSecret`).
+2. Confirm the rotation reconciled before touching Mealie's copy:
+   ```powershell
+   kubectl get cluster.postgresql.cnpg.io finance-service-cluster -n finance -o jsonpath='{.status.managedRolesStatus}'
+   ```
+   `mealie` must appear under `byStatus.reconciled`.
+3. Update the `mealie-db` Secret in the **`mealie`** namespace (the copy Mealie's own
+   `POSTGRES_PASSWORD` env reads from) — the same new password.
+4. Restart the Mealie deployment:
+   ```powershell
+   kubectl rollout restart deploy/mealie -n mealie
+   kubectl rollout status deploy/mealie -n mealie --timeout=600s
+   ```
+
+**This only works because the `finance` Secret carries `cnpg.io/reload: "true"`.** Without
+that label CNPG never watches the Secret, step 2 never reconciles, and rotation silently
+no-ops — Postgres keeps the old password while both Secrets and `managedRolesStatus` look
+fine. Do not remove that label to "simplify" the Secret.
+
+A mismatch between the two Secrets — or restarting Mealie before CNPG has reconciled the new
+password — presents as Mealie failing authentication while CNPG still reports the role
+healthy. If auth breaks right after a rotation, re-check step 2 before assuming anything else
+is wrong; also re-check "The cross-repo dependency" above, since a role definition missing
+from `finance-manager/k8s/database/cluster.yaml` produces the identical symptom.
+
+## Probes
+
+Readiness is on `/api/app/about` (database-backed); liveness is on
+`/api/app/about/theme` (not database-backed). **This is deliberate and it is the opposite of
+what a naive "point both at the same health check" design would do**: a database blip marks
+Mealie unready — pulled from the Service, recoverable — instead of killing the container and
+restart-looping it.
+
+### Why the two endpoints actually differ — tested, not assumed
+
+Confirmed by breaking the database out from under a running container and re-requesting every
+unauthenticated 200-yielding endpoint. A first attempt — a plain `mv` of `mealie.db` to
+`mealie.db.bak` — was **misleading, not a pass**: on Linux, `mv` within the same filesystem is
+a rename, and the app already held the SQLite file open by file descriptor/inode, so it kept
+reading and writing the exact same data under the new name. To get a real answer, the renamed
+file's *contents* were overwritten in place
+(`dd if=/dev/zero of=/app/data/mealie.db.bak bs=1024 count=50 conv=notrunc`) — same inode, so
+the app's already-open fd sees the corruption immediately, no restart needed.
+
+| Endpoint | HTTP, DB healthy | HTTP, DB broken (rename only — misleading) | HTTP, DB broken (contents corrupted in place) | DB-backed? |
+|---|---|---|---|---|
+| `/api/app/about` | 200 | 200 | 500 (`sqlalchemy.exc.DatabaseError: file is not a database`) | **Yes** |
+| `/api/app/about/startup-info` | 200 | 200 | 500 (same root cause) | **Yes** |
+| `/api/app/about/theme` | 200 | 200 | 200, same static color JSON body | No |
+
+No endpoint among the unauthenticated candidates is both DB-independent AND a meaningful
+liveness signal beyond "the HTTP server is up" — `/theme` is DB-independent but proves
+nothing about the app being functional beyond serving static config. It was chosen anyway,
+deliberately, because the point of a *liveness* probe here is only "is the process alive
+enough to not need a SIGKILL", and DB health is readiness's job.
+
+### Steady-state database loss — tested and PASSED
+
+A **running** (not restarting) Mealie pod was severed from its database by refusing new
+connections and killing pooled ones for the `mealie` role only (`ALTER ROLE mealie
+CONNECTION LIMIT 0` plus `pg_terminate_backend` scoped to `usename='mealie'`), then watched:
 
 ```
-about: 200
-theme: 200
+Baseline:            mealie-7b865ffcf9-lgf5m   READY=true   RESTARTS=0
+19:41:46  READY=true   RESTARTS=0
+19:42:01  READY=true   RESTARTS=0
+19:42:16  READY=false  RESTARTS=0   <- readiness trips
+19:42:31  READY=false  RESTARTS=0
+19:42:46  READY=false  RESTARTS=0
+19:43:01  READY=false  RESTARTS=0
 ```
-curled directly inside the running pod against `http://localhost:9000`, matching Task 1's
-finding that `/api/app/about` is DB-backed and `/api/app/about/theme` is not.
 
-### uid/gid re-verified (Ruling 5)
+`kubectl get events` at that point showed, most recently: `Warning Unhealthy
+pod/mealie-7b865ffcf9-lgf5m Readiness probe failed: HTTP probe failed with statuscode: 500`
+— a **readiness** failure, matching `/api/app/about`'s known DB-backed 500 behavior above —
+and **no** `Killing` event for this pod.
 
-`/proc/1/status` inside the running pod: `Uid: 911 911 911 911`, `Gid: 911 911 911 911` — PID
-1 (the actual `mealie` process) runs as `911:911`, matching `fsGroup`/`PUID`/`PGID` in
-`deployment.yaml`. `kubectl exec … id` again showed `uid=0(root) gid=0(root)` — that's the
-exec shell, not the app, exactly as Task 1 documented; do not use it to re-check this fact.
+Restored `CONNECTION LIMIT 20`; `pg_authid.rolconnlimit` read back `20`. The pod
+self-recovered to `READY=true` within 15 seconds of the restore, **same pod name, restarts
+still 0** — no restart anywhere in the test. `/api/app/about` returned `200` again
+immediately after. Finance cluster: `ready=3/3`, unchanged before and after.
 
-### Volume writable (Step 10)
+**This confirms the probe split does what it was designed to do:** a live database loss under
+a running pod produces `NotReady` with self-recovery, never a restart-loop.
 
-`touch /app/data/.write-probe && echo WRITE-OK && rm …` → `WRITE-OK`. `fsGroup: 911` is
-correct.
+### What the split does NOT protect — Mealie hard-exits if the database is unreachable at boot
 
-### Step 9 — the negative test found something Ruling 1 did not anticipate
+**This is a real distinction, and it will confuse a future operator if skipped.** The probe
+split above protects the *steady-state* case only. If Postgres is down (or unreachable) when
+the Mealie **pod starts**, Mealie's own `init_db.main()` hard-exits the process before either
+probe is ever evaluated — CrashLoopBackOff results regardless of how the probes are
+configured. That is Mealie's behaviour, not a misconfiguration here.
 
-**The prescribed test (bogus `POSTGRES_SERVER` via `kubectl set env`) does cause a restart
-loop — but the cause is not a probe misconfiguration. It is Mealie's own startup code.**
-
-`kubectl set env` on a `Deployment` always replaces the pod (this one is `strategy: Recreate`
-regardless). The **new** pod's own application code — not either probe — is what fails:
+Reproduced with a deliberately bogus `POSTGRES_SERVER` (`kubectl set env`, which always
+replaces the pod on this Deployment):
 
 ```
 sqlalchemy.exc.OperationalError: (psycopg2.OperationalError) could not translate host name
@@ -418,7 +551,7 @@ ConnectionError: Database connection failed - exiting application.
 ERROR - Application startup failed. Exiting.
 ```
 
-`kubectl describe pod` confirmed this is a genuine process exit, not a killed-by-probe event:
+`kubectl describe pod` confirmed a genuine process exit, not a killed-by-probe event:
 
 ```
 Last State:  Terminated
@@ -427,84 +560,46 @@ Last State:  Terminated
 Restart Count: 3 (climbing — CrashLoopBackOff)
 ```
 
-The container restarted 3 times in the first ~90 seconds after the env change — well before
-the liveness probe's `initialDelaySeconds: 60` would even take its first look, and via
-`RestartPolicy: Always` reacting to the process exiting on its own, not via a probe-triggered
-kill (`kubectl get events` showed no `Unhealthy`/`Killing` pair for the new pod, only
-`BackOff: Back-off restarting failed container`). **Mealie's `init_db.main()` hard-exits the
-whole process if it cannot reach Postgres during startup, before either probe is ever
-evaluated. No probe configuration — Ruling 1's split included — can prevent a restart loop in
-this specific scenario**, because the crash happens in application code, not in a
-probe-triggered container kill. This contradicts the task's stated diagnostic ("a restart
-loop means the probe split was not applied correctly"); the probes were confirmed correctly
-split (see above) and this is not evidence against that.
+The container restarted 3 times in the first ~90 seconds — well before the liveness probe's
+`initialDelaySeconds: 60` would even take its first look, and via `RestartPolicy: Always`
+reacting to the process exiting on its own (`kubectl get events` showed no
+`Unhealthy`/`Killing` pair for this pod, only `BackOff: Back-off restarting failed
+container`). No probe configuration can prevent a restart loop in this scenario, because the
+crash happens in application code before a probe ever runs.
 
-**What Ruling 1's split does still protect, and what was separately checked:** an
-already-`Ready` pod losing DB connectivity mid-session (a finance-cluster blip while Mealie
-keeps running, the scenario the readiness/liveness comments actually describe) is a different
-case from a pod *booting* with no DB at all. An attempt was made to reproduce that narrower
-case safely, entirely inside the running pod's own network namespace (appending a bogus entry
-for `finance-service-cluster-rw.finance.svc.cluster.local` to `/etc/hosts` via `kubectl exec`,
-then reverting it the same way) — deliberately not touching the finance cluster or the CNI.
-**This test was inconclusive, for the same reason Task 1 flagged for the `mv` trick on
-SQLite:** the running process already held live, pooled connections to Postgres opened before
-the redirect; a hosts-file change only affects *new* DNS resolutions, not sockets already
-established, so `/api/app/about` kept returning `200` for the full ~2-minute observation
-window and restart count stayed at 0. That result proves the redirect didn't reach the
-process's live connections — it does **not** prove the probe split is DB-blip-safe in
-steady state, and should not be read as such. A real test of that scenario needs the
-established TCP connections themselves broken (e.g. a genuine network partition or a
-connection reset), which was not attempted here: it would require either elevated privileges
-inside this `baseline`-PSA pod or an action against the shared finance-cluster network path,
-both out of scope for this task. **Recorded as an open verification gap, not a pass.**
+Restored by reverting the env var; pod returned to `1/1 Running`, `about` and `theme` both
+`200` again, 0 restarts on the restored pod, and
+`kubectl get deploy mealie -n mealie -o jsonpath='{...containers[0].env[*]}'` matched
+`deployment.yaml` exactly — no spurious diff on the next apply.
 
-Restore and post-restore verification (both required by Step 9):
+### One narrower scenario remains unverified, and is recorded as a gap, not a pass
 
-```
-$ kubectl get deploy mealie -n mealie -o jsonpath='{range .spec.template.spec.containers[0].env[*]}{.name}={.value}{"\n"}{end}'
-...
-POSTGRES_SERVER=finance-service-cluster-rw.finance.svc.cluster.local
-...
-```
+An attempt was made to reproduce "already-`Ready` pod loses DNS/network path to the database"
+(as opposed to the connection-limit method used above) entirely inside the pod's own network
+namespace, by appending a bogus `/etc/hosts` entry for
+`finance-service-cluster-rw.finance.svc.cluster.local` via `kubectl exec`, then reverting it
+the same way. **This test was inconclusive**, for the same reason the `mv` trick was
+misleading for SQLite above: the process already held live, pooled connections opened before
+the redirect, so a hosts-file change only affects *new* DNS resolutions, not sockets already
+established. `/api/app/about` kept returning `200` for the full observation window and
+restart count stayed at 0 — that result proves the redirect didn't reach the process's live
+connections, it does **not** prove the probe split is safe against this exact failure mode.
+A real test needs the established TCP connections themselves broken (a genuine network
+partition or connection reset), which was not attempted — it would require either elevated
+privileges inside this `baseline`-PSA pod or an action against the shared finance-cluster
+network path. The connection-limit-based test above is a different mechanism that does prove
+the readiness/liveness split works for a real DB outage; this narrower DNS-only scenario is
+the one still open.
 
-Matches `deployment.yaml` exactly — no spurious diff on the next apply. Pod returned to
-`1/1 Running`, `about` and `theme` both `200` again, 0 restarts on the restored pod.
-
-### `kubectl apply -f secret.yaml` reports `configured`, not `unchanged` (deviation from Ruling 2)
-
-Ruling 2 predicted `unchanged` for both Secret documents. Observed `configured` for both, on
-every re-apply, including a third consecutive apply with no file change in between. This is
-a known `kubectl`/`stringData` quirk, not a real drift: `stringData` is a write-only
-convenience field the API server converts to `data` and never persists as `stringData`, so
-`kubectl apply`'s three-way merge sends a patch every time regardless of whether the value
-actually changed. Confirmed benign two ways: `kubectl diff -f secret.yaml` returned **no**
-output (no computed difference), and the password value read back identical across repeated
-applies. Not "fixed" — Ruling 2 says not to, and there is nothing to fix; this is cosmetic
-`kubectl` output, not a functional problem.
-
-### Benign PodSecurity warning on every apply/env change
-
-```
-Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false, ...
-```
-
-Namespace `mealie` carries no `pod-security.kubernetes.io/*` labels (confirmed:
-`kubectl get ns mealie -o jsonpath='{.metadata.labels}'` → only `app` and
-`kubernetes.io/metadata.name`), so `enforce` is the cluster default `baseline`, per
-`namespace.yaml`'s comment and CLAUDE.md. The warning is the cluster's separate `warn`/`audit`
-level surfacing at `restricted`, which does not block anything — every apply in this task
-still reported `created`/`configured` and the pod ran. Not a namespace misconfiguration, not
-addressed here — `enforce: privileged` was deliberately not added, per the manifest's own
-comment.
-
-## Task 5: Exposed through Traefik
+## Ingress and TLS
 
 `middleware.yaml` (`mealie-headers`) and `ingressroute.yaml` applied 2026-08-12.
 `https://mealie.arnoldtech.io` is live, LAN-only, serving the cluster's `*.arnoldtech.io`
 wildcard cert via the empty `tls: {}` → `TLSStore/default` fallback — no cert-manager
-`Certificate` was created, per the ruling that one is neither needed nor wanted.
+`Certificate` was created; one is neither needed nor wanted since the wildcard cert doesn't
+live in this namespace.
 
-### TLS — verified, not assumed
+**TLS — verified, not assumed:**
 
 ```
 $ echo | openssl s_client -connect 192.168.130.150:443 -servername mealie.arnoldtech.io 2>/dev/null | openssl x509 -noout -subject -issuer -dates
@@ -520,15 +615,18 @@ error mentioning `mealie` — only the routine `'kubernetes.io/ingress.class' is
 annotation` warning, which every other IngressRoute on this cluster also carries. End-to-end:
 `curl.exe -sS -o NUL -w "%{http_code}" https://mealie.arnoldtech.io/api/app/about` → `200`.
 
-### CSP — browser check performed via Playwright, not the claude-in-chrome extension
+## CSP
 
-The `claude-in-chrome` MCP tool reported "Browser extension is not connected" when invoked.
-Playwright's MCP browser tools were available and used instead — a real Chromium instance,
-not a static-analysis substitute — so this is a genuine browser console check, just via a
-different driver than the brief named.
+`middleware.yaml` is a **copy** of the shared `traefik/default-headers` Middleware, owned by
+this namespace so its Content-Security-Policy can be relaxed for Mealie without affecting
+every other app on the shared one — `wger` does the same thing with `wger-headers`.
+
+**Any deviation from the shared copy must be justified by a console violation quoted in a
+comment beside it.** Checked with a real browser (Playwright's MCP tools — the
+`claude-in-chrome` extension reported "not connected" and was not used), not static analysis.
 
 **One real violation was found and fixed.** First load of `https://mealie.arnoldtech.io/`
-(and independently, `/admin/setup`) produced, verbatim, twice:
+(and `/admin/setup`) produced, verbatim, twice:
 
 ```
 Loading a manifest from 'https://mealie.arnoldtech.io/manifest.webmanifest' violates the
@@ -536,98 +634,39 @@ following Content Security Policy directive: "default-src 'none'". Note that 'ma
 was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.
 ```
 
-The app shell references `<link rel="manifest" href="/manifest.webmanifest"
-crossorigin="use-credentials">` (Mealie is a PWA). Added the minimal fix —
-`manifest-src 'self';` — to `middleware.yaml`, with the violation quoted verbatim in a
-comment beside it. Re-applied (`kubectl apply` reported `configured`); a cache-busted reload
-(`/admin/setup?cb=1`, to rule out the browser's own HTTP cache of the pre-fix document —
-see below) then showed **zero console errors**. Confirmed independently with
-`curl.exe -sSI https://mealie.arnoldtech.io`: the served `Content-Security-Policy` header now
-ends `...form-action 'self'; manifest-src 'self';`.
+Mealie's app shell references `<link rel="manifest" href="/manifest.webmanifest"
+crossorigin="use-credentials">` (it is a PWA). The fix — `manifest-src 'self';` — is the one
+deviation from `traefik/default-headers`; nothing else was added speculatively. Confirmed live
+with `curl.exe -sSI https://mealie.arnoldtech.io`: the served header ends
+`...form-action 'self'; manifest-src 'self';`. A cache-busted reload then showed zero console
+errors; two immediate re-checks *without* a cache-busting query string still showed the old
+violation, confirmed via `curl` to be stale browser HTTP disk cache of the document
+(`Cache-Control: no-cache` still permits conditional reuse) — not a live config problem.
 
-Two immediate re-checks of `/` and `/admin/setup` (without a cache-busting query string)
-still showed the old violation after the fix was live — confirmed via `curl` to be a stale
-browser HTTP disk cache of the document itself (`Cache-Control: no-cache` still permits
-conditional reuse), not a live config problem; the header served by the origin was correct
-at every point checked. Recorded so a future reader doesn't mistake browser caching for a
-regression.
+**`worker-src` — not added, and evidence says it isn't needed.** Static analysis of the
+eagerly-loaded entry bundle confirms Mealie registers a Workbox service worker at `/sw.js` on
+boot. Per the CSP3 spec, `worker-src` with no explicit value falls back to `script-src`
+(set here to `'self' 'unsafe-inline' 'unsafe-eval' https:'`) before falling back to
+`default-src`, so a same-origin `/sw.js` is already permitted. Corroborated empirically: SW
+registration runs on every page load tested, including the unauthenticated login page, and no
+`worker-src` violation ever appeared.
 
-**What was verified beyond the manifest fix:**
+**`blob:` in `img-src`/`media-src` — genuinely unverified, not assumed clean.** See "Known
+gaps" below.
 
-- `worker-src` — **not added, and evidence says it isn't needed.** Static analysis of the
-  eagerly-loaded entry bundle (`/_nuxt/CtwnhfkZ.js`) confirms Mealie registers a Workbox
-  service worker at `/sw.js` on boot. Per the CSP3 spec, `worker-src` with no explicit value
-  falls back to `script-src` (which is set here, `'self' 'unsafe-inline' 'unsafe-eval'
-  https:`) before falling back to `default-src` — so a same-origin `/sw.js` is already
-  permitted through that fallback. This is corroborated empirically: SW registration runs on
-  every page load tested (including the unauthenticated login page), and no `worker-src`
-  violation appeared in any check, before or after the manifest-src fix.
-- `blob:` in `img-src`/`media-src` — **genuinely unverified, not assumed clean.** The
-  `createObjectURL`/`blob:` code path for recipe image previews was not found in the eagerly
-  loaded entry chunk; it likely lives in a lazy-loaded recipe-editing chunk that was never
-  requested, because reaching it requires an authenticated recipe-with-image round trip that
-  was not attempted (see below). No violation was observed for it, but absence of a check is
-  not evidence of absence — this directive was **not** added, per the ruling against
-  speculative widening, but it is also not confirmed safe.
+## Backups
 
-**What Step 7 could not do: complete first-run setup, open a recipe, upload an image.**
-The fresh instance has zero recipes (Task 4 was an empty-database migration), and Mealie
-force-redirects every authenticated request to `/admin/setup` until the wizard is completed
-— reachable via the default credentials the app itself displays on first login
-(`changeme@example.com` / `MyPassword`), which this check did use to sign in and confirm the
-redirect. Advancing past the wizard's "Account Details" step requires setting a real email
-and password for the admin account of a production instance the user will actually use going
-forward — that is an account-settings change, not a disposable test action, and this task's
-rules require the user's own explicit permission for that in chat, which a non-interactive
-subagent has no way to obtain mid-task. **Not fabricated as done.** Completing setup, creating
-a recipe, and uploading an image (to exercise the `blob:`-dependent code path) is left for the
-user to do interactively, at which point the console should be re-checked for any `blob:` or
-`img-src`/`media-src` violation before assuming this CSP is fully clear for that flow.
+**Database**, via the existing `finance-db-daily-backup` `ScheduledBackup` (`0 2 * * *`,
+retain 30d, `volumeSnapshot` method — no `barmanObjectStore`). This backs up the entire
+`finance-service-cluster` PGDATA volume, all three tenants together. **There is no
+Mealie-specific database backup and no PITR** — see "Where the database lives" above for what
+that means for restores. Nothing in this directory manages that ScheduledBackup; it belongs
+to the finance repo.
 
-### Ruling 3 — steady-state database-loss test: PASS
-
-Severed a **running** (not restarting) Mealie pod from its database by refusing new
-connections and killing pooled ones for the `mealie` role only, then watched:
-
-```
-Baseline:            mealie-7b865ffcf9-lgf5m   READY=true   RESTARTS=0
-19:41:46  READY=true   RESTARTS=0
-19:42:01  READY=true   RESTARTS=0
-19:42:16  READY=false  RESTARTS=0   <- readiness trips
-19:42:31  READY=false  RESTARTS=0
-19:42:46  READY=false  RESTARTS=0
-19:43:01  READY=false  RESTARTS=0
-```
-
-`kubectl get events` at that point showed, most recently: `Warning Unhealthy
-pod/mealie-7b865ffcf9-lgf5m Readiness probe failed: HTTP probe failed with statuscode: 500`
-— a **readiness** failure, matching `/api/app/about`'s known DB-backed 500 behavior (see
-"Does the health endpoint cover the database?" above) — and **no** `Killing` event for this
-pod. (Older `Killing`/`BackOff`/`Unhealthy` events in the same `kubectl get events` output,
-timestamped 18-22 minutes earlier, are leftovers from Task 4's Step 9 restart-loop test
-against a *different*, already-deleted pod — not from this test.)
-
-Restored `CONNECTION LIMIT 20`; `pg_authid.rolconnlimit` read back `20`. The pod
-self-recovered to `READY=true` within 15 seconds of the restore, **same pod name
-`mealie-7b865ffcf9-lgf5m`, restarts still 0** — no restart anywhere in the test.
-`/api/app/about` returned `200` again immediately after. Finance cluster: `ready=3/3`,
-`primary=finance-service-cluster-1`, checked both immediately before step 2 and after the
-restore — unchanged both times.
-
-**This confirms Task 4's probe split does what it was designed to do**: a live database loss
-under a running pod produces `NotReady` (pulled from the Service) with self-recovery, never a
-restart-loop. This was the one load-bearing claim about the deployment that remained
-unverified until now.
-
-## Task 6: Volume snapshots (Backups)
-
-`recurringjob.yaml` deploys a Longhorn `RecurringJob` into `longhorn-system` (not `mealie`)
-that snapshots the `mealie-data` volume daily at `0 10 * * *` (10:00 UTC / 03:00
-America/Phoenix), retaining 7. This covers only the volume — recipe images and uploads. The
-database is separately covered by the existing `finance-db-daily-backup` ScheduledBackup on
-`finance-service-cluster`; the two are unrelated backup mechanisms for unrelated storage.
-
-The schedule is deliberately offset from the two other daily jobs on this cluster so none of
+**Volume** (`mealie-data` — recipe images and uploads only, not the database), via
+`recurringjob.yaml`: a Longhorn `RecurringJob` in `longhorn-system` (not `mealie`) that
+snapshots the volume daily at `0 10 * * *` (10:00 UTC / 03:00 America/Phoenix), retaining 7.
+The schedule is deliberately offset from the other two daily jobs on this cluster so none of
 them contend for Longhorn I/O: `finance-db-daily-backup` runs 02:00 UTC,
 `mealie-daily-snapshot` runs 10:00 UTC, `valheim-daily-snapshot` runs 11:00 UTC.
 
@@ -653,24 +692,53 @@ If `recurring-job-group.longhorn.io/mealie` is missing, reapply it:
 kubectl label volumes.longhorn.io $pv -n longhorn-system recurring-job-group.longhorn.io/mealie=enabled
 ```
 
+**The volume also carries `recurring-job-group.longhorn.io/default: enabled`** (verified
+2026-08-12) — it is in Longhorn's cluster-wide default RecurringJobGroup as well as the
+`mealie`-specific one. A future reader should not be surprised by snapshots that don't
+correspond to anything in `recurringjob.yaml`; some of them belong to the default group, not
+this file.
+
 ### Verified 2026-08-12
 
 - **Negative case observed first, not assumed.** Immediately after `kubectl apply -f
   recurringjob.yaml` (`created`), the Volume behind `mealie-data`
-  (`pvc-d9e34f78-eec3-4b28-bbd5-47688f7f409e`) carried `backup-target`,
-  `longhornvolume`, `recurring-job-group.longhorn.io/default`, and three `setting.longhorn.io/*`
-  labels — no `recurring-job-group.longhorn.io/mealie` key. The job existed and matched
-  nothing, exactly as documented.
-- **Labeled, then confirmed present**: `kubectl label volumes.longhorn.io … recurring-job-group.longhorn.io/mealie=enabled`
-  → label appeared in a follow-up read of `.metadata.labels`.
+  (`pvc-d9e34f78-eec3-4b28-bbd5-47688f7f409e`) carried `backup-target`, `longhornvolume`,
+  `recurring-job-group.longhorn.io/default`, and three `setting.longhorn.io/*` labels — no
+  `recurring-job-group.longhorn.io/mealie` key. The job existed and matched nothing, exactly
+  as documented.
+- **Labeled, then confirmed present**: the label appeared in a follow-up read of
+  `.metadata.labels`.
 - **A snapshot was made to fire for real, not inferred from config.** Cron was patched to
-  ~3 minutes out (computed in UTC via `[System.DateTime]::UtcNow`, per Longhorn's own cron
-  evaluation timezone) after recording the 43 pre-existing snapshot names across the cluster.
-  Polling every 30s found a new snapshot, `mealie-d-cd3488cb-d7b5-4b5d-b6d4-99b704507b6b`, with
-  `spec.volume` equal to the mealie PV and (a few polls later) `status.readyToUse: true`. Not
-  present in the pre-test snapshot list.
+  ~3 minutes out (computed in UTC, per Longhorn's own cron evaluation timezone) after
+  recording the 43 pre-existing snapshot names across the cluster. Polling every 30s found a
+  new snapshot, `mealie-d-cd3488cb-d7b5-4b5d-b6d4-99b704507b6b`, with `spec.volume` equal to
+  the mealie PV and (a few polls later) `status.readyToUse: true`. Not present in the
+  pre-test snapshot list.
 - **Cron restored**: `kubectl apply -f recurringjob.yaml` → `configured`; `.spec.cron` read
   back as `0 10 * * *`, matching the committed file.
 
 Full raw command output is in
 `.superpowers/sdd/2026-08-12-mealie-deployment/task-6-report.md`.
+
+## Known gaps
+
+These are deliberately left open, not overlooked — recorded here so a future operator knows
+what to check rather than assuming it was verified:
+
+- **First-run setup was not completed.** The fresh instance has zero recipes, and Mealie
+  force-redirects every authenticated request to `/admin/setup` until the wizard finishes.
+  Advancing past "Account Details" means setting a real email and password for the admin
+  account of a production instance — an account-settings change on a system the user will
+  actually use, deliberately left for the user to do interactively rather than done
+  unattended with the default `changeme@example.com` / `MyPassword` credentials the app
+  itself displays on first login. (Those defaults were used only to sign in and confirm the
+  `/admin/setup` redirect fires — nothing further.)
+- **The `blob:` question in the CSP's `img-src`/`media-src` is genuinely unverified as a
+  result.** The `createObjectURL`/`blob:` code path for recipe image previews was not found
+  in the eagerly-loaded entry chunk; it likely lives in a lazy-loaded recipe-editing chunk
+  that was never requested, because reaching it needs an authenticated
+  recipe-with-image round trip that setup being incomplete ruled out. No violation was
+  observed for it, but absence of a check is not evidence of absence. It was **not** added to
+  the CSP, per the standing rule against speculative widening — it is also not confirmed
+  safe. Once setup is completed, create a recipe, upload an image, and re-check the browser
+  console for any `blob:` violation before assuming this CSP is fully clear for that flow.
