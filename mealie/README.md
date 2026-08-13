@@ -727,8 +727,36 @@ boot. Per the CSP3 spec, `worker-src` with no explicit value falls back to `scri
 registration runs on every page load tested, including the unauthenticated login page, and no
 `worker-src` violation ever appeared.
 
-**`blob:` in `img-src`/`media-src` — genuinely unverified, not assumed clean.** See "Known
-gaps" below.
+**`blob:` in `img-src`/`media-src` — not needed. Settled 2026-08-13 by reading the shipped
+bundle, after first-run setup was completed.**
+
+Mealie never renders an image from a `blob:` URL. Uploads `POST` a `FormData` to
+`/api/recipes/{slug}/image`, and the image is then displayed from that same server URL — which
+`img-src 'self'` already covers.
+
+Across all 92 JavaScript chunks the app serves (transitive crawl from the app shell reached a
+fixed point — zero new chunks on the next round), `URL.createObjectURL` appears **exactly once**,
+in `/_nuxt/B8RB6R9E.js`:
+
+```js
+function Wa(e,t){ let n=JSON.stringify(e),
+  r=new Blob([n],{type:`application/json`}),
+  i=URL.createObjectURL(r), a=document.createElement(`a`);
+  a.download=t, a.href=i, a.click(), URL.revokeObjectURL(i) }
+```
+
+That is the JSON-export download helper — a `Blob` of `application/json` attached to an
+`<a download>`. CSP has no directive governing `<a href>`, so it needs nothing. The only other
+literal `blob:` in the bundle is in `/_nuxt/C1yRiue8.js`, inside `ufo` (Nuxt's URL parser), in a
+regex that *detects* the scheme rather than creating one.
+
+`B8RB6R9E.js` is also the chunk carrying the upload API client itself — the `FormData` calls and
+the `recipesRecipeSlugImage` route builder — so the one chunk that could plausibly have needed
+`blob:` for a preview is the same one proven not to use it that way.
+
+To re-check after a Mealie upgrade, re-run the crawl rather than trusting this: fetch every
+`/_nuxt/*.js` referenced by the app shell and `grep -l createObjectURL`. A second occurrence is
+the signal to look again.
 
 ## Backups
 
@@ -844,20 +872,22 @@ Full raw command output is in
 These are deliberately left open, not overlooked — recorded here so a future operator knows
 what to check rather than assuming it was verified:
 
-- **First-run setup was not completed.** The fresh instance has zero recipes, and Mealie
-  force-redirects every authenticated request to `/admin/setup` until the wizard finishes.
-  Advancing past "Account Details" means setting a real email and password for the admin
-  account of a production instance — an account-settings change on a system the user will
-  actually use, deliberately left for the user to do interactively rather than done
-  unattended with the default `changeme@example.com` / `MyPassword` credentials the app
-  itself displays on first login. (Those defaults were used only to sign in and confirm the
+**Both of the gaps originally recorded here are now closed** — kept below with their
+resolutions rather than deleted, because how they closed is the useful part.
+
+- **First-run setup — done by the operator on 2026-08-13.** It was deliberately not done
+  unattended: advancing past "Account Details" sets a real email and password for the admin
+  account of a production instance, which is the operator's to choose. (Mealie's own displayed
+  defaults, `changeme@example.com` / `MyPassword`, were used only to sign in and confirm the
   `/admin/setup` redirect fires — nothing further.)
-- **The `blob:` question in the CSP's `img-src`/`media-src` is genuinely unverified as a
-  result.** The `createObjectURL`/`blob:` code path for recipe image previews was not found
-  in the eagerly-loaded entry chunk; it likely lives in a lazy-loaded recipe-editing chunk
-  that was never requested, because reaching it needs an authenticated
-  recipe-with-image round trip that setup being incomplete ruled out. No violation was
-  observed for it, but absence of a check is not evidence of absence. It was **not** added to
-  the CSP, per the standing rule against speculative widening — it is also not confirmed
-  safe. Once setup is completed, create a recipe, upload an image, and re-check the browser
-  console for any `blob:` violation before assuming this CSP is fully clear for that flow.
+- **The `blob:` question in `img-src`/`media-src` — closed 2026-08-13, and the answer is that
+  no widening is needed.** It was settled by reading the shipped bundle rather than by watching
+  a console: Mealie displays uploaded images from `/api/recipes/{slug}/image`, never from a
+  `blob:` URL, and the single `URL.createObjectURL` in all 92 chunks is a JSON-export download
+  helper. Full evidence in the CSP section above. The CSP was **not** widened — the standing
+  rule against speculative directives held, and it turned out to be right.
+
+  Worth noting *why* the earlier guess was wrong: the previous version of this note assumed the
+  preview code "likely lives in a lazy-loaded recipe-editing chunk that was never requested."
+  A transitive crawl of the app shell reached a fixed point at 92 chunks with the upload API
+  client among them, so there was no unreached chunk hiding the answer.
