@@ -1,0 +1,26 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: mealie
+  namespace: mealie
+  annotations:
+    # This is the ingressClass the kubernetescrd provider watches. It is NOT the
+    # same string as the `traefik` IngressClass object used by plain Ingresses.
+    kubernetes.io/ingress.class: traefik-external
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: Host(`mealie.arnoldtech.io`)
+    middlewares:
+    - name: mealie-headers
+      namespace: mealie
+    services:
+    - name: mealie
+      port: 9000
+  # Empty on purpose. An empty tls block makes Traefik fall back to
+  # TLSStore/default in ns traefik, which holds the *.arnoldtech.io wildcard.
+  # Do NOT add a secretName and do NOT create a cert-manager Certificate —
+  # a TLS secret would have to live in this namespace, and the wildcard does not.
+  tls: {}

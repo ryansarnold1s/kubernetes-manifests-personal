@@ -496,3 +496,125 @@ level surfacing at `restricted`, which does not block anything — every apply i
 still reported `created`/`configured` and the pod ran. Not a namespace misconfiguration, not
 addressed here — `enforce: privileged` was deliberately not added, per the manifest's own
 comment.
+
+## Task 5: Exposed through Traefik
+
+`middleware.yaml` (`mealie-headers`) and `ingressroute.yaml` applied 2026-08-12.
+`https://mealie.arnoldtech.io` is live, LAN-only, serving the cluster's `*.arnoldtech.io`
+wildcard cert via the empty `tls: {}` → `TLSStore/default` fallback — no cert-manager
+`Certificate` was created, per the ruling that one is neither needed nor wanted.
+
+### TLS — verified, not assumed
+
+```
+$ echo | openssl s_client -connect 192.168.130.150:443 -servername mealie.arnoldtech.io 2>/dev/null | openssl x509 -noout -subject -issuer -dates
+subject=CN=*.arnoldtech.io
+issuer=C=US, O=Let's Encrypt, CN=YR2
+notBefore=Jun 30 10:12:15 2026 GMT
+notAfter=Sep 28 10:12:14 2026 GMT
+```
+
+Wildcard, Let's Encrypt, **not** `CN=TRAEFIK DEFAULT CERT` — the `TLSStore` lookup succeeded.
+`kubectl logs -n traefik deploy/traefik --tail=100 | Select-String "mealie|error"` showed no
+error mentioning `mealie` — only the routine `'kubernetes.io/ingress.class' is a deprecated
+annotation` warning, which every other IngressRoute on this cluster also carries. End-to-end:
+`curl.exe -sS -o NUL -w "%{http_code}" https://mealie.arnoldtech.io/api/app/about` → `200`.
+
+### CSP — browser check performed via Playwright, not the claude-in-chrome extension
+
+The `claude-in-chrome` MCP tool reported "Browser extension is not connected" when invoked.
+Playwright's MCP browser tools were available and used instead — a real Chromium instance,
+not a static-analysis substitute — so this is a genuine browser console check, just via a
+different driver than the brief named.
+
+**One real violation was found and fixed.** First load of `https://mealie.arnoldtech.io/`
+(and independently, `/admin/setup`) produced, verbatim, twice:
+
+```
+Loading a manifest from 'https://mealie.arnoldtech.io/manifest.webmanifest' violates the
+following Content Security Policy directive: "default-src 'none'". Note that 'manifest-src'
+was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.
+```
+
+The app shell references `<link rel="manifest" href="/manifest.webmanifest"
+crossorigin="use-credentials">` (Mealie is a PWA). Added the minimal fix —
+`manifest-src 'self';` — to `middleware.yaml`, with the violation quoted verbatim in a
+comment beside it. Re-applied (`kubectl apply` reported `configured`); a cache-busted reload
+(`/admin/setup?cb=1`, to rule out the browser's own HTTP cache of the pre-fix document —
+see below) then showed **zero console errors**. Confirmed independently with
+`curl.exe -sSI https://mealie.arnoldtech.io`: the served `Content-Security-Policy` header now
+ends `...form-action 'self'; manifest-src 'self';`.
+
+Two immediate re-checks of `/` and `/admin/setup` (without a cache-busting query string)
+still showed the old violation after the fix was live — confirmed via `curl` to be a stale
+browser HTTP disk cache of the document itself (`Cache-Control: no-cache` still permits
+conditional reuse), not a live config problem; the header served by the origin was correct
+at every point checked. Recorded so a future reader doesn't mistake browser caching for a
+regression.
+
+**What was verified beyond the manifest fix:**
+
+- `worker-src` — **not added, and evidence says it isn't needed.** Static analysis of the
+  eagerly-loaded entry bundle (`/_nuxt/CtwnhfkZ.js`) confirms Mealie registers a Workbox
+  service worker at `/sw.js` on boot. Per the CSP3 spec, `worker-src` with no explicit value
+  falls back to `script-src` (which is set here, `'self' 'unsafe-inline' 'unsafe-eval'
+  https:`) before falling back to `default-src` — so a same-origin `/sw.js` is already
+  permitted through that fallback. This is corroborated empirically: SW registration runs on
+  every page load tested (including the unauthenticated login page), and no `worker-src`
+  violation appeared in any check, before or after the manifest-src fix.
+- `blob:` in `img-src`/`media-src` — **genuinely unverified, not assumed clean.** The
+  `createObjectURL`/`blob:` code path for recipe image previews was not found in the eagerly
+  loaded entry chunk; it likely lives in a lazy-loaded recipe-editing chunk that was never
+  requested, because reaching it requires an authenticated recipe-with-image round trip that
+  was not attempted (see below). No violation was observed for it, but absence of a check is
+  not evidence of absence — this directive was **not** added, per the ruling against
+  speculative widening, but it is also not confirmed safe.
+
+**What Step 7 could not do: complete first-run setup, open a recipe, upload an image.**
+The fresh instance has zero recipes (Task 4 was an empty-database migration), and Mealie
+force-redirects every authenticated request to `/admin/setup` until the wizard is completed
+— reachable via the default credentials the app itself displays on first login
+(`changeme@example.com` / `MyPassword`), which this check did use to sign in and confirm the
+redirect. Advancing past the wizard's "Account Details" step requires setting a real email
+and password for the admin account of a production instance the user will actually use going
+forward — that is an account-settings change, not a disposable test action, and this task's
+rules require the user's own explicit permission for that in chat, which a non-interactive
+subagent has no way to obtain mid-task. **Not fabricated as done.** Completing setup, creating
+a recipe, and uploading an image (to exercise the `blob:`-dependent code path) is left for the
+user to do interactively, at which point the console should be re-checked for any `blob:` or
+`img-src`/`media-src` violation before assuming this CSP is fully clear for that flow.
+
+### Ruling 3 — steady-state database-loss test: PASS
+
+Severed a **running** (not restarting) Mealie pod from its database by refusing new
+connections and killing pooled ones for the `mealie` role only, then watched:
+
+```
+Baseline:            mealie-7b865ffcf9-lgf5m   READY=true   RESTARTS=0
+19:41:46  READY=true   RESTARTS=0
+19:42:01  READY=true   RESTARTS=0
+19:42:16  READY=false  RESTARTS=0   <- readiness trips
+19:42:31  READY=false  RESTARTS=0
+19:42:46  READY=false  RESTARTS=0
+19:43:01  READY=false  RESTARTS=0
+```
+
+`kubectl get events` at that point showed, most recently: `Warning Unhealthy
+pod/mealie-7b865ffcf9-lgf5m Readiness probe failed: HTTP probe failed with statuscode: 500`
+— a **readiness** failure, matching `/api/app/about`'s known DB-backed 500 behavior (see
+"Does the health endpoint cover the database?" above) — and **no** `Killing` event for this
+pod. (Older `Killing`/`BackOff`/`Unhealthy` events in the same `kubectl get events` output,
+timestamped 18-22 minutes earlier, are leftovers from Task 4's Step 9 restart-loop test
+against a *different*, already-deleted pod — not from this test.)
+
+Restored `CONNECTION LIMIT 20`; `pg_authid.rolconnlimit` read back `20`. The pod
+self-recovered to `READY=true` within 15 seconds of the restore, **same pod name
+`mealie-7b865ffcf9-lgf5m`, restarts still 0** — no restart anywhere in the test.
+`/api/app/about` returned `200` again immediately after. Finance cluster: `ready=3/3`,
+`primary=finance-service-cluster-1`, checked both immediately before step 2 and after the
+restore — unchanged both times.
+
+**This confirms Task 4's probe split does what it was designed to do**: a live database loss
+under a running pod produces `NotReady` (pulled from the Service) with self-recovery, never a
+restart-loop. This was the one load-bearing claim about the deployment that remained
+unverified until now.
