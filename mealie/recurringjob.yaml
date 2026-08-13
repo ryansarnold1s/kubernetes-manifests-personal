@@ -1,0 +1,22 @@
+# NOTE: this file deploys into `longhorn-system`, NOT `mealie`.
+#
+# This job does nothing until the Longhorn Volume backing mealie-data carries
+# the label recurring-job-group.longhorn.io/mealie=enabled — a new or recreated
+# PVC's volume starts unlabeled. The label goes on the VOLUME, not the PVC. If
+# snapshots aren't appearing, check that before anything else. See
+# mealie/README.md (Backups) for the labeling and verification commands.
+#
+# 03:00 local, offset from the finance database's 02:00 UTC ScheduledBackup so
+# the two do not contend for Longhorn I/O.
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: mealie-daily-snapshot
+  namespace: longhorn-system
+spec:
+  cron: "0 10 * * *"
+  task: snapshot
+  groups:
+  - mealie
+  retain: 7
+  concurrency: 1

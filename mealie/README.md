@@ -618,3 +618,59 @@ restore — unchanged both times.
 under a running pod produces `NotReady` (pulled from the Service) with self-recovery, never a
 restart-loop. This was the one load-bearing claim about the deployment that remained
 unverified until now.
+
+## Task 6: Volume snapshots (Backups)
+
+`recurringjob.yaml` deploys a Longhorn `RecurringJob` into `longhorn-system` (not `mealie`)
+that snapshots the `mealie-data` volume daily at `0 10 * * *` (10:00 UTC / 03:00
+America/Phoenix), retaining 7. This covers only the volume — recipe images and uploads. The
+database is separately covered by the existing `finance-db-daily-backup` ScheduledBackup on
+`finance-service-cluster`; the two are unrelated backup mechanisms for unrelated storage.
+
+The schedule is deliberately offset from the two other daily jobs on this cluster so none of
+them contend for Longhorn I/O: `finance-db-daily-backup` runs 02:00 UTC,
+`mealie-daily-snapshot` runs 10:00 UTC, `valheim-daily-snapshot` runs 11:00 UTC.
+
+### The label is on the Volume, not the PVC — check this first if snapshots stop appearing
+
+A Longhorn `RecurringJob` selects volumes by the label
+`recurring-job-group.longhorn.io/mealie=enabled` on the **Longhorn `Volume`** object, not on
+the PVC. A PVC's underlying Volume starts with no such label, so a fresh or recreated
+`mealie-data` PVC silently stops being snapshotted until the label is reapplied — the job
+keeps running, reports no error, and simply matches nothing. This is the same failure mode
+`valheim/recurringjob.yaml` already carries a warning about.
+
+Find the PV and check its labels:
+
+```powershell
+$pv = kubectl get pvc mealie-data -n mealie -o jsonpath='{.spec.volumeName}'
+kubectl get volumes.longhorn.io $pv -n longhorn-system -o jsonpath='{.metadata.labels}{"\n"}'
+```
+
+If `recurring-job-group.longhorn.io/mealie` is missing, reapply it:
+
+```powershell
+kubectl label volumes.longhorn.io $pv -n longhorn-system recurring-job-group.longhorn.io/mealie=enabled
+```
+
+### Verified 2026-08-12
+
+- **Negative case observed first, not assumed.** Immediately after `kubectl apply -f
+  recurringjob.yaml` (`created`), the Volume behind `mealie-data`
+  (`pvc-d9e34f78-eec3-4b28-bbd5-47688f7f409e`) carried `backup-target`,
+  `longhornvolume`, `recurring-job-group.longhorn.io/default`, and three `setting.longhorn.io/*`
+  labels — no `recurring-job-group.longhorn.io/mealie` key. The job existed and matched
+  nothing, exactly as documented.
+- **Labeled, then confirmed present**: `kubectl label volumes.longhorn.io … recurring-job-group.longhorn.io/mealie=enabled`
+  → label appeared in a follow-up read of `.metadata.labels`.
+- **A snapshot was made to fire for real, not inferred from config.** Cron was patched to
+  ~3 minutes out (computed in UTC via `[System.DateTime]::UtcNow`, per Longhorn's own cron
+  evaluation timezone) after recording the 43 pre-existing snapshot names across the cluster.
+  Polling every 30s found a new snapshot, `mealie-d-cd3488cb-d7b5-4b5d-b6d4-99b704507b6b`, with
+  `spec.volume` equal to the mealie PV and (a few polls later) `status.readyToUse: true`. Not
+  present in the pre-test snapshot list.
+- **Cron restored**: `kubectl apply -f recurringjob.yaml` → `configured`; `.spec.cron` read
+  back as `0 10 * * *`, matching the committed file.
+
+Full raw command output is in
+`.superpowers/sdd/2026-08-12-mealie-deployment/task-6-report.md`.
