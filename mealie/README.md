@@ -9,9 +9,19 @@ see "Where the database lives" below before changing anything. That is the sharp
 consequence of this deployment and it is not optional reading.
 
 **Two files in this directory deploy outside the `mealie` namespace**: `cnpg-database.yaml`
-→ `finance`, `recurringjob.yaml` → `longhorn-system`. `kubectl apply -f *.yaml` from this
-directory is still correct — each file targets its own namespace via `metadata.namespace` —
-but `kubectl get all -n mealie` will never show either object.
+→ `finance`, `recurringjob.yaml` → `longhorn-system`. Applying every file in this directory
+by name still deploys each object to its correct namespace — every file sets its own
+`metadata.namespace` — but `kubectl get all -n mealie` will never show either object.
+
+**Do not write `kubectl apply -f *.yaml`.** PowerShell's native `kubectl.exe` gets no glob
+expansion for that pattern, so nothing after `-f` matches and the command fails.
+`kubectl apply -f .` is the working form, and it is safe to use on this directory
+specifically: kubectl only reads `.yaml`/`.yml`/`.json` files from a directory, so the
+gitignored real `secret.yaml` is picked up while `secret.yaml.template` (no such extension
+match) is skipped — it will not overwrite your password with the template's placeholder
+value. That said, **on a fresh rebuild use the ordered sequence in "Deploying" below, not a
+single `-f .`** — the database must exist before `deployment.yaml` is applied, and `-f .`
+applies everything in one pass with no ordering guarantee.
 
 ## Layout
 
@@ -67,12 +77,18 @@ as a choice, not a default.
 
 **Consequences of that choice, stated plainly:**
 
-- **There is no way to restore Mealie's database without rolling finance back to the same
-  point in time, and vice versa.** The only existing backup, `finance-db-daily-backup`, is a
-  cluster-wide `volumeSnapshot` with no `barmanObjectStore` configured — no PITR, no
-  per-database restore. A snapshot captures the whole `finance-service-cluster` PGDATA
-  volume, all three tenants at once. That coupling did not exist before this deployment; see
-  "Backups" below.
+- **There is currently no restore path for Mealie's database at all — not a coupled one,
+  none.** An earlier version of this README claimed a `finance-db-daily-backup`
+  `ScheduledBackup` covered `finance-service-cluster` and, by extension, Mealie's data. That
+  object does not exist: `kubectl get scheduledbackups.postgresql.cnpg.io -A` and
+  `kubectl get backups.postgresql.cnpg.io -A` both return no resources cluster-wide (verified
+  2026-08-12), and `finance-service-cluster.spec.backup` is empty. The manifest that would
+  create it, `finance-manager/k8s/database/scheduled-backup.yaml`, exists in that repo but is
+  never applied — nothing references it, the same trap `cluster.yaml` was in before Task 8
+  repaired it. If this had been true, the consequence would have been that a Mealie restore
+  requires rolling finance back to the same point in time and vice versa; since it is not
+  true, the actual consequence is worse: finance, attendance, and mealie all have **zero**
+  CNPG-level backup coverage today. See "Backups" below.
 - **PostgreSQL has no per-database quota.** Mealie's data grows inside the same 15Gi Longhorn
   volume finance and attendance already share. Nothing here caps how large Mealie's tables can
   get, and a full PGDATA volume takes the **whole cluster** down — finance and attendance
@@ -103,23 +119,32 @@ later password *rotation* silently no-ops — you edit the Secret, CNPG never re
 Postgres password never changes, and Mealie fails auth while `managedRolesStatus` still
 shows `mealie` under `reconciled`.
 
-### Corrections to the spec, the plan, and `finance-manager/k8s/database/cluster.yaml`
+### Corrections to the spec and the plan
 
-Two figures are wrong in the design spec, the implementation plan, and the stale
-`finance-manager/k8s/database/cluster.yaml` (which nothing reconciles against live — no
-kustomization references it, and the live object's `last-applied-configuration` annotation is
-empty). Both were checked against `pg_settings` on the live cluster, not assumed from those
-documents:
+Two figures were wrong in the design spec and the implementation plan. Both were checked
+against `pg_settings` on the live cluster, not assumed from those documents:
 
 - **The live cluster runs `max_connections = 300` and `shared_buffers = 512MB`**, not the
-  100 / 256MB those three sources all claim (`source=configuration file` for both, confirmed
-  via `pg_settings`; ~17 sessions in use at the time of the check).
+  100 / 256MB the spec and plan claim throughout (`source=configuration file` for both,
+  confirmed via `pg_settings`; ~17 sessions in use at the time of the check).
+  `finance-manager/k8s/database/cluster.yaml` **already carries the correct 300 / 512MB
+  figures** — it was repaired from the same wrong 100 / 256MB values as part of this
+  deployment (Task 8) and is committed but deliberately not applied (applying it would stamp
+  a `last-applied-configuration` annotation that makes future applies prune live-only fields,
+  and would have forced an unplanned restart of all three instances to shrink a live
+  `max_connections`). `kubectl diff -f finance-manager/k8s/database/cluster.yaml` against the
+  live object is empty. See the correction appended to
+  `docs/superpowers/plans/2026-08-12-mealie-deployment.md` for the full account.
 - **`connectionLimit: 20` for the `mealie` role is tested, not assumed.** 20 concurrent
   sessions connected successfully and the 21st was rejected with
   `FATAL: too many connections for role "mealie"` — see the isolation-test table below (test 6).
   Because the real `max_connections` is 300, not 100, this bound is more conservative than it
   was designed to be, not less — it stands as-is, but anything downstream that still hardcodes
   100 or 256MB is repeating a stale number.
+- **`finance-db-daily-backup` does not exist.** The spec's §2 "Cluster facts" table and an
+  earlier version of this README both asserted it as a verified fact; neither verification
+  actually happened. See "Backups" below and the correction appended to
+  `docs/superpowers/specs/2026-08-12-mealie-deployment-design.md`.
 
 ### Role attributes as actually created
 
@@ -140,7 +165,10 @@ inherits no privileges from anywhere.
 
 The live Cluster object is the only authoritative copy. This is what went in, and it is what
 `finance-manager/k8s/database/cluster.yaml` must say if it is ever reconciled with live —
-field for field, comment string included, or the two will diff:
+field for field, including the CNPG `comment:` field, or the two will diff. (A YAML `#`
+comment above the block is not part of the object and never affects `kubectl diff`; it is
+only the `comment:` key inside `spec.managed.roles[]` that CNPG sends to Postgres and that
+this statement is about.)
 
 ```yaml
 spec:
@@ -189,8 +217,14 @@ Two further review points were adopted in how the change was *carried out* rathe
 what was applied:
 
 - **Credentials never go in a connection URI.** Probe pods use `--env=PGPASSWORD=…` with a
-  password-free `postgresql://mealie@…` URI. The URI form would write the password into a
-  Pod spec readable by anyone who can `kubectl get pod -o yaml`, and into shell history.
+  password-free `postgresql://mealie@…` URI. The URI form would put the password directly in
+  the shell command — visible in shell history and, since it becomes a container arg, also
+  in `.spec.containers[].args` — and inside the connection string itself, which tends to get
+  copy-pasted into logs and terminals whole. `--env=PGPASSWORD=…` closes those two paths, but
+  it is **not** a way to keep the credential out of reach altogether: the value still lands in
+  the Pod spec, this time under `.spec.containers[].env`, and is readable by anyone who can
+  run `kubectl get pod -o yaml`. Nothing here closes that path; the mitigation only avoids the
+  shell-history and bare-connection-string exposure the URI form adds on top.
 - **The patch file is not kept.** `kubectl patch --type=merge` is a JSON Merge Patch, which
   replaces the `roles` array wholesale. That was safe here because the array was empty.
   Re-running the same file after a second role has been added would silently drop that other
@@ -379,21 +413,57 @@ remain in `pg_stat_activity` and no probe pods remain in `default`.
 
 ## Deploying
 
-```powershell
-cd mealie/
-Copy-Item secret.yaml.template secret.yaml   # then edit secret.yaml and set a real password
-kubectl apply -f namespace.yaml -f pvc.yaml -f secret.yaml -f deployment.yaml -f service.yaml
-kubectl apply -f cnpg-database.yaml          # deploys into ns finance — role must already exist there
-kubectl apply -f middleware.yaml -f ingressroute.yaml
-kubectl apply -f recurringjob.yaml           # deploys into ns longhorn-system
-```
+**Order matters.** `deployment.yaml` must not be applied before the `mealie` database exists —
+on a fresh rebuild the pod would come up, `init_db.main()` would hard-exit because there is no
+database to connect to, and you would be staring at exactly the CrashLoopBackOff the "Steady-
+state database loss" / boot-time-failure sections below spend a lot of words explaining. It
+self-heals once the `Database` CR lands, but there is no reason to manufacture that confusing
+state. The full sequence, in order:
+
+1. **Cross-repo prerequisite — confirm the `mealie` role exists on `finance-service-cluster`
+   first.** This step lives outside this repo and outside this apply sequence:
+   ```powershell
+   kubectl get cluster.postgresql.cnpg.io finance-service-cluster -n finance -o jsonpath='{.spec.managed.roles}'
+   ```
+   The `mealie` role (see "The exact role block that was applied" above for the exact fields)
+   must already be present. If it is not, apply it with `kubectl patch --type=merge` per that
+   section — **do not** get there by running
+   `kubectl apply -f finance-manager/k8s/database/cluster.yaml`. That file is committed but
+   deliberately unapplied (see "Corrections to the spec and the plan" above); applying it
+   stamps a `last-applied-configuration` annotation onto the live Cluster that makes every
+   future apply of that file prune live-only fields, on a shared production database.
+2. Namespace and Secret:
+   ```powershell
+   cd mealie/
+   Copy-Item secret.yaml.template secret.yaml   # then edit secret.yaml and set a real password
+   kubectl apply -f namespace.yaml -f secret.yaml
+   ```
+3. The `Database` CR (requires the role from step 1 to already exist):
+   ```powershell
+   kubectl apply -f cnpg-database.yaml          # deploys into ns finance
+   ```
+4. The ad-hoc SQL — **must be re-run if the database is ever recreated**; nothing re-applies it
+   automatically. See "Ad-hoc SQL applied alongside the Database CR" above for the exact
+   `REVOKE` and the three `ALTER ROLE … SET` timeout statements and how to run them.
+5. PVC, Deployment, Service:
+   ```powershell
+   kubectl apply -f pvc.yaml -f deployment.yaml -f service.yaml
+   ```
+6. Middleware and IngressRoute:
+   ```powershell
+   kubectl apply -f middleware.yaml -f ingressroute.yaml
+   ```
+7. RecurringJob:
+   ```powershell
+   kubectl apply -f recurringjob.yaml           # deploys into ns longhorn-system
+   ```
+8. **Label the Longhorn Volume — required, the job does nothing without it.** A brand-new
+   `mealie-data` PVC's Volume starts unlabeled, same as a recreated one. See "Backups" below
+   for the labeling command; do it right after the PVC is bound, or the RecurringJob will run
+   on schedule and silently snapshot nothing.
 
 **`strategy: Recreate` is set** (Longhorn is RWO; a RollingUpdate would deadlock waiting for
 the old pod to release the volume), so every `deployment.yaml` apply is a brief outage.
-
-**Post-deploy, required — a brand-new `mealie-data` PVC's Longhorn Volume starts unlabeled**,
-same as a recreated one. See "Backups" below for the labeling command; do it right after the
-PVC is bound, or the RecurringJob will run and silently snapshot nothing.
 
 ### Verified after first boot (2026-08-12)
 
@@ -469,6 +539,12 @@ password — presents as Mealie failing authentication while CNPG still reports 
 healthy. If auth breaks right after a rotation, re-check step 2 before assuming anything else
 is wrong; also re-check "The cross-repo dependency" above, since a role definition missing
 from `finance-manager/k8s/database/cluster.yaml` produces the identical symptom.
+
+**The only copy of the current password is the gitignored `mealie/secret.yaml` on one
+workstation.** It is not backed up, and policy forbids reading Secrets back from the cluster
+(`kubectl get`/`describe secret` is hard-denied) to reconstruct it. If that file is lost,
+**rotate** — pick a new password and go through the steps above — rather than attempting any
+form of recovery.
 
 ## Probes
 
@@ -646,7 +722,7 @@ violation, confirmed via `curl` to be stale browser HTTP disk cache of the docum
 **`worker-src` — not added, and evidence says it isn't needed.** Static analysis of the
 eagerly-loaded entry bundle confirms Mealie registers a Workbox service worker at `/sw.js` on
 boot. Per the CSP3 spec, `worker-src` with no explicit value falls back to `script-src`
-(set here to `'self' 'unsafe-inline' 'unsafe-eval' https:'`) before falling back to
+(set here to `'self' 'unsafe-inline' 'unsafe-eval' https:`) before falling back to
 `default-src`, so a same-origin `/sw.js` is already permitted. Corroborated empirically: SW
 registration runs on every page load tested, including the unauthenticated login page, and no
 `worker-src` violation ever appeared.
@@ -656,19 +732,59 @@ gaps" below.
 
 ## Backups
 
-**Database**, via the existing `finance-db-daily-backup` `ScheduledBackup` (`0 2 * * *`,
-retain 30d, `volumeSnapshot` method — no `barmanObjectStore`). This backs up the entire
-`finance-service-cluster` PGDATA volume, all three tenants together. **There is no
-Mealie-specific database backup and no PITR** — see "Where the database lives" above for what
-that means for restores. Nothing in this directory manages that ScheduledBackup; it belongs
-to the finance repo.
+**Database: there is currently no CNPG backup configured, for any of the three tenants on
+`finance-service-cluster` — finance, attendance, or mealie.** Verified 2026-08-12:
+
+```
+kubectl get scheduledbackups.postgresql.cnpg.io -A   → No resources found
+kubectl get backups.postgresql.cnpg.io -A            → No resources found
+kubectl get cluster.postgresql.cnpg.io finance-service-cluster -n finance -o jsonpath='{.spec.backup}'
+                                                       → (empty)
+```
+
+An earlier version of this README, and the design spec's §2 "Cluster facts" table, both
+claimed a `finance-db-daily-backup` `ScheduledBackup` existed (`0 2 * * *`, retain 30d,
+`volumeSnapshot` method) and covered the whole `finance-service-cluster` PGDATA volume. That
+object is not live. `finance-manager/k8s/database/scheduled-backup.yaml` defines it, but the
+file is committed and never applied — no kustomization references it, the same category of
+trap `cluster.yaml` was in before Task 8 repaired it. The claim was carried from the design
+spec into the plan into this README without ever being re-checked against the cluster; see
+the corrections appended to both documents.
+
+**Consequence, stated plainly: the `mealie` database has no restore path at all today** — not
+one coupled to finance's schedule, none. The same is true for `finance` and `attendance`. This
+is a pre-existing gap that predates Mealie; Mealie did not create it, but co-tenanting onto
+this cluster means Mealie inherits it.
+
+**CloudCasa (`cloudcasa-io`) coverage of the underlying PGDATA PVC is unverified — recorded as
+unknown, not as absent.** CloudCasa deletes its CRs after each run, so
+`kubectl get backups.cloudcasa.io -A` returning no resources (checked 2026-08-12) proves
+nothing either way about whether an out-of-band snapshot policy covers this volume. Confirming
+this one way or the other means checking CloudCasa's own policy configuration, which was not
+done as part of this deployment.
 
 **Volume** (`mealie-data` — recipe images and uploads only, not the database), via
 `recurringjob.yaml`: a Longhorn `RecurringJob` in `longhorn-system` (not `mealie`) that
 snapshots the volume daily at `0 10 * * *` (10:00 UTC / 03:00 America/Phoenix), retaining 7.
 The schedule is deliberately offset from the other two daily jobs on this cluster so none of
-them contend for Longhorn I/O: `finance-db-daily-backup` runs 02:00 UTC,
-`mealie-daily-snapshot` runs 10:00 UTC, `valheim-daily-snapshot` runs 11:00 UTC.
+them contend for Longhorn I/O: `wger-daily-snapshot` runs 04:00 UTC, `mealie-daily-snapshot`
+runs 10:00 UTC, `valheim-daily-snapshot` runs 11:00 UTC — no finance-related job is in that
+rotation, because none exists.
+
+**What a Longhorn snapshot does and does not protect against — read this before assuming
+`mealie-data` is "backed up."** `task: snapshot` is a same-disk, same-node Longhorn snapshot,
+not a backup to a separate target (that would be `task: backup` against a configured backup
+target, which is not set up here). Seven daily snapshots protect against **accidental
+deletion or corruption inside Mealie** — an operator or the app itself removing or mangling a
+recipe image, recoverable by rolling the volume back to a recent snapshot. They do **not**
+protect against **disk or node loss**: a snapshot lives on the same Longhorn disk as the
+volume it is a snapshot of, so losing that disk (or the node, if replicas do not survive it)
+takes the snapshots down with the data they describe. This matches the `valheim`/`wger`
+precedent in this repo — same mechanism, same limitation, nothing new introduced here — but
+it is worth stating plainly because `/app/data` holds every uploaded recipe image and losing
+it is the closest thing to real data loss this workload has, separate from the database
+question above. Whether namespace `mealie` is covered by a CloudCasa policy that would survive
+disk/node loss is, per the paragraph above, unverified.
 
 ### The label is on the Volume, not the PVC — check this first if snapshots stop appearing
 
@@ -693,10 +809,13 @@ kubectl label volumes.longhorn.io $pv -n longhorn-system recurring-job-group.lon
 ```
 
 **The volume also carries `recurring-job-group.longhorn.io/default: enabled`** (verified
-2026-08-12) — it is in Longhorn's cluster-wide default RecurringJobGroup as well as the
-`mealie`-specific one. A future reader should not be surprised by snapshots that don't
-correspond to anything in `recurringjob.yaml`; some of them belong to the default group, not
-this file.
+2026-08-12), same as every Longhorn volume on this cluster. This label does not currently do
+anything: **no `RecurringJob` is in group `default`** — `kubectl get recurringjobs.longhorn.io
+-n longhorn-system` shows only three jobs (`mealie-daily-snapshot`, `valheim-daily-snapshot`,
+`wger-daily-snapshot`), each scoped to its own single-item group, none named `default`
+(verified 2026-08-12). The label matches no job today. Do not read its presence as evidence
+of an extra snapshot source, and do not assume it will stay inert — if a `default`-group
+`RecurringJob` is ever created, this volume picks it up automatically the next time it fires.
 
 ### Verified 2026-08-12
 

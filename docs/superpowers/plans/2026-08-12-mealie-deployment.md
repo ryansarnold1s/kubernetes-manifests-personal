@@ -1224,3 +1224,59 @@ git commit -m "Repair stale finance cluster manifest and add the mealie role"
 - **Check connections before restarting shared things, in the same action as the restart.** This does not apply to `mealie` itself while it is new and unused, but Task 2 and Task 8 touch a database serving a live application.
 - **`unchanged` from `kubectl apply` is a silent failure**, not a success — almost always the wrong working directory.
 - **After editing a config file in place, re-read it and confirm section/key counts are unchanged.** An appended duplicate is the signature of a failed match.
+
+---
+
+## Correction — 2026-08-12, after the whole-branch review following Task 8
+
+All eight tasks completed and shipped. The review that followed found this plan wrong in four
+respects. Recorded here per repo convention (append, don't rewrite) — the task steps above are
+left as written and executed; do not copy the specific numbers called out below from them.
+
+**(a) `max_connections`/`shared_buffers` are wrong at every location in this plan that states
+them**, including inside code the plan told the executor to type verbatim: lines ~206
+(`max_connections: 100` in Task 2's target-cluster description), ~246 (the same figure in a
+role-patch comment), ~1143-1144 (`shared_buffers: "256MB"` / `max_connections: "100"` inside
+Task 8 Step 2's `cluster.yaml` rewrite block), and ~1163 (another `max_connections=100` comment
+in that same block). The live cluster runs `max_connections = 300` and `shared_buffers =
+512MB`, confirmed via `pg_settings`. **The executor who actually ran Task 8 did not copy these
+numbers** — Task 8 Step 1 says "re-read the live object as the source of truth, do not copy
+the values from this plan," and the committed `finance-manager/k8s/database/cluster.yaml`
+correctly carries 300/512MB. This correction exists so the next reader of *this plan* isn't
+misled by the code block itself, not because the wrong values shipped anywhere.
+
+**(b) The probe design at line ~671 was reversed after Task 1's own recon disproved its
+premise.** Task 1 Step 5 (line ~755) predicted two possible outcomes for whether
+`/api/app/about` is database-backed and said record whichever one is observed. It turned out
+to be DB-backed: corrupting the database in place produced a `500` with a SQLAlchemy
+traceback. The Deployment manifest block at line ~671 (both `readinessProbe` and
+`livenessProbe` pointed at `/api/app/about`) reflects the plan's original guess, made before
+that recon ran, and was corrected during implementation to split the two probes:
+`readinessProbe` stays on `/api/app/about` (DB-backed — a database blip should mark the pod
+unready, not kill it), `livenessProbe` moves to `/api/app/about/theme` (not DB-backed). The
+actual shipped `deployment.yaml` has the split; this plan's line ~671 code block does not.
+Verified again in Task 5 by severing a *running* pod from its database: `READY` went `false`,
+restarts stayed at `0`, no `Killing` event, self-recovery within 15 seconds. See
+`mealie/README.md`, "Probes", for the full test record.
+
+**(c) Task 8 Step 5's `kubectl apply -f k8s/database/cluster.yaml` (line ~1192) was not
+run — reversed by a `postgres-expert` review gate.** The review ruled the repaired file must
+be committed but **never applied**: applying it stamps a `last-applied-configuration`
+annotation that makes future applies of that file prune live-only fields, and — given item (a)
+above — would also have restarted all three production instances to shrink a live
+`max_connections` from 300 to the stale file's 100, with no maintenance window taken for it.
+Step 3's diff gate (line ~1174, "expected: no changes") and Step 6's post-apply verification
+(line ~1200) are consistent with a file that was never actually applied — there was nothing
+for either to catch, because the live object was never touched by this file. The file is
+committed and correct; `kubectl diff -f k8s/database/cluster.yaml` against live returns no
+output.
+
+**(d) `finance-db-daily-backup` does not exist.** Task 6's framing (line ~930, "The database is
+already covered by the existing `finance-db-daily-backup` ScheduledBackup") and the summary at
+line ~1062 both assert this as fact. It is not: no `ScheduledBackup` or `Backup` object exists
+cluster-wide, and `finance-service-cluster.spec.backup` is empty.
+`finance-manager/k8s/database/scheduled-backup.yaml` defines the object but is never applied.
+The actual state is that finance, attendance, and mealie all have zero CNPG backup coverage
+today — not a coupled restore, no restore at all. See `mealie/README.md`, "Backups", for the
+corrected account, including that CloudCasa coverage of the underlying PVC is unverified,
+not known-absent.

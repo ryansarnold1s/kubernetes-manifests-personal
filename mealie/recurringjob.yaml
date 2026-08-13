@@ -6,8 +6,12 @@
 # snapshots aren't appearing, check that before anything else. See
 # mealie/README.md (Backups) for the labeling and verification commands.
 #
-# 03:00 local, offset from the finance database's 02:00 UTC ScheduledBackup so
-# the two do not contend for Longhorn I/O.
+# 03:00 local. Offset from wger-daily-snapshot (04:00 UTC) and valheim-daily-snapshot
+# (11:00 UTC) so none of the three contend for Longhorn I/O. NOT offset from any finance
+# database backup — no CNPG ScheduledBackup exists on this cluster (verified 2026-08-12;
+# see mealie/README.md, Backups). An earlier version of this comment justified the
+# schedule against a `finance-db-daily-backup` object that turned out never to have been
+# applied. The schedule itself (0 10 * * *) is unaffected and does not need to change.
 apiVersion: longhorn.io/v1beta2
 kind: RecurringJob
 metadata:

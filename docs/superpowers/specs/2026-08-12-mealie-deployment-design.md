@@ -437,3 +437,54 @@ believed.
 - **Mealie's runtime uid** and **health endpoint path** are both specified as
   "verified in the running container" rather than pinned here, because the honest source
   of truth is the image, not this document.
+
+---
+
+## Correction — 2026-08-12, after the whole-branch review following Task 8
+
+All eight tasks completed and shipped; the review that followed found this spec wrong in four
+respects. Recorded here per repo convention (append, don't rewrite) rather than editing the
+sections above.
+
+**(a) `max_connections` and `shared_buffers` were wrong throughout.** §2's "Cluster facts"
+table (line ~43, in the `Target DB cluster` row context) and §5.1 (line ~148, "the cluster runs
+`max_connections: 100`") both state 100 / 256MB. The live cluster runs `max_connections = 300`
+and `shared_buffers = 512MB`, confirmed via `pg_settings` (`source=configuration file` for
+both). These 100/256MB figures were carried from the stale `finance-manager/k8s/database/
+cluster.yaml` that Task 8 existed to repair, not read from the live object — the exact failure
+mode this deployment's own Task 8 was designed to fix, reproduced here in a different document.
+`connectionLimit: 20` for the `mealie` role is unaffected and, if anything, more conservative
+than intended (20 out of a real 300 available connections, not 20 out of 100). See
+`mealie/README.md`, "Corrections to the spec and the plan".
+
+**(b) `/api/app/about` is database-backed — the opposite of what §7 (probes) assumed when
+sizing the design.** This spec did not commit to a specific probe design for that endpoint
+being shallow, but the implementation plan's Task 1 recon (which this spec's §7 fed into)
+predicted `/api/app/about` was shallow static metadata. Task 1 disproved that by corrupting
+the database in place and observing a `500` with a SQLAlchemy traceback. `mealie/README.md`
+("Probes" and "Why the two endpoints actually differ") has the full test record: readiness is
+`/api/app/about` (DB-backed, by design — a DB blip should mark the pod unready, not kill it),
+liveness is `/api/app/about/theme` (not DB-backed). Verified again in Task 5 by severing a
+*running* Mealie from its database: `READY` went `false`, `RESTARTS` stayed `0`, no `Killing`
+event fired, and the pod self-recovered within 15 seconds of the database being restored.
+
+**(c) The design's assumption that the repaired `finance-manager/k8s/database/cluster.yaml`
+would be applied is wrong, and was reversed by the `postgres-expert` review gate.** A
+postgres-expert review of Task 8's repair ruled the file must be committed but **never
+applied**: applying it would write a `last-applied-configuration` annotation that makes future
+applies of that file prune live-only fields, and — given item (a) above — would also have
+restarted all three production instances to shrink `max_connections` from 300 down to the
+stale file's 100, with no maintenance window. The file is committed and correct (300/512MB, the
+`mealie` role, all three instances); `kubectl diff` against the live Cluster is empty and stays
+that way by design, not by accident.
+
+**(d) `finance-db-daily-backup` does not exist.** §2's "Cluster facts" table (line ~44, "Its
+backup") asserts a `ScheduledBackup finance-db-daily-backup` (`0 2 * * *`, retain 30d,
+`volumeSnapshot` method) as a fact "read off the live cluster on 2026-08-12." It was not.
+`kubectl get scheduledbackups.postgresql.cnpg.io -A` and
+`kubectl get backups.postgresql.cnpg.io -A` both return no resources cluster-wide, and
+`finance-service-cluster.spec.backup` is empty. `finance-manager/k8s/database/
+scheduled-backup.yaml` defines the object but is never applied — nothing references it. The
+actual state: finance, attendance, and mealie all have zero CNPG backup coverage today. See
+`mealie/README.md`, "Backups", for the full corrected account, including that CloudCasa
+coverage of the underlying PVC is unverified rather than known-absent.
