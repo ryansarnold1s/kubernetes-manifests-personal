@@ -47,3 +47,73 @@ spec:
       base-uri 'self';
       form-action 'self';
       manifest-src 'self';
+---
+# Rate limiting, per https://docs.mealie.io/documentation/getting-started/installation/security/
+# ("Denial of Service"). Mealie's API is not rate limited by itself; the docs
+# name a reverse proxy as the mitigation. These are that mitigation.
+#
+# READ THIS BEFORE RETUNING EITHER LIMIT — the numbers are not arbitrary:
+#
+# THESE ARE GLOBAL BUCKETS, NOT PER-CLIENT. Traefik's rateLimit defaults to
+# bucketing by client IP, but no client IP survives the trip on this cluster.
+# Verified 2026-08-13 with a throwaway traefik/whoami behind its own temporary
+# IngressRoute in ns mealie: a request from 192.168.130.50 arrived carrying
+# `X-Forwarded-For: 10.244.3.1` and `X-Real-Ip: 10.244.3.1`, stable across four
+# requests. 10.244.3.1 is the flannel gateway on talos-mql-msp, the node running
+# the Traefik pod (pod CIDR 10.244.3.0/24, pod at .215) — i.e. Traefik's own node,
+# not the caller. The address is lost to a double SNAT: svc/traefik in ns traefik
+# is `externalTrafficPolicy: Cluster`, so kube-proxy masquerades on ingress, and
+# the pod-network hop rewrites it again. Every LAN client therefore shares ONE
+# bucket per tier, and both limits below are sized for whole-household aggregate
+# traffic rather than for one browser.
+#
+# sourceCriterion is deliberately left at its default rather than pinned to
+# something honestly global (e.g. requestHost). If svc/traefik is ever moved to
+# `externalTrafficPolicy: Local`, real client IPs start arriving and these
+# middlewares silently become per-client — which is strictly better and needs no
+# edit here. That is why the default is kept; do not "clarify" it by pinning it.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: mealie-ratelimit
+  namespace: mealie
+spec:
+  rateLimit:
+    # burst 400 is sized off a MEASURED cold app-shell load, not an estimate:
+    # a cache-cold load of https://mealie.arnoldtech.io/ in a real browser
+    # (Playwright/Chromium, 2026-08-14) issued 261 requests — JS chunks, CSS,
+    # the webmanifest, icons, repeat fetches and ~12 /api calls — all 200, zero
+    # 429. Do NOT size this against the "92 chunks" figure in README.md's CSP
+    # section: that was a transitive crawl of the eagerly-loaded JS graph, which
+    # is a subset of what a browser actually requests. 261 is the number here.
+    #
+    # Two devices cold-loading at once is ~522 requests, which is MORE than the
+    # 400 bucket — it still passes only because the bucket refills at 50/s while
+    # they load (~5s of loading refunds ~250). That is the real headroom, and it
+    # is thinner than the burst figure looks. If a third simultaneous cold load
+    # ever starts throwing 429s on static assets, raise burst before suspecting
+    # anything else.
+    average: 50
+    period: 1s
+    burst: 400
+---
+# The strict tier, applied only to the recipe-scraping and image-write endpoints
+# that the security doc calls out. These are the endpoints that fetch a
+# user-supplied URL server-side, which is both the DoS vector (download a Debian
+# ISO, saturate the CPU) and the SSRF vector (see README.md, "Rate limiting and
+# the SSRF gap").
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: mealie-ratelimit-scrape
+  namespace: mealie
+spec:
+  rateLimit:
+    # 12/min with burst 5: five imports land instantly, then one per 5s. Sized
+    # for a human adding recipes one at a time from the UI — you spend longer
+    # than 5s reviewing each import than the limit costs you. Bulk import is NOT
+    # affected: the UI sends a whole list to /api/recipes/create/url/bulk as a
+    # SINGLE request, so a 40-recipe bulk import spends one token, not 40.
+    average: 12
+    period: 1m
+    burst: 5

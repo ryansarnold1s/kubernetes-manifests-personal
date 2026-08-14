@@ -11,10 +11,48 @@ spec:
   entryPoints:
   - websecure
   routes:
+  # The strict rate-limit route. MUST be listed with a higher priority than the
+  # catch-all below or it never matches — Traefik would otherwise rank these by
+  # rule length, which happens to give the right answer today and would stop
+  # doing so the moment either rule is edited. Both priorities are pinned so the
+  # ordering is a stated fact rather than a coincidence of string length.
+  #
+  # PathPrefix(/api/recipes/create/) is deliberately a PREFIX, not an enumeration
+  # of today's paths. The upstream security doc names /api/recipes/create/ai, but
+  # that endpoint DOES NOT EXIST in v3.22.0 (checked against this build's own
+  # openapi.json, not the doc) — the prefix covers it for free whenever an
+  # upgrade adds it. It also already covers three URL-scraping endpoints the doc
+  # omits: /create/url/bulk, /create/url/stream and /create/html-or-json{,/stream}.
+  #
+  # The regexp arm matches ONLY /api/recipes/{slug}/image. That path has methods
+  # POST, PUT and DELETE and NO GET (verified in openapi.json), so strict-limiting
+  # it cannot throttle image *browsing* — Mealie serves images from
+  # /api/media/recipes/{id}/images/{file}, which is a different path and stays on
+  # the general tier. Do not widen this to /api/media/... or a recipe list view
+  # will start returning 429 for its thumbnails.
   - kind: Rule
+    priority: 100
+    match: >-
+      Host(`mealie.arnoldtech.io`) &&
+      (PathPrefix(`/api/recipes/create/`) ||
+      PathRegexp(`^/api/recipes/[^/]+/image$`))
+    middlewares:
+    # headers BEFORE the rate limit, on purpose: middlewares run in order, and
+    # this way a 429 still leaves here carrying HSTS and the CSP instead of bare.
+    - name: mealie-headers
+      namespace: mealie
+    - name: mealie-ratelimit-scrape
+      namespace: mealie
+    services:
+    - name: mealie
+      port: 9000
+  - kind: Rule
+    priority: 1
     match: Host(`mealie.arnoldtech.io`)
     middlewares:
     - name: mealie-headers
+      namespace: mealie
+    - name: mealie-ratelimit
       namespace: mealie
     services:
     - name: mealie

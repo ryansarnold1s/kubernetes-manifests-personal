@@ -32,8 +32,8 @@ applies everything in one pass with no ordering guarantee.
 | `secret.yaml.template` | Template for **two** Secret objects sharing one password — see "Where the database lives" | `finance` + `mealie` |
 | `deployment.yaml` | The app | `mealie` |
 | `service.yaml` | ClusterIP, port 9000 | `mealie` |
-| `middleware.yaml` | Traefik headers/CSP, a per-namespace copy of the shared one | `mealie` |
-| `ingressroute.yaml` | `mealie.arnoldtech.io`, wildcard cert via `TLSStore/default` | `mealie` |
+| `middleware.yaml` | Traefik headers/CSP (a per-namespace copy of the shared one) **plus the two rate-limit Middlewares** | `mealie` |
+| `ingressroute.yaml` | `mealie.arnoldtech.io`, wildcard cert via `TLSStore/default`. **Two routes** — a strict-rate-limit route for the scraping endpoints and a catch-all | `mealie` |
 | `cnpg-database.yaml` | The `mealie` `Database` CR against `finance-service-cluster` | **`finance`** |
 | `recurringjob.yaml` | Longhorn daily snapshot of `mealie-data` | **`longhorn-system`** |
 
@@ -757,6 +757,153 @@ the `recipesRecipeSlugImage` route builder — so the one chunk that could plaus
 To re-check after a Mealie upgrade, re-run the crawl rather than trusting this: fetch every
 `/_nuxt/*.js` referenced by the app shell and `grep -l createObjectURL`. A second occurrence is
 the signal to look again.
+
+## Rate limiting and the SSRF gap
+
+Implements the two recommendations on
+[Mealie's security page](https://docs.mealie.io/documentation/getting-started/installation/security/),
+applied 2026-08-14. That page recommends exactly two things: **rate limit the API** behind a
+reverse proxy (Denial of Service), and **isolate the container's network access** (Server Side
+Request Forgery). The first is done. The second **cannot be done as written on this cluster** —
+see "The SSRF half" below. Nothing else on that page applies; it defines no environment
+variables and no auth settings.
+
+Applying this touched only `middleware.yaml` and `ingressroute.yaml`, and **did not restart
+Mealie** — Traefik reloads CRDs live. This is one of the few changes in this directory that is
+not an outage.
+
+### The doc's endpoint list is wrong for v3.22.0 — read this before editing the matcher
+
+Checked against this build's own `openapi.json`, not the doc:
+
+| Doc says | Reality in v3.22.0 |
+|---|---|
+| `/api/recipes/create/url` | exists, `POST`, **authenticated** |
+| `/api/recipes/create/ai` | **does not exist** |
+| `/api/recipes/{id}/image` | it is `/api/recipes/{slug}/image` — `POST`/`PUT`/`DELETE`, **no GET** |
+| *(omitted)* | `/api/recipes/create/url/bulk` — takes a *list* of URLs, the worst DoS shape of the set |
+| *(omitted)* | `/api/recipes/create/url/stream`, `/api/recipes/create/html-or-json{,/stream}` |
+
+Two consequences drive the config:
+
+- The matcher uses `PathPrefix(/api/recipes/create/)` rather than enumerating paths, so it
+  already covers the three endpoints the doc omits **and** picks up `/create/ai` for free
+  whenever an upgrade adds it.
+- **`/api/recipes/{slug}/image` has no GET**, so strict-limiting it cannot throttle image
+  *browsing*. Mealie serves images from `/api/media/recipes/{id}/images/{file}` — a different
+  path, left on the general tier. Do not widen the regexp toward `/api/media/...` or a recipe
+  list view will start returning 429 for its own thumbnails.
+
+### These are GLOBAL buckets, not per-client — the most important fact here
+
+Traefik's `rateLimit` buckets by client IP by default. **No client IP survives the trip on this
+cluster**, so every LAN client shares one bucket per tier.
+
+Verified 2026-08-13 with a throwaway `traefik/whoami` behind its own temporary IngressRoute in
+`ns mealie` (all three objects deleted afterwards). A request from `192.168.130.50` arrived at
+the backend carrying:
+
+```
+X-Forwarded-For: 10.244.3.1
+X-Real-Ip:       10.244.3.1
+```
+
+stable across four requests. `10.244.3.1` is the flannel gateway on `talos-mql-msp` — the node
+running the Traefik pod (pod CIDR `10.244.3.0/24`, pod at `.215`) — i.e. Traefik's own node, not
+the caller. The address is lost to a **double SNAT**: `svc/traefik` in `ns traefik` is
+`externalTrafficPolicy: Cluster`, so kube-proxy masquerades on ingress, and the pod-network hop
+rewrites it again.
+
+**The one change that would make these limits per-client is setting `externalTrafficPolicy:
+Local` on `svc/traefik`.** That is a change to *shared* cluster infrastructure affecting every
+IngressRoute on the cluster, so it was deliberately not made as part of a Mealie change. If it
+is ever made, these middlewares become per-client automatically and need no edit here — which is
+why `sourceCriterion` is left at its default rather than pinned to something honestly global.
+Do not "clarify" the config by pinning it.
+
+### The two tiers
+
+| Middleware | Applies to | Limit |
+|---|---|---|
+| `mealie-ratelimit` | everything else (route `priority: 1`) | 50/s, burst 400 |
+| `mealie-ratelimit-scrape` | `/api/recipes/create/**` and `/api/recipes/{slug}/image` (route `priority: 100`) | 12/min, burst 5 |
+
+Both route priorities are **pinned explicitly**. Traefik would otherwise rank them by rule
+length, which happens to give the right answer today and would stop doing so the moment either
+rule is edited.
+
+`mealie-headers` is listed **before** the rate limit in both routes on purpose: middlewares run
+in order, so a 429 still leaves carrying HSTS and the CSP instead of bare.
+
+Bulk import is not affected by the strict tier — the UI sends a whole list to
+`/api/recipes/create/url/bulk` as a **single** request, so a 40-recipe bulk import spends one
+token, not 40.
+
+### Verified 2026-08-14 — negative case first
+
+A limit only ever observed passing has not been verified. The negative case is the proof:
+
+| Test | Expected | Observed |
+|---|---|---|
+| 1 rapid POST `/api/recipes/create/url`, bucket idle | not 429 | `401` (auth rejects it; the limit did not) |
+| +15 rapid POSTs, same path | 429 after burst | `401 401 401 401` then **`429` ×11** — five non-429 total, exactly `burst: 5` |
+| 12 rapid POSTs `/api/recipes/probe-slug/image` | 429 after burst | `401` ×5 then **`429` ×7** — the `PathRegexp` arm routes to the strict tier |
+| 25 rapid GETs `/api/media/recipes/{uuid}/images/original.webp` | **no** 429 | `422` ×25 (Mealie's own UUID validation — the requests reached the app), zero 429 |
+| 30 rapid GETs `/api/app/about` | **no** 429 | `200` ×30 |
+| Cache-cold load of `/` in a real browser | **no** 429 | **261 requests, all 200**, zero 429 |
+
+The unauthenticated `POST` is a clean probe precisely *because* it 401s: the rate limit runs
+ahead of the backend, so watching `401` flip to `429` proves the bucket without touching a
+single recipe.
+
+**261 is the number to size `burst` against, not the "92 chunks" in the CSP section above** —
+that was a transitive crawl of the eagerly-loaded JS graph, a subset of what a browser really
+requests. Two devices cold-loading at once is ~522 requests, more than the 400 bucket; it passes
+only because the bucket refills at 50/s while they load. That headroom is thinner than the burst
+figure looks. If a third simultaneous cold load ever 429s on static assets, raise `burst` before
+suspecting anything else.
+
+### The SSRF half — not implemented, and it is not implementable here
+
+The doc's mitigation is "isolate the container … to ensure its access to internal resources is
+limited only to what is required." **On this cluster there is no way to do that at the network
+layer: the CNI is Flannel and NetworkPolicy is not enforced** (see the repo CLAUDE.md). A
+`NetworkPolicy` object would apply cleanly, report no error, and do nothing — which is worse
+than not having one, because it reads as protection. Do not add one here believing it helps.
+
+What reduces the risk instead, stated as facts rather than reassurance:
+
+- **All the affected endpoints require authentication.** Every one of `/api/recipes/create/*`
+  and `/api/recipes/{slug}/image` carries a `security` key in `openapi.json` (checked, not
+  assumed). An attacker must already hold valid credentials.
+- `ALLOW_SIGNUP=false` in `deployment.yaml`, and there is one admin account.
+- The instance is LAN-only — no ingress rule or DNS record exposes it beyond the LAN.
+
+Together those put this deployment inside the escape clauses the security page opens with
+("most of these will not apply to you if … use a strong password … disable sign-ups … don't
+host for malicious users"). **The residual risk is accepted:** an authenticated user can make
+the Mealie pod issue HTTP requests to anything it can route to, including the finance database's
+network path, and nothing here stops that.
+
+**The option not taken** was an egress proxy — a squid/tinyproxy Deployment that refuses RFC1918
+destinations, with `HTTP_PROXY`/`HTTPS_PROXY` on the Mealie container pointed at it. It was
+declined as disproportionate for a single-operator LAN recipe manager, and because it introduces
+a failure mode worse than the risk it closes: a broken or restarting proxy silently breaks every
+recipe import, with no error that points at the proxy. Revisit it if Mealie is ever exposed
+beyond the LAN or gains non-household users — that, not any change in the code, is the trigger.
+
+### Re-checking after a Mealie upgrade
+
+The matcher is pinned to paths, and paths move between versions. After any image bump, re-run
+the endpoint enumeration rather than trusting the table above:
+
+```powershell
+kubectl exec -n mealie deploy/mealie -- python3 -c "import json,urllib.request; d=json.load(urllib.request.urlopen('http://localhost:9000/openapi.json')); [print(('AUTH' if 'security' in op else 'NO-AUTH'), m.upper(), p) for p,v in sorted(d['paths'].items()) for m,op in v.items() if m in ('post','put','delete') and ('recipes/create' in p or (p.startswith('/api/recipes/') and p.endswith('/image')))]"
+```
+
+A new scraping endpoint outside `/api/recipes/create/` is the thing to watch for — the prefix
+would not catch it. Then re-run the 429 test above; a matcher that silently stops matching
+produces no error, only an unprotected endpoint.
 
 ## Backups
 
