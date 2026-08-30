@@ -1,0 +1,41 @@
+# ⚠️ CLUSTER-SCOPED. This file does NOT deploy into the icarus namespace.
+#
+# Deleting the icarus/ directory would delete a cluster-scoped object that another
+# workload may have adopted -- the name is generic on purpose. Check for other PVCs
+# using this class before removing it:
+#   kubectl get pvc -A -o json | ConvertFrom-Json | ForEach-Object { $_.items } |
+#     Where-Object { $_.spec.storageClassName -eq 'longhorn-single-replica' }
+#
+# This is the stock `longhorn` class with numberOfReplicas 2 -> 1, and WITHOUT its two
+# annotations (longhorn.io/last-applied-configmap and
+# storageclass.kubernetes.io/is-default-class). Every other parameter is identical --
+# copied from the live class on 2026-08-30, not from documentation.
+#
+# Why a separate class rather than editing `longhorn`: the stock class is reconciled by
+# Longhorn itself and carries a last-applied-configmap annotation. Editing it would be
+# reverted, and would change replica counts for every other workload on the cluster.
+#
+# ⚠️ Do NOT add storageclass.kubernetes.io/is-default-class here. If this became the
+# default class, every PVC on the cluster that omits storageClassName would silently
+# become single-replica.
+#
+# dataLocality stays `disabled` deliberately. On a single-replica volume `best-effort`
+# would trigger a full 50 GB local rebuild every time the pod moves to another node.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn-single-replica
+provisioner: driver.longhorn.io
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+parameters:
+  numberOfReplicas: "1"
+  staleReplicaTimeout: "30"
+  fromBackup: ""
+  fsType: "ext4"
+  dataLocality: "disabled"
+  dataEngine: "v1"
+  disableRevisionCounter: "true"
+  unmapMarkSnapChainRemoved: "ignored"
+  backupTargetName: "default"

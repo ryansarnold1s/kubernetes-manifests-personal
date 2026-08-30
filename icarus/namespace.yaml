@@ -1,0 +1,16 @@
+# Deliberately no pod-security.kubernetes.io labels. The cluster default is baseline,
+# which is the intended posture -- do NOT add `enforce: privileged`.
+#
+# The container starts as root on purpose: scripts/bootstrap runs groupmod/usermod and
+# `chown -R icarus:icarus` over both volumes before supervisord drops the game to the
+# icarus user (PUID/PGID 4711). Running as root is permitted under baseline; nothing
+# here needs the namespace widened.
+#
+# The `ntsync` Wine accelerator was declined for exactly this reason -- exposing
+# /dev/ntsync needs a hostPath, which baseline forbids. Wine falls back to esync/fsync.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: icarus
+  labels:
+    app: icarus
