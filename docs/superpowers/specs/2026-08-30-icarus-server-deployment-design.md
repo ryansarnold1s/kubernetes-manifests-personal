@@ -188,6 +188,25 @@ install volume. Full analysis, apply procedure, verification and rollback are in
 **Gate for this deployment:** at least two workers with ≥60 GiB of Longhorn headroom after
 collection has settled, so the install volume has somewhere to go if a node is lost.
 
+> **GATE PASSED — 2026-08-30.** The reclamation ran on all seven nodes. **Three** workers now
+> clear ≥60 GiB, one more than the gate requires:
+>
+> | Node | Headroom before | Headroom after | ≥60 GiB |
+> |---|---|---|---|
+> | `talos-mql-msp` | 3.8 GiB | **155.6 GiB** | ✅ |
+> | `talos-uup-vn3` | 3.8 GiB | **145.8 GiB** | ✅ |
+> | `talos-z9a-dpj` | 67.3 GiB | 67.3 GiB | ✅ |
+> | `talos-0ag-qr8` | 51.6 GiB | 51.6 GiB | ✗ |
+>
+> Total headroom 126.5 → **420.3 GiB**, against the ~318 GiB projected above — kubelet evicts the
+> whole image cache rather than trimming to the low threshold, so reclamation beat the projection
+> by ~100 GiB. Measured figures and the mechanism are in §12 of
+> `2026-08-30-longhorn-capacity-reclamation-design.md`.
+>
+> `vm.max_map_count = 262144` is also confirmed live on **all seven** nodes, so ICARUS is free to
+> schedule anywhere rather than needing to be pinned. **Both §4.2 prerequisites are now met and
+> this deployment is unblocked.**
+
 ---
 
 ## 5. Decisions
@@ -393,8 +412,8 @@ Built around negative cases: a check only ever observed passing has not been ver
 
 | Claim | Proof | Negative case |
 |---|---|---|
-| `vm.max_map_count` applied | `cat /proc/sys/vm/max_map_count` in-pod = `262144` | Already banked — `65530` was observed on 2026-08-30 |
-| Capacity gate met | Longhorn `storageAvailable` on ≥2 workers leaves ≥60 GiB above the 99.66 GiB floor | Pre-reclamation values recorded in §3.1 |
+| `vm.max_map_count` applied | `cat /proc/sys/vm/max_map_count` in-pod = `262144` | Already banked — `65530` was observed on 2026-08-30. **Done 2026-08-30: all seven nodes return `262144`**, read from pods that were already running before the patch, so no reboot and no pod restart was involved |
+| Capacity gate met | Longhorn `storageAvailable` on ≥2 workers leaves ≥60 GiB above the 99.66 GiB floor | Pre-reclamation values recorded in §3.1. **Done 2026-08-30: PASSED**, three workers qualify — see §4.2 |
 | Probe can fail | `supervisorctl stop icarus-server`, confirm readiness flips to not-ready | The entire point; an always-passing probe has shipped in this repo before |
 | ConfigMap reached the `.ini` | Read `ServerSettings.ini` off the PVC and compare every pinned key | **`MaxPlayers=6` is the sentinel.** Every other pinned value equals the first-boot heredoc default and would read back correct even if `sed` never ran |
 | No cron was installed | `crontab -l -u icarus` in-pod is empty | — |
@@ -416,7 +435,10 @@ Built around negative cases: a check only ever observed passing has not been ver
 
 **Open items to resolve during implementation:**
 
-1. Complete the reclamation work first and confirm the §4.2 capacity gate is met.
+1. ~~Complete the reclamation work first and confirm the §4.2 capacity gate is met.~~ **Done
+   2026-08-30 — gate PASSED.** Reclamation applied to all seven nodes with no reboot and no pod
+   disruption; three workers now clear ≥60 GiB and `vm.max_map_count` is `262144` cluster-wide.
+   See §4.2. **This deployment is unblocked.**
 2. Verify empirically, in the running container, which readiness command discriminates.
 3. Measure real memory use under 2–6 players and revisit the `16Gi` limit.
 4. Confirm the first-boot duration against the `failureThreshold: 400` startup budget; if a cold

@@ -78,7 +78,9 @@ function Get-LHHeadroom {
 
 function Get-MaxMapCount($n) {
   $sel = if ($n -in @('talos-c2v-wpu','talos-kwn-eng','talos-pha-6st')) {
-    @{ns='kube-system'; lbl='app=flannel'}
+    # Corrected 2026-08-30 during execution: the label is k8s-app=flannel.
+    # `app=flannel` matches zero pods and Get-MaxMapCount silently returns blank.
+    @{ns='kube-system'; lbl='k8s-app=flannel'}
   } else {
     @{ns='longhorn-system'; lbl='app=longhorn-manager'}
   }
@@ -96,6 +98,31 @@ cache total — it will understate wildly (50 entries summed to 27.2 GiB on a no
 was 164.7 GiB). Use `imagefs.usedBytes` from `Get-NodeDisk` for totals, and `node.status.images`
 only for presence/absence of a specific tag.
 
+**Trap (found 2026-08-30 during Task 1):** `talosctl get machineconfig -o yaml` returns the entire
+machine config as **one escaped YAML scalar on a single `spec:` line**, not as nested YAML. So
+Step 3's `grep -A3 -E 'sysctls:|kubelet:'` prints nothing, and any anchored pattern
+(`^\s+vm\.max_map_count:`) reports the key ABSENT whether or not it is there. That is a
+clean-looking false negative on the one check that decides whether this plan is safe to run.
+Use unanchored `grep -o` on the substring and count occurrences instead:
+
+```bash
+grep -o 'vm\.max_map_count' "$f" | wc -l
+grep -o 'imageGCHighThresholdPercent' "$f" | wc -l
+```
+
+Same class of bug as the .NET-metadata one-liner in CLAUDE.md, and the same fix. Note that a
+count of `1` for `sysctls:` on an unpatched node is Talos's **commented-out example block**, not
+live config — check the surrounding context before reading it as a real key. After patching, the
+resource renders the patched sub-trees as real nested YAML, so occurrence counts jump for
+formatting reasons rather than duplication; verify via kubelet `/configz` and `/proc`, never by
+counting keys in this output.
+
+**Trap (WSL invocation):** driving `talosctl` through `wsl.exe` from this harness mangles both
+`$variables` and `/mnt/...` paths. Put the commands in a `.sh` file and run
+`MSYS_NO_PATHCONV=1 wsl.exe -- bash /mnt/c/.../script.sh` — do not pass multi-line command
+strings with `bash -lc`. Also `export TALOSCONFIG="$HOME/talosconfig"` inside every script;
+`$HOME/.talos/config` on this workstation is an empty stub.
+
 ---
 
 ## Task 1: Establish talosctl access and capture the machine-config baseline
@@ -108,7 +135,7 @@ only for presence/absence of a specific tag.
 - Produces: a confirmed working `talosctl` invocation, and the current `machine.sysctls` /
   `machine.kubelet` sub-trees saved for comparison and rollback.
 
-- [ ] **Step 1: Confirm talosctl exists and can reach a node**
+- [x] **Step 1: Confirm talosctl exists and can reach a node**
 
 `[WSL]`
 ```bash
@@ -118,7 +145,7 @@ talosctl --nodes 192.168.130.234 --endpoints 192.168.130.234 version
 Expected: a client version, and a server version reporting Talos `v1.13.4`.
 If this fails, stop — everything downstream depends on it.
 
-- [ ] **Step 2: Confirm the patch subcommand's exact flags**
+- [x] **Step 2: Confirm the patch subcommand's exact flags**
 
 `[WSL]`
 ```bash
@@ -129,7 +156,7 @@ and whether `--dry-run` is offered. **Do not assume these — this plan was writ
 talosctl available, so this step exists to catch a flag-name drift rather than discover it
 mid-apply.** If `--dry-run` exists, use it once in Task 4 Step 2 before the real apply.
 
-- [ ] **Step 3: Save the current config sub-trees for every node**
+- [x] **Step 3: Save the current config sub-trees for every node**
 
 `[WSL]`
 ```bash
@@ -144,7 +171,7 @@ Expected: either no `sysctls:` key at all, or one without `vm.max_map_count`; an
 block without `extraConfig.imageGC*`. **If either key already exists with a different value,
 stop and reconcile** — this plan assumes it is adding them, not overwriting.
 
-- [ ] **Step 4: Record how machine config is managed**
+- [x] **Step 4: Record how machine config is managed**
 
 Note in the task's completion comment whether these nodes are managed by a stored
 `controlplane.yaml`/`worker.yaml` pair, by Omni, or by ad-hoc patches. This determines whether
@@ -166,11 +193,11 @@ changing anything — the spec's figures are from 2026-08-30 and may have drifte
 - Produces: per-node `UsedGiB`/`Pct`/`ImgGiB`/`GCHigh`/`GCLow`, Longhorn headroom per node and
   total, and the rancher-image canary list — all referenced by Tasks 4–9.
 
-- [ ] **Step 1: Load the helpers**
+- [x] **Step 1: Load the helpers**
 
 `[PowerShell]` — paste the three functions from "Reusable verification helpers" above.
 
-- [ ] **Step 2: Capture disk and kubelet config for all seven nodes**
+- [x] **Step 2: Capture disk and kubelet config for all seven nodes**
 
 `[PowerShell]`
 ```powershell
@@ -180,7 +207,7 @@ $nodes | ForEach-Object { Get-NodeDisk $_ } | Format-Table -AutoSize
 Expected: `GCHigh=85`, `GCLow=80` on **all seven**. If any node already reads `70`/`50`, this
 plan has been partially applied — stop and determine which nodes.
 
-- [ ] **Step 3: Capture Longhorn headroom**
+- [x] **Step 3: Capture Longhorn headroom**
 
 `[PowerShell]`
 ```powershell
@@ -189,7 +216,7 @@ Get-LHHeadroom | Sort-Object HeadroomGiB | Format-Table -AutoSize
 ```
 Expected on 2026-08-30: `mql` 3.8, `uup` 3.9, `0ag` 51.6, `z9a` 67.3, total **126.6 GiB**.
 
-- [ ] **Step 4: Capture the GC canary**
+- [x] **Step 4: Capture the GC canary**
 
 `[PowerShell]`
 ```powershell
@@ -199,7 +226,7 @@ Expected on 2026-08-30: `mql` 3.8, `uup` 3.9, `0ag` 51.6, `z9a` 67.3, total **12
 Expected: nine tags — `v2.10.3`, `v2.11.2`, `v2.12.1`, `v2.12.2`, `v2.13.1`, `v2.14.0`,
 `v2.14.2`, `v2.14.3`, `v2.15.0`. **`v2.15.0` is the one in use on that node and must survive.**
 
-- [ ] **Step 5: Capture sysctl and volume health**
+- [x] **Step 5: Capture sysctl and volume health**
 
 `[PowerShell]`
 ```powershell
@@ -225,7 +252,7 @@ Expected: `MaxMapCount = 65530` on all seven. Volumes: 34 `healthy`, 3 `unknown`
 - Consumes: Task 1 Step 3's confirmation that neither key is already set.
 - Produces: `talos/image-gc-and-sysctl.patch.yaml`, the exact path Tasks 4–8 apply.
 
-- [ ] **Step 1: Create the patch file**
+- [x] **Step 1: Create the patch file**
 
 Create `talos/image-gc-and-sysctl.patch.yaml`:
 
@@ -264,7 +291,7 @@ machine:
       imageGCLowThresholdPercent: 50
 ```
 
-- [ ] **Step 2: Protect talosconfig from ever being committed**
+- [x] **Step 2: Protect talosconfig from ever being committed**
 
 Append to `.gitignore`:
 
@@ -273,19 +300,19 @@ Append to `.gitignore`:
 **/talosconfig
 ```
 
-- [ ] **Step 3: Write `talos/README.md`**
+- [x] **Step 3: Write `talos/README.md`**
 
 It must state: what the patch does; that it is applied per-node with `--mode=no-reboot`;
 that **neither change needs a reboot**; the rollback command and the fact that rollback restores
 the policy but not deleted images; and — critically — whatever Task 1 Step 4 established about
 whether a later full `apply-config` would revert this patch.
 
-- [ ] **Step 4: Add a `talos/` line to CLAUDE.md**
+- [x] **Step 4: Add a `talos/` line to CLAUDE.md**
 
 Under the workload list, noting that `talos/` is **not** a workload directory — it holds
 machine-config patches applied with `talosctl` from WSL, not `kubectl`.
 
-- [ ] **Step 5: Validate the YAML parses**
+- [x] **Step 5: Validate the YAML parses**
 
 `[PowerShell]`
 ```powershell
@@ -296,7 +323,7 @@ a Talos patch, not a Kubernetes object. What you are checking is that the failur
 missing `kind`, **not** a YAML syntax error. A syntax error reports a parse failure with a line
 number instead.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add talos/ .gitignore CLAUDE.md
@@ -323,7 +350,7 @@ collection work" — two questions that are very hard to untangle after the fact
 - Consumes: `talos/image-gc-and-sysctl.patch.yaml` from Task 3.
 - Produces: confidence that the patch syntax is accepted by Talos and that kubelet picks it up.
 
-- [ ] **Step 1: Record this node's pre-state**
+- [x] **Step 1: Record this node's pre-state**
 
 `[PowerShell]`
 ```powershell
@@ -331,7 +358,7 @@ Get-NodeDisk 'talos-c2v-wpu'; Get-MaxMapCount 'talos-c2v-wpu'
 ```
 Expected: `Pct≈21`, `ImgGiB≈7.0`, `GCHigh=85`, `GCLow=80`, `MaxMapCount=65530`.
 
-- [ ] **Step 2: Dry-run the patch, if Task 1 Step 2 found the flag**
+- [x] **Step 2: Dry-run the patch, if Task 1 Step 2 found the flag**
 
 `[WSL]`
 ```bash
@@ -341,7 +368,7 @@ talosctl -n 192.168.130.234 patch machineconfig \
 ```
 Skip if `--dry-run` is not offered.
 
-- [ ] **Step 3: Apply**
+- [x] **Step 3: Apply**
 
 `[WSL]`
 ```bash
@@ -352,7 +379,7 @@ Expected: success with no reboot. **If it errors saying a reboot is required, st
 something in the patch is not immediate-mode applicable, and the premise of this plan is wrong —
 do not re-run with a different `--mode` to force it through.
 
-- [ ] **Step 4: Verify the patch reached kubelet**
+- [x] **Step 4: Verify the patch reached kubelet**
 
 `[PowerShell]`
 ```powershell
@@ -362,7 +389,7 @@ Expected: `GCHigh=70`, `GCLow=50`. This is read from the **running kubelet's** `
 proves the config took effect rather than merely that the command exited 0. Kubelet needs a few
 seconds to restart; if it still reads 85/80, re-run once before treating it as a failure.
 
-- [ ] **Step 5: Verify the sysctl applied with no reboot**
+- [x] **Step 5: Verify the sysctl applied with no reboot**
 
 `[PowerShell]`
 ```powershell
@@ -370,7 +397,7 @@ Get-MaxMapCount 'talos-c2v-wpu'
 ```
 Expected: `262144`. Negative case: `65530` recorded in Step 1.
 
-- [ ] **Step 6: Verify GC did *not* fire**
+- [x] **Step 6: Verify GC did *not* fire**
 
 `[PowerShell]`
 ```powershell
@@ -394,7 +421,7 @@ complete.
 - Consumes: Task 4's confirmation that the patch applies cleanly.
 - Produces: all three control-plane nodes on the new policy.
 
-- [ ] **Step 1: Apply to `talos-kwn-eng`**
+- [x] **Step 1: Apply to `talos-kwn-eng`**
 
 `[WSL]`
 ```bash
@@ -402,7 +429,7 @@ talosctl -n 192.168.130.219 patch machineconfig \
   --patch @talos/image-gc-and-sysctl.patch.yaml --mode=no-reboot
 ```
 
-- [ ] **Step 2: Verify it**
+- [x] **Step 2: Verify it**
 
 `[PowerShell]`
 ```powershell
@@ -410,7 +437,7 @@ Get-NodeDisk 'talos-kwn-eng'; Get-MaxMapCount 'talos-kwn-eng'
 ```
 Expected: `GCHigh=70`, `GCLow=50`, `MaxMapCount=262144`, `ImgGiB` still ≈6.4.
 
-- [ ] **Step 3: Apply to `talos-pha-6st`**
+- [x] **Step 3: Apply to `talos-pha-6st`**
 
 `[WSL]`
 ```bash
@@ -418,7 +445,7 @@ talosctl -n 192.168.130.242 patch machineconfig \
   --patch @talos/image-gc-and-sysctl.patch.yaml --mode=no-reboot
 ```
 
-- [ ] **Step 4: Verify it**
+- [x] **Step 4: Verify it**
 
 `[PowerShell]`
 ```powershell
@@ -426,7 +453,7 @@ Get-NodeDisk 'talos-pha-6st'; Get-MaxMapCount 'talos-pha-6st'
 ```
 Expected: `GCHigh=70`, `GCLow=50`, `MaxMapCount=262144`, `ImgGiB` still ≈6.2.
 
-- [ ] **Step 5: Confirm the control plane is healthy**
+- [x] **Step 5: Confirm the control plane is healthy**
 
 `[PowerShell]`
 ```powershell
@@ -451,7 +478,7 @@ can be checked cheaply.
 - Produces: the measured reclamation figure, which Task 9 records and which validates or
   invalidates the spec's ~96 GiB projection.
 
-- [ ] **Step 1: Re-record the pre-state immediately before applying**
+- [x] **Step 1: Re-record the pre-state immediately before applying**
 
 `[PowerShell]`
 ```powershell
@@ -460,7 +487,7 @@ Get-LHHeadroom | Where-Object Node -eq 'talos-mql-msp'
 ```
 Expected: ≈`295.2` used, `74 %`, `164.7` images, headroom ≈`3.8` GiB.
 
-- [ ] **Step 2: Apply**
+- [x] **Step 2: Apply**
 
 `[WSL]`
 ```bash
@@ -468,7 +495,7 @@ talosctl -n 192.168.130.210 patch machineconfig \
   --patch @talos/image-gc-and-sysctl.patch.yaml --mode=no-reboot
 ```
 
-- [ ] **Step 3: Confirm the config landed before waiting on GC**
+- [x] **Step 3: Confirm the config landed before waiting on GC**
 
 `[PowerShell]`
 ```powershell
@@ -477,7 +504,7 @@ Get-NodeDisk 'talos-mql-msp'; Get-MaxMapCount 'talos-mql-msp'
 Expected: `GCHigh=70`, `GCLow=50`, `MaxMapCount=262144`. `ImgGiB` will still be ≈164.7 at this
 instant — collection has not run yet.
 
-- [ ] **Step 4: Wait for kubelet housekeeping, then measure**
+- [x] **Step 4: Wait for kubelet housekeeping, then measure**
 
 Kubelet evaluates image GC on its housekeeping interval, so allow several minutes. Re-run until
 `ImgGiB` stops falling across two consecutive checks:
@@ -488,7 +515,7 @@ Get-NodeDisk 'talos-mql-msp'
 ```
 Expected once settled: `UsedGiB` ≈199, `Pct` ≈50, `ImgGiB` ≈69.
 
-- [ ] **Step 5: Verify GC deleted the right things**
+- [x] **Step 5: Verify GC deleted the right things**
 
 `[PowerShell]`
 ```powershell
@@ -499,7 +526,7 @@ Expected: **`v2.15.0` present** (it is in use by the Rancher pod on this node) a
 other eight gone. This check catches both failure modes at once — a GC that deleted nothing, and
 a GC that deleted an in-use image.
 
-- [ ] **Step 6: Verify the space reached Longhorn**
+- [x] **Step 6: Verify the space reached Longhorn**
 
 `[PowerShell]`
 ```powershell
@@ -508,7 +535,7 @@ Get-LHHeadroom | Sort-Object HeadroomGiB | Format-Table -AutoSize
 Expected: `talos-mql-msp` headroom risen from ≈3.8 GiB to ≈99.6 GiB. **This is the number the
 whole plan exists to produce.**
 
-- [ ] **Step 7: Confirm nothing broke**
+- [x] **Step 7: Confirm nothing broke**
 
 `[PowerShell]`
 ```powershell
@@ -520,7 +547,7 @@ kubectl get volumes.longhorn.io -n longhorn-system -o json | ConvertFrom-Json |
 Expected: no `ImagePullBackOff`; volume robustness counts unchanged from Task 2 Step 5
 (34 `healthy`, 3 `unknown`).
 
-- [ ] **Step 8: STOP and evaluate against the projection**
+- [x] **Step 8: STOP and evaluate against the projection**
 
 Compare measured reclamation against the spec's ~96 GiB projection.
 
@@ -541,7 +568,7 @@ Compare measured reclamation against the spec's ~96 GiB projection.
 - Consumes: Task 6's confirmation that the measured reclamation matched the projection.
 - Produces: the second collecting worker on the new policy.
 
-- [ ] **Step 1: Record pre-state**
+- [x] **Step 1: Record pre-state**
 
 `[PowerShell]`
 ```powershell
@@ -550,7 +577,7 @@ Get-LHHeadroom | Where-Object Node -eq 'talos-uup-vn3'
 ```
 Expected: ≈`295.1` used, `74 %`, `151.8` images, headroom ≈`3.9` GiB.
 
-- [ ] **Step 2: Apply**
+- [x] **Step 2: Apply**
 
 `[WSL]`
 ```bash
@@ -558,7 +585,7 @@ talosctl -n 192.168.130.211 patch machineconfig \
   --patch @talos/image-gc-and-sysctl.patch.yaml --mode=no-reboot
 ```
 
-- [ ] **Step 3: Verify config, sysctl, and settled reclamation**
+- [x] **Step 3: Verify config, sysctl, and settled reclamation**
 
 `[PowerShell]`
 ```powershell
@@ -568,7 +595,7 @@ Get-LHHeadroom | Where-Object Node -eq 'talos-uup-vn3'
 Expected once settled: `GCHigh=70`, `GCLow=50`, `MaxMapCount=262144`, `UsedGiB` ≈199,
 headroom ≈99.6 GiB.
 
-- [ ] **Step 4: Confirm nothing broke**
+- [x] **Step 4: Confirm nothing broke**
 
 `[PowerShell]`
 ```powershell
@@ -588,7 +615,7 @@ they do cross it, and so `vm.max_map_count` is uniform across every node ICARUS 
 - Consumes: Task 7 complete.
 - Produces: all seven nodes on the new policy; `vm.max_map_count` uniform cluster-wide.
 
-- [ ] **Step 1: Apply to `talos-0ag-qr8`**
+- [x] **Step 1: Apply to `talos-0ag-qr8`**
 
 `[WSL]`
 ```bash
@@ -605,7 +632,7 @@ Get-NodeDisk 'talos-0ag-qr8'; Get-MaxMapCount 'talos-0ag-qr8'
 Expected: `GCHigh=70`, `GCLow=50`, `MaxMapCount=262144`, and `ImgGiB` still ≈178.4 — this node
 is at 62 %, below the threshold, so its cache must be untouched.
 
-- [ ] **Step 3: Apply to `talos-z9a-dpj`**
+- [x] **Step 3: Apply to `talos-z9a-dpj`**
 
 `[WSL]`
 ```bash
@@ -647,7 +674,7 @@ Get-LHHeadroom | Sort-Object HeadroomGiB | Format-Table -AutoSize
 Expected: `GCHigh=70`/`GCLow=50` and `MaxMapCount=262144` on **all seven**; total headroom risen
 from 126.6 GiB toward ~318 GiB.
 
-- [ ] **Step 2: Evaluate the ICARUS capacity gate**
+- [x] **Step 2: Evaluate the ICARUS capacity gate**
 
 The gate in the ICARUS spec §4.2 is: **at least two workers with ≥60 GiB of Longhorn headroom.**
 Record pass/fail explicitly. If it passes, the ICARUS deployment is unblocked; if it does not, say
@@ -665,7 +692,7 @@ Re-check after the next natural workload restart, not just immediately — a col
 fails when something actually needs to pull it. Pay particular attention to `finance-api` and
 `finance-frontend`, whose registry `gitea.arnoldtech.io` is **in-cluster** (spec §10).
 
-- [ ] **Step 4: Record the actual outcome in the spec**
+- [x] **Step 4: Record the actual outcome in the spec**
 
 Append a **Results** section to
 `docs/superpowers/specs/2026-08-30-longhorn-capacity-reclamation-design.md` with the measured
@@ -673,7 +700,7 @@ per-node before/after and the total headroom achieved. Your CLAUDE.md asks for c
 appended rather than history rewritten — if the measured figures differ from §2.4's projection,
 record both and say which was wrong. Do not edit §2.4's numbers to match reality after the fact.
 
-- [ ] **Step 5: Update the ICARUS spec's gate status**
+- [x] **Step 5: Update the ICARUS spec's gate status**
 
 In `2026-08-30-icarus-server-deployment-design.md` §4.2, record whether the gate passed and with
 what headroom, so the ICARUS implementation does not have to re-derive it.
