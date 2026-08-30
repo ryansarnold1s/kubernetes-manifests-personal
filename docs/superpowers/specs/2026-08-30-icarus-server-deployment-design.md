@@ -443,3 +443,104 @@ Built around negative cases: a check only ever observed passing has not been ver
 3. Measure real memory use under 2–6 players and revisit the `16Gi` limit.
 4. Confirm the first-boot duration against the `failureThreshold: 400` startup budget; if a cold
    install lands nowhere near 100 minutes, the threshold is larger than it needs to be.
+
+---
+
+## 14. Results (deployed 2026-08-30)
+
+All nine manifests applied. Pod `1/1 Running` on `talos-mql-msp`, service live on
+`192.168.130.156`. Nothing else on the cluster regressed: 7/7 nodes `Ready`, volume robustness
+34 → **36 healthy** (the two new icarus volumes) with the 3 `unknown` parked `enshrouded` volumes
+unchanged, and zero `ImagePullBackOff` anywhere.
+
+### 14.1 Measured
+
+| Thing | Design estimate | **Measured** |
+|---|---|---|
+| First boot to ready | ~100 min budget | **4.1 minutes** |
+| SteamCMD download | — | 9.7 GiB (`10426327064` bytes) |
+| Install size on `/opt/icarus` | ~20 GB, 2× transient | **9.9 GB** |
+| Container image | — | 1.0 GB, pulled in 24 s |
+| Steam buildid | — | `24941100`, matches `api.steamcmd.net` for app `2089300` |
+| `vm.max_map_count` in-pod | must be `262144` | `262144` |
+| Idle memory | `8Gi` request / `16Gi` limit | **1265 MiB**, CPU 40m |
+| Snapshot | — | `readyToUse: true`, 239 MB (restore size 10 Gi) |
+
+### 14.2 §12 verification table — outcomes
+
+| Claim | Result |
+|---|---|
+| `vm.max_map_count` applied | **PASS** — `262144` read inside the pod, not just on the node |
+| Capacity gate met | **PASS** — three workers ≥60 GiB (see §4.2) |
+| Probe can fail | **PASS** — see §14.3 |
+| ConfigMap reached the `.ini` | **PASS** — `MaxPlayers=6`, and confirmed live via A2S |
+| No cron was installed | **PASS** — both crontabs empty; `/etc/cron.d` holds only the distro's `e2scrub_all` |
+| Update ran at boot | **PASS** — `current_version` = upstream buildid |
+| Snapshots are happening | **PASS** — on-demand Snapshot CR reached `readyToUse` |
+| Players can connect | **PENDING** — requires a real client from the LAN |
+
+### 14.3 The probe discriminates — verified against a stopped server
+
+The `supervisorctl status icarus-server \| grep -q RUNNING` form was kept; the `pgrep` fallback
+was not needed. Observed in both directions rather than only passing:
+
+- Probe command exit code: **`0` while RUNNING, `1` while STOPPED.**
+- After `supervisorctl stop icarus-server`, readiness flipped `1/1` → **`0/1` in 92 seconds** —
+  exactly 3 × `periodSeconds: 30`.
+- After `supervisorctl start`, it recovered to `1/1` within ~30 s.
+
+Note `supervisorctl status` with **no argument** exits `3` whenever any program is stopped. That
+does not affect the probe: the pipeline's exit code comes from `grep`, not `supervisorctl`.
+
+### 14.4 Corrections to this spec
+
+**§2.1 — the install is half the stated size.** "~20 GB, up to 2x transiently" measured at
+**9.9 GB** installed from a 9.7 GiB download. The 50 Gi PVC is therefore roughly 2.5× larger than
+the worst case rather than the ~1.25× intended. Not changed — `allowVolumeExpansion: true` makes
+growing easy and shrinking impossible, so the oversize is the safe direction — but a future
+rebuild could reasonably use 30 Gi.
+
+**§10.1 — the startup budget is far larger than needed.** `failureThreshold: 400` ≈ 100 minutes
+was sized for a ~20 GB pull plus a full revalidate; the real first boot took **4.1 minutes**.
+Left as-is on a single sample, but the cost is real and should be recorded: a genuinely broken
+first boot now takes ~100 minutes to surface as a crash-loop instead of failing fast.
+
+**§9.1 — env var names do not match `.ini` key names.** `SERVER_NAME` lands in **`SessionName`**,
+not `ServerName`; `SERVER_SHUTDOWN_IF_NOT_JOINED` in `ShutdownIfNotJoinedFor`;
+`SERVER_ALLOW_NON_ADMINS_LAUNCH` in `AllowNonAdminsToLaunchProspects`. Grepping the `.ini` for the
+env var name finds nothing and reads as a missing setting. Full mapping is in `icarus/README.md`.
+
+**New: applying `deployment.yaml` emits a PodSecurity `restricted` warning.** It is warn-level
+only — the namespace enforces the cluster default `baseline`, which the pod satisfies, and it was
+admitted. Recorded so nobody "fixes" it by adding `runAsNonRoot` or widening the namespace.
+
+**New: `python-a2s` installs into the *user* site-packages.** It lands in
+`/home/icarus/.local/lib/python3.12/site-packages`, so a plain `kubectl exec` (root) fails with
+`ModuleNotFoundError: No module named 'a2s'` — which looks exactly like the §2.3-item-2 PyPI-egress
+risk having fired, when the package is present and working. Use `su icarus`. The underlying spec
+point stands: `.local` is on the container layer, not a PVC, so it is re-fetched from PyPI at
+every pod start.
+
+**New: do not use a log grep to check whether anyone is playing.**
+`Select-String 'Join|Login|Player'` matches engine start-up noise
+(`D_PlayerTalentModifiers`, `OnResUserTicket : No player found`) on a completely idle server. The
+live A2S query is definitive and does not go stale:
+
+```powershell
+kubectl exec -n icarus deploy/icarus -- su icarus -c `
+  'python3 -c "import a2s; i=a2s.info((\"127.0.0.1\",27015)); print(i.player_count)"'
+```
+
+It returned `Arnold Icarus Server` and `0 / 6`, which also confirms `SERVER_NAME` and
+`SERVER_MAX_PLAYERS` are live **in the running process**, not merely written to disk — a stronger
+check than reading the `.ini`.
+
+### 14.5 §13 open items
+
+1. ~~Complete the reclamation work and confirm the §4.2 capacity gate.~~ **Done** — gate passed.
+2. ~~Verify empirically which readiness command discriminates.~~ **Done** — §14.3.
+3. **Memory under load: still open.** Idle is 1265 MiB against an `8Gi` request and `16Gi` limit.
+   Idle says nothing useful about the limit; re-measure with 2–6 players connected before
+   changing either number.
+4. ~~Confirm first-boot duration against the `failureThreshold: 400` budget.~~ **Done** — 4.1 min
+   against ~100 min. See the §14.4 correction; budget deliberately not trimmed on one sample.
