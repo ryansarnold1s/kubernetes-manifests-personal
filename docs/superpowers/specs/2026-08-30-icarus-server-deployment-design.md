@@ -146,12 +146,21 @@ unpinned Service could otherwise take it, so the address is pinned explicitly.
 
 ## 4. Prerequisites (outside this repository)
 
-Neither is a manifest. Both are Talos machine-config work, and both require a rolling node
-reboot, so they are applied in a single pass. **Icarus is not deployed until both are done.**
+Neither is a manifest. Both are Talos machine-config work, and **neither requires a node reboot** —
+`machine.sysctls` applies in immediate mode and a kubelet config change only restarts kubelet.
+**Icarus is not deployed until both are done.**
 
-This section states the requirement and the reasoning. The work itself gets its own design spec
-and plan — it is cluster infrastructure, not part of a game-server deployment, and it touches
-every workload on the cluster rather than only this one.
+The work itself is specified in `2026-08-30-longhorn-capacity-reclamation-design.md` — it is
+cluster infrastructure, not part of a game-server deployment, and it touches every workload on the
+cluster rather than only this one. Both changes ship in a single machine-config patch.
+
+> **Correction, 2026-08-30.** This section originally called for expanding every worker's
+> EPHEMERAL partition by 250 GiB and said both prerequisites needed a rolling reboot. Both claims
+> were wrong. Investigation found that 51–72 % of each worker's used disk is stale container
+> images — 652.6 GiB cluster-wide — because kubelet's default 85 % GC threshold has never been
+> reached, so it has never collected anything. Reclaiming that yields more headroom than the
+> expansion would have, at no datastore cost and with no reboot. The expansion is deferred behind
+> an explicit trigger; see §8 of the reclamation spec.
 
 ### 4.1 `vm.max_map_count = 262144`
 
@@ -164,36 +173,20 @@ Rejected alternative: a privileged init container running `sysctl -w`. It would 
 `icarus` namespace to enforce PSA `privileged`, and the setting would be lost on every node
 reboot. The Valheim design already declined widening a namespace this way.
 
-### 4.2 Expand the EPHEMERAL partition by ~250 GiB per storage worker
+### 4.2 Longhorn schedulable capacity
 
-Growing the existing disk was chosen over adding a second one. The capacity outcome is identical
-— growing by 250 GiB gives `103.4 + 250 − (25 % × 648.6) = 191.3` GiB of headroom; a separate
-250 GiB disk gives `187.5 + 3.8` = the same 191.3 GiB — but expansion needs no Talos user-volume
-document, no Longhorn disk registration and no replica migration.
+`icarus-server` is 50 Gi. At design time only `talos-z9a-dpj` could accept it, landing with
+~7.3 GiB of margin on the same partition as the containerd image cache (§3.1). That is not an
+acceptable place to put a workload.
 
-Talos's EPHEMERAL volume defaults to `minSize: 2GiB, grow: true` with no `maxSize`, and is always
-the last partition, so it fills space that appears after it. Expand the VMDK, reboot, Talos
-resizes partition and filesystem.
+The fix is kubelet image garbage collection, not more disk: `imageGCHighThresholdPercent`
+`85` → `70` and `imageGCLowThresholdPercent` `80` → `50`, which is projected to lift total
+schedulable headroom from 126.6 GiB to ~318 GiB and make **all four** workers able to accept the
+install volume. Full analysis, apply procedure, verification and rollback are in
+`2026-08-30-longhorn-capacity-reclamation-design.md`.
 
-Cost: 4 storage workers x 250 GiB = 1 TB of the 1.5 TB free on the ESXi datastore, leaving ~500 GB
-of datastore margin. Thick provisioning is assumed; thin-provisioning the growth would overcommit
-a datastore that Longhorn will then steadily fill.
-
-**Accepted trade-off:** this does not separate Longhorn from the containerd image cache, so that
-coupling — the structural cause of the DiskPressure incident this cluster has already seen —
-remains. It is accepted because the incident's precondition was a tight partition, and 191 GiB of
-headroom removes it. The safety ordering also favours the shared partition: Longhorn stops
-scheduling at 25 % free (~162 GiB) while kubelet's DiskPressure eviction fires at 15 % (~97 GiB),
-so Longhorn backs off before kubelet evicts.
-
-**Must be confirmed before expanding:**
-
-1. `talosctl` is **not installed** on the operator workstation. It is required for both changes.
-2. `talosctl get volumeconfig EPHEMERAL` must show no explicit `maxSize`. Talos applies volume
-   configuration only when a volume has not yet been provisioned, so a `maxSize` set at install
-   time caps growth and cannot be changed retroactively without wiping the volume.
-3. ESXi will not expand a VMDK that has snapshots.
-4. Reboot one node at a time, with Longhorn volumes healthy in between.
+**Gate for this deployment:** at least two workers with ≥60 GiB of Longhorn headroom after
+collection has settled, so the install volume has somewhere to go if a node is lost.
 
 ---
 
@@ -401,7 +394,7 @@ Built around negative cases: a check only ever observed passing has not been ver
 | Claim | Proof | Negative case |
 |---|---|---|
 | `vm.max_map_count` applied | `cat /proc/sys/vm/max_map_count` in-pod = `262144` | Already banked — `65530` was observed on 2026-08-30 |
-| EPHEMERAL actually grew | Longhorn `storageMaximum` rises from 398.63 GiB on every worker | Pre-expansion value recorded in §3.1 |
+| Capacity gate met | Longhorn `storageAvailable` on ≥2 workers leaves ≥60 GiB above the 99.66 GiB floor | Pre-reclamation values recorded in §3.1 |
 | Probe can fail | `supervisorctl stop icarus-server`, confirm readiness flips to not-ready | The entire point; an always-passing probe has shipped in this repo before |
 | ConfigMap reached the `.ini` | Read `ServerSettings.ini` off the PVC and compare every pinned key | **`MaxPlayers=6` is the sentinel.** Every other pinned value equals the first-boot heredoc default and would read back correct even if `sed` never ran |
 | No cron was installed | `crontab -l -u icarus` in-pod is empty | — |
@@ -418,14 +411,13 @@ Built around negative cases: a check only ever observed passing has not been ver
 | Upstream image is low-activity; Wine-based, Proton migration open since 2025-02 | Pinned by digest; the game files themselves come from Steam at runtime, so image staleness does not block game patches |
 | `pip3 install python-a2s` at every pod boot is a PyPI egress dependency | Non-fatal — failure only degrades the empty-check, which is unused with `UPDATE_CRON` off |
 | Single-replica install volume: losing that node means a ~20 GB redownload | Accepted; the volume is disposable by construction |
-| Longhorn still shares the EPHEMERAL partition with the containerd image cache | Accepted, see §4.2. Headroom, not isolation, is the mitigation |
+| Longhorn still shares the EPHEMERAL partition with the containerd image cache | Accepted. Bounding the cache, not isolating it, is the mitigation — see §9 of the reclamation spec for why a dedicated disk was declined |
 | Wine process naming may defeat a `pgrep` probe | `supervisorctl` chosen instead; either is tested against a stopped server before use |
 
 **Open items to resolve during implementation:**
 
-1. Install `talosctl` on the operator workstation.
-2. Confirm EPHEMERAL has no explicit `maxSize` before expanding.
-3. Confirm the exact Talos v1.13.4 `machine.sysctls` schema against the docs rather than
-   recollection.
-4. Verify empirically, in the running container, which readiness command discriminates.
-5. Measure real memory use under 2–6 players and revisit the `16Gi` limit.
+1. Complete the reclamation work first and confirm the §4.2 capacity gate is met.
+2. Verify empirically, in the running container, which readiness command discriminates.
+3. Measure real memory use under 2–6 players and revisit the `16Gi` limit.
+4. Confirm the first-boot duration against the `failureThreshold: 400` startup budget; if a cold
+   install lands nowhere near 100 minutes, the threshold is larger than it needs to be.
