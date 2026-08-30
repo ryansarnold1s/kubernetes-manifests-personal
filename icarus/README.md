@@ -176,6 +176,48 @@ nothing and reads as a missing setting when it is actually present. The full map
 | `SERVER_ADMIN_PASSWORD` | `AdminPassword` |
 | `ASYNC_TASK_TIMEOUT` | `Engine.ini` → `[OnlineSubsystemSteam] AsyncTaskTimeout` |
 
+### ⚠️ The two shutdown timers — do not set them to 0
+
+`SERVER_SHUTDOWN_IF_NOT_JOINED` and `SERVER_SHUTDOWN_IF_EMPTY` are **shutdown** timers for a
+running prospect. At the image's first-boot defaults (`300` / `60`) the server stops its prospect
+60 seconds after the last player logs off. Both are pinned to `86400` (24 h) here, which is
+effectively "never" for this group.
+
+**Setting them to `0` does not disable them — it means shut down immediately.** A server
+configured that way stops the instant a prospect starts. Use a large number.
+
+These only apply while a prospect is running, so a server with no prospect looks perfectly healthy
+indefinitely. That is why the original 60 s value survived the entire first-deploy verification
+pass unnoticed: no prospect existed yet.
+
+The value is read **when a prospect starts**, not continuously, so a change needs
+`kubectl rollout restart deploy/icarus -n icarus` before it takes effect.
+
+### Is a prospect actually loaded?
+
+**Do not use the A2S `Map` field** — ICARUS leaves it empty whether or not a prospect is running,
+so it looks identical in both states. The reliable checks:
+
+```powershell
+kubectl exec -n icarus deploy/icarus -- sh -c `
+  'grep LastProspectName /home/icarus/drive_c/icarus/Saved/Config/WindowsServer/ServerSettings.ini'
+kubectl exec -n icarus deploy/icarus -- sh -c `
+  'ls -la /home/icarus/drive_c/icarus/Saved/PlayerData/DedicatedServer/Prospects/'
+```
+
+A server with **no** prospect will accept connections but clients bounce, so an empty
+`LastProspectName` is the first thing to check when players cannot get in. The image has **no**
+env var for `CreateProspect` or `LoadProspect` — `icarus-bootstrap` line 154 unconditionally
+*clears* `LoadProspect` on every boot — so prospects are created from a connected client, or by
+editing `ServerSettings.ini` on the PVC directly.
+
+Confirm the saves are on the data PVC and not the container layer:
+
+```powershell
+kubectl exec -n icarus deploy/icarus -- df -h /home/icarus/drive_c/icarus
+```
+Verified 2026-08-30: `/dev/longhorn/pvc-aea546c0-…`, i.e. the 2-replica snapshotted volume.
+
 ### Passwords
 
 ⚠️ **Both passwords are stored in plaintext** in `ServerSettings.ini` on the `icarus-data` PVC.

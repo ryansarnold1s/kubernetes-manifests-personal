@@ -544,3 +544,40 @@ check than reading the `.ini`.
    changing either number.
 4. ~~Confirm first-boot duration against the `failureThreshold: 400` budget.~~ **Done** — 4.1 min
    against ~100 min. See the §14.4 correction; budget deliberately not trimmed on one sample.
+
+### 14.6 Correction: the two shutdown timers were wrong, and §9.1 described them wrongly
+
+§9.1 documents `SERVER_SHUTDOWN_IF_NOT_JOINED` as *"Seconds before a started prospect returns to
+lobby"* and `SERVER_SHUTDOWN_IF_EMPTY` as *"Seconds after the last player leaves"*. The second is
+incomplete and the first is wrong: **both are shutdown timers for a running prospect.** At the
+pinned first-boot defaults the server stops its prospect **60 seconds after the last player logs
+off**, and 5 minutes after a prospect starts if nobody joins.
+
+That directly contradicts §5's "Runtime | Always on, `replicas: 1` | Friends join without
+coordination" decision. The two settings were pinned verbatim from the image's heredoc without
+recognising what they do.
+
+**Why it was not caught during deployment verification:** the timers only apply to a *running
+prospect*, and no prospect existed until the operator created one on 2026-08-30. The server ran
+47 minutes untouched before that, so every check in §12 and §14 passed against a server that was
+never at risk of the behaviour. A verification window that never entered the state under test
+proves nothing about it — the same class of gap as an always-passing probe.
+
+Both raised to `86400` (24 h). **Not `0`:** zero does not disable these, it means shut down
+immediately, so a server configured that way stops the instant a prospect starts. Some operators
+report `-1` as a true disable; it is not in documentation worth trusting, so a large value is the
+safe form.
+
+The value is read **when a prospect starts**, not continuously, so a change needs a rollout
+restart. Editing `ServerSettings.ini` on the PVC alone does not affect the running prospect and is
+overwritten from the ConfigMap at the next boot anyway.
+
+**Also corrected: the A2S `Map` field is not a prospect indicator for ICARUS.** It reads empty
+both with and without a prospect loaded, so it cannot be used to tell whether one is running. The
+reliable signals are `LastProspectName` in `ServerSettings.ini` and the presence of
+`Saved/PlayerData/DedicatedServer/Prospects/<name>.json` on the data PVC.
+
+**Confirmed good:** the prospect save lands on the `icarus-data` PVC
+(`/dev/longhorn/pvc-aea546c0-…` mounted at `/home/icarus/drive_c/icarus`), so it is on the
+2-replica volume, inside the daily snapshot group, and covered by CloudCasa — verified with `df`
+rather than assumed from the mount path.
