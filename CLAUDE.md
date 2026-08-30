@@ -12,6 +12,9 @@ detail and inline warnings — read it before changing anything in that director
   namespace; read the README before applying
 - `docs/superpowers/{specs,plans}` — design specs and implementation plans. When a shipped decision turns
   out wrong, append a correction rather than rewriting history; several already carry them
+- `talos/` — **not** a workload directory. It holds Talos machine-config patches applied with
+  `talosctl` (WSL-only on this workstation, not on the Windows PATH), never `kubectl`. Read
+  `talos/README.md` before applying anything in it
 
 ## Deploying
 

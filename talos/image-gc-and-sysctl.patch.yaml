@@ -1,0 +1,32 @@
+# Talos machine-config patch. Applied per-node with:
+#   talosctl -n <ip> patch machineconfig --patch @talos/image-gc-and-sysctl.patch.yaml --mode=no-reboot
+#
+# NEITHER change requires a reboot. machine.sysctls applies in immediate mode
+# (SysctlConfigController -> SysctlSpecController, since Talos 0.12) and a kubelet
+# config change only restarts kubelet, which does not disrupt running containers.
+#
+# See docs/superpowers/specs/2026-08-30-longhorn-capacity-reclamation-design.md
+machine:
+  sysctls:
+    # ICARUS prerequisite. vm.* is NOT a namespaced sysctl, so no pod-level
+    # securityContext.sysctls can set this -- it must be machine config.
+    # Measured at 65530 on 2026-08-30; mornedhels/icarus-server OOMs under Wine
+    # below 262144, reporting "Ran out of memory allocating 0 bytes" on a host
+    # with free memory.
+    vm.max_map_count: "262144"
+  kubelet:
+    extraConfig:
+      # Was 85/80. No worker has ever reached 85%, so kubelet had never collected
+      # a single image and 652.6 GiB of superseded images had accumulated across
+      # the four workers -- nine concurrent rancher/rancher versions on one node,
+      # exactly one of them in use.
+      #
+      # 50% of 398.6 GiB = 199 GiB, which sits ABOVE the ~130 GiB of Longhorn data
+      # on the worst node. That is deliberate: kubelet compares against nodefs, and
+      # Longhorn shares that filesystem, so a low threshold beneath the Longhorn
+      # floor would make kubelet retry every housekeeping cycle and never converge.
+      #
+      # Do NOT add imageMaximumGCAge here without reading spec section 9 first --
+      # it resets on every kubelet restart, so on this cluster it rarely fires.
+      imageGCHighThresholdPercent: 70
+      imageGCLowThresholdPercent: 50

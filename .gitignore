@@ -4,3 +4,6 @@
 # Allow template files
 !**/secret.yaml.template
 !**/secret.example.yaml
+
+# Talos client credentials - contains client certs and keys, never commit
+**/talosconfig
