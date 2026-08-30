@@ -103,7 +103,7 @@ other workloads may have adopted.
 - Produces: namespace `icarus`; StorageClass `longhorn-single-replica` (referenced by
   `icarus-server` in Task 2).
 
-- [ ] **Step 1: Re-verify both §4 prerequisites and the free IP**
+- [x] **Step 1: Re-verify both §4 prerequisites and the free IP**
 
 `[PowerShell]`
 ```powershell
@@ -135,7 +135,7 @@ Expected: `262144` on all seven; at least two workers ≥60 GiB; `192.168.130.15
 the IP list. **If `max_map_count` reads `65530` anywhere, stop** — a full `talosctl apply-config`
 has reverted the patch (see `talos/README.md`) and ICARUS will OOM on that node.
 
-- [ ] **Step 2: Create `icarus/namespace.yaml`**
+- [x] **Step 2: Create `icarus/namespace.yaml`**
 
 ```yaml
 # Deliberately no pod-security.kubernetes.io labels. The cluster default is baseline,
@@ -156,7 +156,7 @@ metadata:
     app: icarus
 ```
 
-- [ ] **Step 3: Create `icarus/storageclass.yaml`**
+- [x] **Step 3: Create `icarus/storageclass.yaml`**
 
 ```yaml
 # ⚠️ CLUSTER-SCOPED. This file does NOT deploy into the icarus namespace.
@@ -195,7 +195,7 @@ parameters:
   backupTargetName: "default"
 ```
 
-- [ ] **Step 4: Validate both against the API server before applying**
+- [x] **Step 4: Validate both against the API server before applying**
 
 `[PowerShell]`
 ```powershell
@@ -206,7 +206,7 @@ kubectl apply -f storageclass.yaml --dry-run=server
 Expected: both report `created (server dry run)`. A schema error surfaces here, not after a
 half-applied change.
 
-- [ ] **Step 5: Apply**
+- [x] **Step 5: Apply**
 
 `[PowerShell]`
 ```powershell
@@ -216,7 +216,7 @@ kubectl apply -f storageclass.yaml
 Expected: `namespace/icarus created`, `storageclass.storage.k8s.io/longhorn-single-replica created`.
 **`unchanged` means the wrong working directory** — check `Get-Location` before anything else.
 
-- [ ] **Step 6: Verify the class is correct AND is not the default**
+- [x] **Step 6: Verify the class is correct AND is not the default**
 
 `[PowerShell]`
 ```powershell
@@ -229,7 +229,7 @@ Expected: `numberOfReplicas` = `1`; the annotations output is empty or lacks
 `longhorn-single-replica` appears as `(default)`, stop and remove the annotation** — every PVC on
 the cluster that omits `storageClassName` would silently become single-replica.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add icarus/namespace.yaml icarus/storageclass.yaml
@@ -252,7 +252,7 @@ and deliberately generically named, so it is called out as such in the file head
 - Produces: PVCs `icarus-data` and `icarus-server`, mounted by the Deployment in Task 4 and
   labelled for snapshots in Task 8.
 
-- [ ] **Step 1: Create `icarus/pvc.yaml`**
+- [x] **Step 1: Create `icarus/pvc.yaml`**
 
 ```yaml
 # /home/icarus/drive_c/icarus -- prospect saves, ServerSettings.ini, Engine.ini.
@@ -305,7 +305,7 @@ spec:
       storage: 50Gi
 ```
 
-- [ ] **Step 2: Validate, then apply**
+- [x] **Step 2: Validate, then apply**
 
 `[PowerShell]`
 ```powershell
@@ -315,7 +315,7 @@ kubectl apply -f pvc.yaml
 ```
 Expected: both PVCs `created`.
 
-- [ ] **Step 3: Verify both bound**
+- [x] **Step 3: Verify both bound**
 
 `[PowerShell]`
 ```powershell
@@ -325,7 +325,7 @@ Expected: `icarus-data` `Bound` 10Gi, `icarus-server` `Bound` 50Gi. `volumeBindi
 `Immediate`, so they bind without waiting for a pod. A `Pending` PVC here means no node had
 enough Longhorn headroom — re-check Task 1 Step 1.
 
-- [ ] **Step 4: Verify the replica counts actually differ**
+- [x] **Step 4: Verify the replica counts actually differ**
 
 This is the negative case for Task 1. The class name proves nothing on its own.
 
@@ -347,7 +347,7 @@ expensive after a 20 GB install lands on it.
 Record the two Longhorn **Volume** names (`pvc-<uuid>`) from this output. Task 8 needs the
 `icarus-data` one.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add icarus/pvc.yaml
@@ -376,7 +376,7 @@ from env-var defaults — so an unpinned key is silently unmanaged rather than d
 - Produces: ConfigMap `icarus-config` (consumed via `envFrom` in Task 4); Secret `icarus-secrets`
   with keys `server-password` and `admin-password` (consumed via `secretKeyRef` in Task 4).
 
-- [ ] **Step 1: Create `icarus/configmap.yaml`**
+- [x] **Step 1: Create `icarus/configmap.yaml`**
 
 ```yaml
 # Every ServerSettings.ini key is pinned here, including ones whose value equals the
@@ -450,7 +450,7 @@ data:
   # STEAMCMD_ARGS -- the default is correct.
 ```
 
-- [ ] **Step 2: Create `icarus/secret.yaml.template`**
+- [x] **Step 2: Create `icarus/secret.yaml.template`**
 
 ```yaml
 # Copy to secret.yaml, set real passwords, then apply.
@@ -480,7 +480,7 @@ stringData:
   admin-password: "CHANGEME-admin-password"
 ```
 
-- [ ] **Step 3: Create the real `icarus/secret.yaml` and confirm git ignores it**
+- [x] **Step 3: Create the real `icarus/secret.yaml` and confirm git ignores it**
 
 `[PowerShell]`
 ```powershell
@@ -498,7 +498,7 @@ Expected: `check-ignore` prints the matching `.gitignore` rule (`**/secret.yaml`
 `git status` does **not** list `secret.yaml`. **If it appears as untracked, stop and fix
 `.gitignore` before committing anything.**
 
-- [ ] **Step 4: Apply both**
+- [x] **Step 4: Apply both**
 
 `[PowerShell]`
 ```powershell
@@ -508,7 +508,7 @@ kubectl apply -f secret.yaml
 ```
 Expected: `configmap/icarus-config created`, `secret/icarus-secrets created`.
 
-- [ ] **Step 5: Verify the ConfigMap contents and the Secret's shape**
+- [x] **Step 5: Verify the ConfigMap contents and the Secret's shape**
 
 `[PowerShell]`
 ```powershell
@@ -524,7 +524,7 @@ the secret's name echoed back.
 this workstation. Verify the Secret functionally in Task 7 by checking that `JoinPassword` is
 non-empty in the `.ini` — do not try to list its keys.
 
-- [ ] **Step 6: Commit — template only**
+- [x] **Step 6: Commit — template only**
 
 ```bash
 git add icarus/configmap.yaml icarus/secret.yaml.template
@@ -557,7 +557,7 @@ re-validate of all 20 GB.
 - Produces: Deployment `icarus` with pod label `app: icarus`, which `service.yaml` selects in
   Task 6.
 
-- [ ] **Step 1: Create `icarus/deployment.yaml`**
+- [x] **Step 1: Create `icarus/deployment.yaml`**
 
 ```yaml
 apiVersion: apps/v1
@@ -669,7 +669,7 @@ spec:
           claimName: icarus-server
 ```
 
-- [ ] **Step 2: Validate before applying**
+- [x] **Step 2: Validate before applying**
 
 `[PowerShell]`
 ```powershell
@@ -678,7 +678,7 @@ kubectl apply -f deployment.yaml --dry-run=server
 ```
 Expected: `deployment.apps/icarus created (server dry run)`.
 
-- [ ] **Step 3: Apply**
+- [x] **Step 3: Apply**
 
 `[PowerShell]`
 ```powershell
@@ -689,7 +689,7 @@ Expected: `deployment.apps/icarus created`.
 **Do not add `kubectl rollout restart` after this.** A Deployment apply rolls on its own; adding a
 restart starts a second Recreate cycle that races the first.
 
-- [ ] **Step 4: Confirm it scheduled onto a node with headroom**
+- [x] **Step 4: Confirm it scheduled onto a node with headroom**
 
 `[PowerShell]`
 ```powershell
@@ -702,7 +702,7 @@ control-plane node — that is expected and self-correcting**, but `Pending` wit
 `FailedScheduling ... volume node affinity conflict` is not: it means the install PVC bound to a
 node that cannot also satisfy the 8Gi request.
 
-- [ ] **Step 5: Watch the first boot to completion**
+- [x] **Step 5: Watch the first boot to completion**
 
 This takes up to ~100 minutes and is dominated by the double 20 GB SteamCMD pass. Run it in the
 background rather than blocking:
@@ -720,7 +720,7 @@ settles near ~20 GB used of 50 Gi.
 **Do not conclude failure from a quiet first minute** — `wineboot` and the SteamCMD handshake
 produce little output before the download starts. Judge by `df` growing, not by log volume.
 
-- [ ] **Step 6: Confirm the prerequisite actually holds inside the pod**
+- [x] **Step 6: Confirm the prerequisite actually holds inside the pod**
 
 `[PowerShell]`
 ```powershell
@@ -730,7 +730,7 @@ Expected: `262144`. This is the in-pod confirmation of the §4.1 gate. `65530` h
 landed on a node whose Talos patch was reverted, and the server will OOM under Wine with
 "Ran out of memory allocating 0 bytes" regardless of free memory.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add icarus/deployment.yaml
@@ -756,7 +756,7 @@ failing, and it must happen before the Service starts routing players.
 - Consumes: the running Deployment from Task 4.
 - Produces: evidence the probe discriminates; the Service in Task 6 depends on it to gate traffic.
 
-- [ ] **Step 1: Record the passing state**
+- [x] **Step 1: Record the passing state**
 
 `[PowerShell]`
 ```powershell
@@ -765,7 +765,7 @@ kubectl exec -n icarus deploy/icarus -- supervisorctl status icarus-server
 ```
 Expected: pod `1/1`, and `icarus-server RUNNING`.
 
-- [ ] **Step 2: Stop the game process inside the container**
+- [x] **Step 2: Stop the game process inside the container**
 
 `[PowerShell]`
 ```powershell
@@ -775,7 +775,7 @@ kubectl exec -n icarus deploy/icarus -- supervisorctl status icarus-server
 Expected: `icarus-server STOPPED`. The **container** stays up — supervisord is still PID 1, which
 is exactly why there is no livenessProbe to trip here.
 
-- [ ] **Step 3: Confirm readiness actually flips**
+- [x] **Step 3: Confirm readiness actually flips**
 
 Readiness is `periodSeconds: 30`, `failureThreshold: 3`, so allow ~90–120 s.
 
@@ -797,7 +797,7 @@ Keep the brackets and the `> /dev/null`. Without the redirect, bash exec-replace
 is nothing to self-match, which is precisely why the bare form passes a manual smoke test and
 still never fails.
 
-- [ ] **Step 4: Restore and confirm it recovers**
+- [x] **Step 4: Restore and confirm it recovers**
 
 `[PowerShell]`
 ```powershell
@@ -807,7 +807,11 @@ kubectl get pod -n icarus -l app=icarus -w
 Expected: back to `1/1`. Both directions are now observed — the probe reports not-ready when the
 server is down and ready when it is up.
 
-- [ ] **Step 5: Commit only if the probe had to change**
+- [ ] **Step 5: Commit only if the probe had to change** — **N/A, no change needed**
+
+> The `supervisorctl` form discriminated correctly on first test (exit `0` RUNNING / `1` STOPPED;
+> readiness flipped to `0/1` in 92 s and recovered). The `pgrep` fallback was not needed, so
+> there was nothing to commit. Verification recorded in `icarus/README.md` and spec §14.3.
 
 ```bash
 git add icarus/deployment.yaml
@@ -831,7 +835,7 @@ commit.
 - Consumes: pods labelled `app: icarus` (Task 4), proven to gate correctly (Task 5).
 - Produces: `192.168.130.156:17777/udp` reachable on the LAN.
 
-- [ ] **Step 1: Create `icarus/service.yaml`**
+- [x] **Step 1: Create `icarus/service.yaml`**
 
 ```yaml
 apiVersion: v1
@@ -870,7 +874,7 @@ spec:
     app: icarus
 ```
 
-- [ ] **Step 2: Validate, then apply**
+- [x] **Step 2: Validate, then apply**
 
 `[PowerShell]`
 ```powershell
@@ -879,7 +883,7 @@ kubectl apply -f service.yaml --dry-run=server
 kubectl apply -f service.yaml
 ```
 
-- [ ] **Step 3: Verify the requested IP was actually granted**
+- [x] **Step 3: Verify the requested IP was actually granted**
 
 `[PowerShell]`
 ```powershell
@@ -890,7 +894,7 @@ Expected: exactly `192.168.130.156`. **MetalLB falls back to auto-assigning a di
 from the pool if the requested one is taken** — the annotation is a request, not a guarantee. A
 different IP here means .156 was claimed between Task 1 and now.
 
-- [ ] **Step 4: Verify endpoints exist — the probe gates this**
+- [x] **Step 4: Verify endpoints exist — the probe gates this**
 
 `[PowerShell]`
 ```powershell
@@ -902,7 +906,14 @@ kubectl get endpointslice -n icarus -l kubernetes.io/service-name=icarus -o json
 Expected: one address, `ready = True`. An empty endpoint list means readiness is failing — go back
 to Task 5 rather than debugging the Service.
 
-- [ ] **Step 5: Connect a real client**
+- [ ] **Step 5: Connect a real client** — ⏳ **PENDING, requires the operator**
+
+> Left unchecked 2026-08-30. Everything reachable from `kubectl` passes: the Service holds
+> `192.168.130.156`, its endpoint is `ready=True` on both UDP ports, and an in-pod A2S query
+> returns `Arnold Icarus Server` / `0 of 6`, proving the server is listening and correctly
+> configured. **None of that proves a client outside the cluster can traverse MetalLB and
+> `externalTrafficPolicy: Local` over UDP.** Only a real join does. This is the last open
+> verification row in spec §12.
 
 From a LAN/VPN machine, add `192.168.130.156:17777` in ICARUS's server browser, join with the
 `server-password`, and start a prospect.
@@ -911,7 +922,7 @@ Expected: the server appears, accepts the password, and a prospect loads. **This
 that exercises the whole path** — MetalLB, `externalTrafficPolicy: Local`, UDP, the query port and
 the game's own auth.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add icarus/service.yaml
@@ -936,7 +947,7 @@ whose env var is non-empty, and the file is only created from the heredoc if abs
 - Produces: confirmation that every pinned key is live; nothing depends on this, but a failure
   here invalidates §9 of the spec.
 
-- [ ] **Step 1: Read `ServerSettings.ini` off the PVC**
+- [x] **Step 1: Read `ServerSettings.ini` off the PVC**
 
 `[PowerShell]`
 ```powershell
@@ -947,7 +958,7 @@ If that path is empty, locate it rather than guessing:
 kubectl exec -n icarus deploy/icarus -- sh -c 'find /home/icarus/drive_c/icarus -name ServerSettings.ini'
 ```
 
-- [ ] **Step 2: Check the sentinel first**
+- [x] **Step 2: Check the sentinel first**
 
 `[PowerShell]`
 ```powershell
@@ -962,7 +973,7 @@ Also expected: `JoinPassword` and `AdminPassword` both **non-empty**. That is th
 verification of the Secret — do not try to read the Secret's values directly, which is
 policy-denied on this workstation.
 
-- [ ] **Step 3: Verify `Engine.ini` got the async timeout**
+- [x] **Step 3: Verify `Engine.ini` got the async timeout**
 
 `[PowerShell]`
 ```powershell
@@ -970,7 +981,7 @@ kubectl exec -n icarus deploy/icarus -- sh -c 'find /home/icarus/drive_c/icarus 
 ```
 Expected: `AsyncTaskTimeout=60` under `[OnlineSubsystemSteam]`.
 
-- [ ] **Step 4: Verify no cron was installed — the negative case for both cron keys**
+- [x] **Step 4: Verify no cron was installed — the negative case for both cron keys**
 
 `[PowerShell]`
 ```powershell
@@ -980,7 +991,7 @@ Expected: empty, or `no crontab for ...`. **Anything scheduled here means `UPDAT
 `CLEANUP_CRON` leaked in** — the whole reason both are absent is that the update path trusts an
 empty-check that fails open.
 
-- [ ] **Step 5: Verify the boot-time update actually ran**
+- [x] **Step 5: Verify the boot-time update actually ran**
 
 `[PowerShell]`
 ```powershell
@@ -990,7 +1001,7 @@ kubectl exec -n icarus deploy/icarus -- cat /opt/icarus/current_version
 Expected: the two match. A mismatch means `UPDATE_SKIP` took effect or SteamCMD failed silently —
 check the logs before assuming the server is current.
 
-- [ ] **Step 6: Record the result**
+- [x] **Step 6: Record the result**
 
 No commit unless a manifest changed. If any pinned key did **not** reach the `.ini`, fix
 `configmap.yaml`, `kubectl apply` it, `kubectl rollout restart deploy/icarus -n icarus` (a
@@ -1007,7 +1018,7 @@ ConfigMap edit alone does **not** restart the pod), and re-run this task from St
 - Consumes: the Longhorn Volume backing `icarus-data` (name recorded in Task 2 Step 4).
 - Produces: a daily snapshot of the saves.
 
-- [ ] **Step 1: Create `icarus/recurringjob.yaml`**
+- [x] **Step 1: Create `icarus/recurringjob.yaml`**
 
 ```yaml
 # ⚠️ NOTE: this file deploys into `longhorn-system`, NOT `icarus`.
@@ -1037,7 +1048,7 @@ spec:
   concurrency: 1
 ```
 
-- [ ] **Step 2: Apply**
+- [x] **Step 2: Apply**
 
 `[PowerShell]`
 ```powershell
@@ -1047,7 +1058,7 @@ kubectl apply -f recurringjob.yaml
 kubectl get recurringjob -n longhorn-system
 ```
 
-- [ ] **Step 3: Label the Longhorn Volume — not the PVC**
+- [x] **Step 3: Label the Longhorn Volume — not the PVC**
 
 `[PowerShell]`
 ```powershell
@@ -1060,7 +1071,7 @@ kubectl label volumes.longhorn.io -n longhorn-system $vol recurring-job-group.lo
 ```
 Expected: one `pvc-<uuid>` name, then `labeled`.
 
-- [ ] **Step 4: Verify the label landed on the right object**
+- [x] **Step 4: Verify the label landed on the right object**
 
 `[PowerShell]`
 ```powershell
@@ -1076,7 +1087,7 @@ Expected: `icarus-data` → `enabled`; `icarus-server` → blank. **The install 
 labelled** — snapshotting 20 GB of re-downloadable binaries daily is exactly what the two-PVC
 split exists to avoid.
 
-- [ ] **Step 5: Prove a snapshot actually appears**
+- [x] **Step 5: Prove a snapshot actually appears**
 
 Do not wait for 12:00 to find out it was misconfigured. Take one on demand:
 
@@ -1105,7 +1116,7 @@ Then confirm the scheduled job is registered against the volume:
 kubectl get volumes.longhorn.io -n longhorn-system $vol -o jsonpath='{.status.kubernetesStatus.workloadsStatus}'
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add icarus/recurringjob.yaml
@@ -1128,7 +1139,7 @@ mealie (10:00) so the three do not contend for Longhorn I/O."
 - Consumes: everything verified in Tasks 1–8.
 - Produces: the operational document a future reader hits before changing anything here.
 
-- [ ] **Step 1: Write `icarus/README.md`**
+- [x] **Step 1: Write `icarus/README.md`**
 
 Written as an operational document, matching `mealie/README.md`'s tone. It must contain, at
 minimum:
@@ -1161,7 +1172,7 @@ minimum:
     `talosctl apply-config` silently reverts it — the in-pod check from Task 4 Step 6 is how to
     confirm it.
 
-- [ ] **Step 2: Add the workload entry to `CLAUDE.md`**
+- [x] **Step 2: Add the workload entry to `CLAUDE.md`**
 
 Under the workload list, following the `mealie/` entry's shape:
 
@@ -1173,13 +1184,13 @@ Under the workload list, following the `mealie/` entry's shape:
   under Wine on a host with free memory
 ```
 
-- [ ] **Step 3: Verify the README's commands actually run**
+- [x] **Step 3: Verify the README's commands actually run**
 
 Do not ship a README whose commands were never executed. Run every command block in it verbatim
 and confirm each produces the described output. A README command that fails is worse than no
 command, because it will be trusted at 2am during an outage.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add icarus/README.md CLAUDE.md
@@ -1198,7 +1209,7 @@ ConfigMap reached the file."
 **Files:**
 - Modify: `docs/superpowers/specs/2026-08-30-icarus-server-deployment-design.md` (§12 results)
 
-- [ ] **Step 1: Walk the spec §12 verification table**
+- [x] **Step 1: Walk the spec §12 verification table**
 
 Confirm every row, and record the evidence:
 
@@ -1213,7 +1224,7 @@ Confirm every row, and record the evidence:
 | Snapshots happening | a Snapshot CR reached `readyToUse` |
 | Players can connect | a real client joined and started a prospect |
 
-- [ ] **Step 2: Confirm nothing else on the cluster regressed**
+- [x] **Step 2: Confirm nothing else on the cluster regressed**
 
 `[PowerShell]`
 ```powershell
@@ -1227,14 +1238,20 @@ ones) over the pre-ICARUS baseline of 34 healthy / 3 unknown. The 3 `unknown` ar
 `enshrouded` workload — **not** a regression, do not chase it. The pre-existing `Error` pods
 (`kubevirt/virt-controller`, two `longhorn-system` CSI pods) also predate this work.
 
-- [ ] **Step 3: Append a Results section to the ICARUS spec**
+- [x] **Step 3: Append a Results section to the ICARUS spec**
 
 Record the measured first-boot duration against the `failureThreshold: 400` budget, the actual
 install size on `/opt/icarus`, which probe form ended up in use, and the node it scheduled onto.
 Per the repo convention, **append a correction rather than rewriting** if any figure contradicts
 the design.
 
-- [ ] **Step 4: Resolve the spec's remaining open items**
+- [ ] **Step 4: Resolve the spec's remaining open items** — ⏳ **3 of 4 closed; item 3 needs load**
+
+> Closed 2026-08-30: item 1 (capacity gate), item 2 (which probe discriminates, §14.3), item 4
+> (first boot 4.1 min vs the ~100 min budget). **Item 3 stays open on purpose:** idle memory is
+> 1265 MiB against an `8Gi` request and `16Gi` limit, and an idle reading says nothing useful
+> about the limit. Re-measure with `kubectl top pod -n icarus` while 2–6 players are actually
+> connected before changing either number.
 
 Spec §13 lists four. Item 1 (capacity gate) is already closed. Close or re-scope the rest with the
 data this deployment produced:
@@ -1249,7 +1266,7 @@ data this deployment produced:
   nowhere near it, `failureThreshold` is larger than it needs to be; record the real figure rather
   than trimming it blind.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-08-30-icarus-server-deployment-design.md
