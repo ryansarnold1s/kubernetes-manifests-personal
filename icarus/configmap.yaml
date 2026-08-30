@@ -33,10 +33,24 @@ data:
   # Also the port checkServerEmpty() queries. The image's a2s fallback port is 15637 --
   # Enshrouded's, left over from ported code -- which is harmless only because this is set.
   SERVER_QUERYPORT: "27015"
-  # Seconds before a started prospect returns to the lobby if nobody joins.
-  SERVER_SHUTDOWN_IF_NOT_JOINED: "300.000000"
-  # Seconds after the last player leaves.
-  SERVER_SHUTDOWN_IF_EMPTY: "60.000000"
+  # ⚠️ These two are SHUTDOWN timers for a running prospect, not "return to lobby"
+  # timers. At the image's first-boot defaults (300 / 60) this server stops its prospect
+  # 60 s after the last player logs off, and 5 min after a prospect starts if nobody
+  # joins -- which directly contradicts the always-on runtime this deployment exists to
+  # provide. They were dormant until the first prospect was created on 2026-08-30 and
+  # went live the moment it was.
+  #
+  # 86400 = 24 h, effectively "never" for this group's play pattern.
+  #
+  # ⚠️ Do NOT set these to 0 to disable them. 0 does not mean "off" -- it means shut
+  # down IMMEDIATELY, so the server stops the instant a prospect starts. Some operators
+  # report -1 works as a true disable, but it is not in any documentation worth trusting;
+  # a large number is the safe form.
+  #
+  # The value is read when a prospect starts, not continuously, so changing this needs a
+  # rollout restart before it takes effect.
+  SERVER_SHUTDOWN_IF_NOT_JOINED: "86400.000000"
+  SERVER_SHUTDOWN_IF_EMPTY: "86400.000000"
   SERVER_ALLOW_NON_ADMINS_LAUNCH: "True"
   # Non-admins must not be able to delete prospects.
   SERVER_ALLOW_NON_ADMINS_DELETE: "False"
