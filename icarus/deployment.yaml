@@ -1,0 +1,113 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: icarus
+  namespace: icarus
+  labels:
+    app: icarus
+spec:
+  replicas: 1
+  strategy:
+    # Recreate is mandatory, not stylistic: RollingUpdate would start a second pod
+    # claiming the same ReadWriteOnce Longhorn volumes and deadlock on the mount.
+    #
+    # Consequence: every apply of this file is a brief outage. Confirm nobody is playing
+    # first -- see README.md.
+    type: Recreate
+  selector:
+    matchLabels:
+      app: icarus
+  template:
+    metadata:
+      labels:
+        app: icarus
+    spec:
+      # Derived, not guessed: the icarus-server script's SIGTERM trap sends TERM and waits
+      # 60s before escalating to KILL, and supervisord's stopwaitsecs is 90. 120 leaves
+      # headroom over both. Lowering this risks SIGKILL mid-save, which corrupts a prospect.
+      terminationGracePeriodSeconds: 120
+      #
+      # Deliberately NO securityContext.fsGroup. scripts/bootstrap already runs
+      # `chown -R icarus:icarus /opt/icarus /home/icarus` as root on every boot, so fsGroup
+      # would make kubelet perform a SECOND recursive ownership pass over a 50Gi volume at
+      # every single mount. If it is ever added it MUST be paired with
+      # fsGroupChangePolicy: OnRootMismatch. Its absence is intentional -- do not "fix" it.
+      containers:
+      - name: icarus
+        # `dev` pinned by digest. dev is 1.0.0 plus the #94 fix (port enshrouded fix for
+        # steam update aborts) plus base-image patches; the 1.0.0/latest tag does NOT
+        # contain that updater fix. Pinned by digest, so the tag being mutable upstream
+        # does not matter.
+        image: mornedhels/icarus-server:dev@sha256:63a559fee2c7e91469e11b74ac488ba2003541a027cbe4139cfb0b657dbfa6e4
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: game
+          containerPort: 17777
+          protocol: UDP
+        - name: query
+          containerPort: 27015
+          protocol: UDP
+        envFrom:
+        - configMapRef:
+            name: icarus-config
+        env:
+        - name: SERVER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: icarus-secrets
+              key: server-password
+        - name: SERVER_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: icarus-secrets
+              key: admin-password
+        volumeMounts:
+        # The Wine prefix is /home/icarus itself; only the game's UserDir below it is
+        # persisted. drive_c/windows and the registry live on the container layer and are
+        # rebuilt by `wineboot --init` every boot. That is intentional -- it keeps this PVC
+        # small, and means the Wine prefix is not in any backup and does not need to be.
+        - name: data
+          mountPath: /home/icarus/drive_c/icarus
+        - name: server
+          mountPath: /opt/icarus
+        # Deliberately NO livenessProbe: it would SIGKILL the server mid-save and corrupt a
+        # prospect. supervisord already restarts the program internally (autorestart=true,
+        # startretries=10), and the Deployment restarts the container if supervisord exits.
+        #
+        # `supervisorctl status` is the image's own definition of alive and is robust to
+        # however Wine names the process. The alternative, pgrep, MUST keep the bracketed
+        # form '[I]carusServer-Win64-Shipping': `pgrep -f` matches full command lines, so a
+        # bare pattern matches the probe's own shell and yields a probe that can never fail.
+        # That exact bug shipped in valheim/ once.
+        #
+        # This probe was tested against a STOPPED server before being trusted -- see
+        # README.md. A probe only ever observed passing has not been verified.
+        startupProbe:
+          exec:
+            command: ["sh", "-c", "supervisorctl status icarus-server | grep -q RUNNING"]
+          periodSeconds: 15
+          # 400 x 15s ~= 100 minutes. A first boot on an empty install PVC must run wineboot,
+          # pip3 install python-a2s, and a ~20GB SteamCMD pull -- and because doUpdate calls
+          # downloadIcarus twice, it then re-validates all 20GB inside this same window.
+          failureThreshold: 400
+        readinessProbe:
+          exec:
+            command: ["sh", "-c", "supervisorctl status icarus-server | grep -q RUNNING"]
+          periodSeconds: 30
+          failureThreshold: 3
+        # No CPU limit: CFS throttling shows up in-game as stutter, same reasoning as the
+        # valheim deployment. The 8Gi memory request also excludes the three 8GB
+        # control-plane nodes from the scheduler without needing explicit affinity rules.
+        resources:
+          requests:
+            cpu: "2"
+            memory: "8Gi"
+          limits:
+            memory: "16Gi"
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: icarus-data
+      - name: server
+        persistentVolumeClaim:
+          claimName: icarus-server
