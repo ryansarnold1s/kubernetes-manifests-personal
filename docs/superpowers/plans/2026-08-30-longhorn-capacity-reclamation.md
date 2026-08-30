@@ -623,7 +623,7 @@ talosctl -n 192.168.130.246 patch machineconfig \
   --patch @talos/image-gc-and-sysctl.patch.yaml --mode=no-reboot
 ```
 
-- [ ] **Step 2: Verify — including that GC did *not* fire**
+- [x] **Step 2: Verify — including that GC did *not* fire**
 
 `[PowerShell]`
 ```powershell
@@ -640,7 +640,7 @@ talosctl -n 192.168.130.245 patch machineconfig \
   --patch @talos/image-gc-and-sysctl.patch.yaml --mode=no-reboot
 ```
 
-- [ ] **Step 4: Verify — including that GC did *not* fire**
+- [x] **Step 4: Verify — including that GC did *not* fire**
 
 `[PowerShell]`
 ```powershell
@@ -661,7 +661,7 @@ Expected: `GCHigh=70`, `GCLow=50`, `MaxMapCount=262144`, `ImgGiB` still ≈157.7
 - Consumes: measured figures from Tasks 4–8.
 - Produces: a recorded outcome, and a yes/no on the ICARUS §4.2 capacity gate.
 
-- [ ] **Step 1: Full cluster roll-up**
+- [x] **Step 1: Full cluster roll-up**
 
 `[PowerShell]`
 ```powershell
@@ -692,6 +692,16 @@ Re-check after the next natural workload restart, not just immediately — a col
 fails when something actually needs to pull it. Pay particular attention to `finance-api` and
 `finance-frontend`, whose registry `gitea.arnoldtech.io` is **in-cluster** (spec §10).
 
+> **Deliberately left unchecked 2026-08-30.** The immediate check passed — no `ImagePullBackOff`,
+> no `ErrImagePull`, no pull-related events on any node after either collection, and `gitea`,
+> `finance-api` and `finance-frontend` were all `Running` with 0 restarts. **That is not the
+> proof this step asks for.** 293.8 GiB of images were evicted, and a missing image only fails
+> when something actually tries to pull it, so this cannot be closed until each workload has
+> restarted naturally at least once. The three `Error` pods visible cluster-wide
+> (`kubevirt/virt-controller` 76d, `longhorn-system/csi-attacher` and `csi-provisioner` 34d)
+> were already in that state in the Task 2 baseline and are **not** regressions from this work.
+> Leave this box unchecked until a real restart has been observed.
+
 - [x] **Step 4: Record the actual outcome in the spec**
 
 Append a **Results** section to
@@ -705,7 +715,7 @@ record both and say which was wrong. Do not edit §2.4's numbers to match realit
 In `2026-08-30-icarus-server-deployment-design.md` §4.2, record whether the gate passed and with
 what headroom, so the ICARUS implementation does not have to re-derive it.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docs/superpowers/specs/ talos/README.md
@@ -716,7 +726,7 @@ the four workers. Records the actual per-node reclamation against the
 projection in spec section 2.4, and the ICARUS capacity gate outcome."
 ```
 
-- [ ] **Step 7: Re-evaluate the deferred levers**
+- [x] **Step 7: Re-evaluate the deferred levers**
 
 Now that the measured figure is known, the spec's two deferred decisions can be revisited with
 data instead of estimates:
