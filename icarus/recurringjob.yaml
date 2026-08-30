@@ -1,0 +1,26 @@
+# ⚠️ NOTE: this file deploys into `longhorn-system`, NOT `icarus`.
+#
+# This job does nothing until the Longhorn VOLUME backing icarus-data carries the label
+# recurring-job-group.longhorn.io/icarus=enabled. The label goes on the VOLUME, not the
+# PVC -- a new or recreated PVC's volume starts unlabeled, so a PVC that is ever deleted
+# and recreated SILENTLY stops being snapshotted. If snapshots are not appearing, check
+# that before anything else. See icarus/README.md (Backups) for the commands.
+#
+# ONLY icarus-data is labelled. The install volume (icarus-server) is a re-downloadable
+# SteamCMD tree and needs no snapshots -- snapshotting ~10 GB of game binaries daily is
+# exactly what the two-PVC split exists to avoid.
+#
+# 12:00 is deliberately an hour off valheim-daily-snapshot (11:00) and clear of
+# mealie-daily-snapshot (10:00) so the three do not contend for Longhorn I/O.
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: icarus-daily-snapshot
+  namespace: longhorn-system
+spec:
+  cron: "0 12 * * *"
+  task: snapshot
+  groups:
+  - icarus
+  retain: 7
+  concurrency: 1
