@@ -1,0 +1,52 @@
+# /home/icarus/drive_c/icarus -- prospect saves, ServerSettings.ini, Engine.ini.
+# THE IRREPLACEABLE DATA. Deleting this PVC destroys every prospect. See README.md
+# (Restore/Rollback) before ever doing so.
+#
+# 2 replicas (the stock `longhorn` class default) precisely because this is the half
+# that cannot be re-downloaded.
+#
+# Split from icarus-server deliberately: a Longhorn snapshot restore of the saves must
+# not also roll back the game binaries, and the install must be wipeable to force a
+# clean reinstall without ever risking a save. A single combined PVC was rejected for
+# exactly that reason.
+#
+# ⚠️ Snapshots bind via a label on the Longhorn VOLUME, not on this PVC. If this PVC is
+# ever deleted and recreated, the new volume starts unlabeled and SILENTLY stops being
+# snapshotted. See README.md (Backups).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: icarus-data
+  namespace: icarus
+  labels:
+    app: icarus
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi
+---
+# /opt/icarus -- the ~20 GB SteamCMD install. DISPOSABLE: deleting this PVC only forces
+# a clean reinstall on the next boot and does not touch any prospect.
+#
+# 50Gi, not 20Gi: doUpdate() calls downloadIcarus twice, so an update transiently needs
+# up to 2x the install size on the volume.
+#
+# longhorn-single-replica, not longhorn: replicating a re-downloadable install buys
+# nothing and would cost another 20+ GB of Longhorn headroom on a second node.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: icarus-server
+  namespace: icarus
+  labels:
+    app: icarus
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: longhorn-single-replica
+  resources:
+    requests:
+      storage: 50Gi
