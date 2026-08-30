@@ -1,0 +1,86 @@
+# Every ServerSettings.ini key is pinned here, including ones whose value equals the
+# image's first-boot default. That is deliberate and NOT redundant:
+#
+# icarus-bootstrap writes ServerSettings.ini from a heredoc ONLY if the file does not
+# exist, then applies one `sed` per setting guarded by a non-empty test. Most keys have
+# NO env-var fallback in scripts/defaults -- SERVER_SHUTDOWN_IF_NOT_JOINED,
+# SERVER_SHUTDOWN_IF_EMPTY, SERVER_ALLOW_NON_ADMINS_LAUNCH, SERVER_ALLOW_NON_ADMINS_DELETE
+# and SERVER_RESUME_PROSPECT among them. The values the upstream README lists as
+# "defaults" come from that one-time heredoc, not from the environment. An unpinned key
+# is therefore UNMANAGED, not defaulted, and whatever the heredoc wrote on first boot
+# stands forever.
+#
+# Removing a key from this ConfigMap does NOT revert the setting -- it only stops
+# enforcing it. The file on the PVC is the source of truth for what the server runs.
+#
+# A ConfigMap edit does NOT restart the pod. Follow any change with:
+#   kubectl rollout restart deploy/icarus -n icarus
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: icarus-config
+  namespace: icarus
+  labels:
+    app: icarus
+data:
+  SERVER_NAME: "Arnold Icarus Server"
+  # ⚠️ VERIFICATION SENTINEL. Every OTHER pinned value below equals the first-boot heredoc
+  # default and would read back correct in the .ini even if the ConfigMap had never been
+  # applied at all. 6 differs from the default, so `MaxPlayers=6` is the ONLY line that
+  # proves the sed pass actually ran. Do not "tidy" this to the default value.
+  SERVER_MAX_PLAYERS: "6"
+  SERVER_PORT: "17777"
+  # Also the port checkServerEmpty() queries. The image's a2s fallback port is 15637 --
+  # Enshrouded's, left over from ported code -- which is harmless only because this is set.
+  SERVER_QUERYPORT: "27015"
+  # Seconds before a started prospect returns to the lobby if nobody joins.
+  SERVER_SHUTDOWN_IF_NOT_JOINED: "300.000000"
+  # Seconds after the last player leaves.
+  SERVER_SHUTDOWN_IF_EMPTY: "60.000000"
+  SERVER_ALLOW_NON_ADMINS_LAUNCH: "True"
+  # Non-admins must not be able to delete prospects.
+  SERVER_ALLOW_NON_ADMINS_DELETE: "False"
+  # Resume the last prospect after a restart.
+  SERVER_RESUME_PROSPECT: "True"
+  GAME_BRANCH: "public"
+  # Written to Engine.ini under [OnlineSubsystemSteam], not to ServerSettings.ini.
+  ASYNC_TASK_TIMEOUT: "60"
+  # Image defaults. Both volumes are chowned to this uid/gid at every boot.
+  PUID: "4711"
+  PGID: "4711"
+  # Update at pod start. Combined with the absence of UPDATE_CRON below, this makes
+  # `kubectl rollout restart deploy/icarus -n icarus` the deliberate update mechanism.
+  UPDATE_SKIP: "false"
+  TZ: "America/Phoenix"
+  # Pinned so a future base-image change cannot silently alter log volume.
+  WINEDEBUG: "fixme-all"
+  #
+  # ──────────── Deliberately ABSENT keys. Do not add them. ────────────
+  #
+  # UPDATE_CRON  -- absent means OFF. initCrontab() guards on `-n`, so an UNSET variable
+  #   creates no cron.
+  #
+  #   ⚠️ This is the OPPOSITE of the lloesche/valheim-server trap recorded in the repo
+  #   CLAUDE.md and in valheim/configmap.yaml, where UPDATE_CRON uses ${VAR-default} with a
+  #   single dash, so removing the key silently enables a 15-minute cron. That fear does
+  #   NOT apply here -- do not add an empty-string UPDATE_CRON "to be safe". It is
+  #   unnecessary noise that implies a hazard this image does not have.
+  #
+  #   Scheduled updates are declined because checkServerEmpty() FAILS OPEN: it shells to
+  #   python a2s and prints `null` on ANY exception, and the caller treats null as empty.
+  #   A failed query therefore permits an update that stops the server while people are
+  #   mid-prospect. It also depends on `pip3 install python-a2s` succeeding at every pod
+  #   start, i.e. on PyPI egress.
+  #
+  # CLEANUP_CRON -- absent means OFF, same `-n` guard. icarus-cleanup MOVES prospect save
+  #   files; it is not run unattended against irreplaceable data.
+  #
+  # CLEANUP_DAYS / CLEANUP_DELETE_BACKUPS / CLEANUP_PRUNE_FOLDER / CLEANUP_EXCLUDES --
+  #   meaningless without CLEANUP_CRON.
+  #
+  # SERVER_IP -- dead config. It appears only in scripts/defaults and is referenced by no
+  #   other script. The upstream README describes it as driving the empty-check; that is
+  #   wrong. Setting it does nothing.
+  #
+  # STEAM_API_KEY -- deprecated.
+  # STEAMCMD_ARGS -- the image default is correct.
