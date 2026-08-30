@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: icarus
+  namespace: icarus
+  labels:
+    app: icarus
+  annotations:
+    # metallb.io/ is the current domain. The old metallb.universe.tf/ prefix still works
+    # but logs a deprecatedAnnotation warning on every reconcile.
+    #
+    # .156 is the next free address after valheim (.155); pool vlan130-pool is
+    # 192.168.130.150-199. This annotation is a REQUEST, not a guarantee -- if .156 is
+    # already claimed MetalLB silently auto-assigns a different address from the pool,
+    # so always verify the granted IP rather than assuming.
+    metallb.io/loadBalancerIPs: 192.168.130.156
+spec:
+  type: LoadBalancer
+  # Preserves the client source IP, which the Steam query protocol needs.
+  externalTrafficPolicy: Local
+  #
+  # Deliberately NO loadBalancerSourceRanges: nothing is port-forwarded to this service, so
+  # there is no untrusted path to restrict.
+  #
+  # ⚠️ If this server is ever exposed to the internet, loadBalancerSourceRanges is the
+  # enforcement point -- NOT NetworkPolicy. The CNI is Flannel, which does not enforce
+  # NetworkPolicy at all: a NetworkPolicy added here would be silently inert and would
+  # read as protection that does not exist.
+  ports:
+  - name: game
+    port: 17777
+    targetPort: 17777
+    protocol: UDP
+  - name: query
+    port: 27015
+    targetPort: 27015
+    protocol: UDP
+  selector:
+    app: icarus
