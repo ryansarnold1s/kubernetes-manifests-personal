@@ -91,10 +91,13 @@ data:
   # and value type still exists in V+ 10.0.2 -- plus the 86 keys it never pinned in those
   # enabled sections, pinned at their 10.0.2 generated defaults. Keys and defaults were read
   # from the live file V+ 10.0.2 generated on first boot, not from docs.
+  # [Server] is pinned as well, all 5 keys at their 10.0.2 defaults: it is the one section V+
+  # keeps on by default, and its keys govern mod enforcement, config push and the player cap.
   #
   # Behaviour changes from the V+ 0.10.0.0 release notes: Building.noWeatherDamage now covers
-  # RAIN ONLY (1.0 added other weather damage it does not block); StructuralIntegrity gained
-  # ice and timberwood for 1.0's materials, inert while disableStructuralIntegrity = true.
+  # rain and water erosion only, per its own help text; 1.0 added other weather damage it does
+  # not block. StructuralIntegrity gained ice and timberwood for 1.0's materials, inert while
+  # disableStructuralIntegrity = true.
   # [Inventory] and [Wagon] stay off as before. The mods they used to collide with
   # (AzuExtendedPlayerInventory, AzuContainerSizes, OdinHorse) are gone, so enabling either
   # is now a free choice -- enumerate and pin every key in the section if you do.
@@ -104,6 +107,18 @@ data:
   MOD_CONFIG: |
     # --- ValheimPlus: pre-1.0 tuning restored 2026-09-10; every key of every enabled section --
     # --- is pinned. Generated from the old pins + the live 10.0.2 file.                     --
+
+    # [Server] -- the one V+ section that is ON by default (enabled defaults to true), so it is
+    # live whether or not anything here names it. Pinned at its 10.0.2 defaults so a future V+
+    # default change cannot silently flip mod enforcement, config push or the player cap.
+    # enforceMod = true is the operator's decision (clients need the same V+ version);
+    # maxPlayers 10 matches the image, whose MAX_PLAYERS is deliberately unset.
+    org.bepinex.plugins.valheim_plus.cfg|Server|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|Server|maxPlayers|10
+    org.bepinex.plugins.valheim_plus.cfg|Server|disableServerPassword|false
+    org.bepinex.plugins.valheim_plus.cfg|Server|enforceMod|true
+    org.bepinex.plugins.valheim_plus.cfg|Server|serverSyncsConfig|true
+
     # [Inventory] off, as on the pre-1.0 server (only enabled is pinned; a disabled section reads no other key)
     org.bepinex.plugins.valheim_plus.cfg|Inventory|enabled|false
 

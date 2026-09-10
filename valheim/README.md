@@ -194,7 +194,7 @@ the `fetch-mods` initContainer on every boot.
 ### ValheimPlus
 
 Runs with the pre-1.0 server's tuning, restored 2026-09-10: all 184 of the old pins, plus every
-other key in those sections at its 10.0.2 default, 270 pins in `MOD_CONFIG`. Its config is
+other key in those sections and in `[Server]` at its 10.0.2 default, 275 pins in `MOD_CONFIG`. Its config is
 `/valheim/BepInEx/config/org.bepinex.plugins.valheim_plus.cfg`, an ordinary BepInEx file
 (`Key = Value`, `# Setting type:` headers) that V+ 10 creates on its first boot.
 
@@ -207,7 +207,7 @@ read-only in-game, and logs a deprecation warning.
 values (1200 s duration, 12 items, auto-deposit and auto-fuel on) all differ from V+ 10.0.2's
 defaults, so reading them back proves the applier reached the file. `[Inventory]` and `[Wagon]`
 stay off as before; the mods they used to collide with are gone, so enabling them is now a free
-choice. One 1.0 behaviour change: `Building.noWeatherDamage` now covers rain only. Verify after any
+choice. One 1.0 behaviour change: `Building.noWeatherDamage` covers rain and water erosion only. Verify after any
 restart by reading the file back, never by the absence of a log line (whether V+ 10 logs
 `could not be parsed` for a rejected value is not yet verified):
 
