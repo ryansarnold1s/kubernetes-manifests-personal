@@ -193,7 +193,8 @@ the `fetch-mods` initContainer on every boot.
 
 ### ValheimPlus
 
-Runs at its defaults. Its config is
+Runs with the pre-1.0 server's tuning, restored 2026-09-10: all 184 of the old pins, plus every
+other key in those sections at its 10.0.2 default, 270 pins in `MOD_CONFIG`. Its config is
 `/valheim/BepInEx/config/org.bepinex.plugins.valheim_plus.cfg`, an ordinary BepInEx file
 (`Key = Value`, `# Setting type:` headers) that V+ 10 creates on its first boot.
 
@@ -202,20 +203,21 @@ Runs at its defaults. Its config is
 found next to its BepInEx config as an override that wins on every launch, makes settings
 read-only in-game, and logs a deprecation warning.
 
-`MOD_CONFIG` is empty until that first boot. The sentinel is then added from the file V+
-actually generated: `[Fermenter]` `enabled = true` with every other key in that section
-pinned at its generated default, so the section being on changes nothing while the
-non-default `enabled` line proves the applier reached the file. Enumerate the keys from the
-live file; 10.0.2's `[Fermenter]` differs from 9.x's. Verify the pin after any restart by
-reading the file back, never by the absence of a log line (whether V+ 10 logs
+`MOD_CONFIG` pins every key of every enabled section. `[Fermenter]` is the sentinel: its restored
+values (1200 s duration, 12 items, auto-deposit and auto-fuel on) all differ from V+ 10.0.2's
+defaults, so reading them back proves the applier reached the file. `[Inventory]` and `[Wagon]`
+stay off as before; the mods they used to collide with are gone, so enabling them is now a free
+choice. One 1.0 behaviour change: `Building.noWeatherDamage` now covers rain only. Verify after any
+restart by reading the file back, never by the absence of a log line (whether V+ 10 logs
 `could not be parsed` for a rejected value is not yet verified):
 
 ```powershell
 kubectl exec -n valheim deploy/valheim -c valheim -- sh -c 'sed -n "/^\[Fermenter\]/,/^\[/p" /valheim/BepInEx/config/org.bepinex.plugins.valheim_plus.cfg | grep -v "^#"'
 ```
 
-To tune V+ later: enumerate the section in the live file, pin **every** key in it, apply,
-restart, read back. Enabling a section makes every key in it live.
+To change a value: edit its line in `MOD_CONFIG`, apply, restart, read back. To turn on a section
+that is off, enumerate it in the live file first and pin **every** key in it. Enabling a section
+makes every key in it live.
 
 ### Confirm the mod stack is healthy
 

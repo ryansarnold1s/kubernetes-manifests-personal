@@ -82,27 +82,359 @@ data:
   # staying at default, or a future V+ default change takes effect silently.
   #
   # ⚠️ A pin whose value equals the mod's default is inert and unverifiable -- it reads back
-  # correct even if the section name is wrong. The planned sentinel is [Fermenter]
-  # enabled = true (the section defaults to false): it proves the applier reached this file,
-  # while every other key in that section is pinned at its generated default so enabling it
-  # changes no behaviour. The exact key set is enumerated from the live file after first
-  # boot, never copied from docs or from an older V+ version.
+  # correct even if the section name is wrong. [Fermenter] is the designated sentinel: its
+  # restored values (duration 1200, 12 items, auto-deposit and auto-fuel on) all differ from
+  # V+ 10.0.2's defaults, so reading them back proves the applier reached this file.
   #
-  # Populated after the first boot, from the file V+ actually generated -- see README.md.
+  # The V+ tuning below is the pre-1.0 server's, restored 2026-09-10 at the operator's request
+  # ("restore all as before"). All 184 of its pins carried over unchanged -- every section, key
+  # and value type still exists in V+ 10.0.2 -- plus the 86 keys it never pinned in those
+  # enabled sections, pinned at their 10.0.2 generated defaults. Keys and defaults were read
+  # from the live file V+ 10.0.2 generated on first boot, not from docs.
+  #
+  # Behaviour changes from the V+ 0.10.0.0 release notes: Building.noWeatherDamage now covers
+  # RAIN ONLY (1.0 added other weather damage it does not block); StructuralIntegrity gained
+  # ice and timberwood for 1.0's materials, inert while disableStructuralIntegrity = true.
+  # [Inventory] and [Wagon] stay off as before. The mods they used to collide with
+  # (AzuExtendedPlayerInventory, AzuContainerSizes, OdinHorse) are gone, so enabling either
+  # is now a free choice -- enumerate and pin every key in the section if you do.
+  #
+  # To change a value: edit it here, apply, rollout restart, then read EVERY key back off the
+  # PVC (README.md ### ValheimPlus). V+ pushes this config to clients on connect.
   MOD_CONFIG: |
-    # --- ValheimPlus sentinel: [Fermenter] on, every other key at its generated default ------
-    # enabled = true is the ONLY non-default line; it is what proves the applier reached
-    # org.bepinex.plugins.valheim_plus.cfg. The other seven are pinned because enabling a
-    # section makes every key in it live. Values read from the file V+ 10.0.2 generated on
-    # first boot (2026-09-10), not from docs. Read back after every restart.
+    # --- ValheimPlus: pre-1.0 tuning restored 2026-09-10; every key of every enabled section --
+    # --- is pinned. Generated from the old pins + the live 10.0.2 file.                     --
+    # [Inventory] off, as on the pre-1.0 server (only enabled is pinned; a disabled section reads no other key)
+    org.bepinex.plugins.valheim_plus.cfg|Inventory|enabled|false
+
+    # [Wagon] off, as on the pre-1.0 server (only enabled is pinned; a disabled section reads no other key)
+    org.bepinex.plugins.valheim_plus.cfg|Wagon|enabled|false
+
+    # [Player]
+    org.bepinex.plugins.valheim_plus.cfg|Player|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|Player|baseMaximumWeight|850
+    org.bepinex.plugins.valheim_plus.cfg|Player|baseMegingjordBuff|150
+    org.bepinex.plugins.valheim_plus.cfg|Player|baseAutoPickUpRange|2
+    org.bepinex.plugins.valheim_plus.cfg|Player|disableCameraShake|false
+    org.bepinex.plugins.valheim_plus.cfg|Player|baseUnarmedDamage|70
+    org.bepinex.plugins.valheim_plus.cfg|Player|cropNotifier|false
+    org.bepinex.plugins.valheim_plus.cfg|Player|restSecondsPerComfortLevel|60
+    org.bepinex.plugins.valheim_plus.cfg|Player|deathPenaltyMultiplier|-100
+    org.bepinex.plugins.valheim_plus.cfg|Player|autoRepair|true
+    org.bepinex.plugins.valheim_plus.cfg|Player|guardianBuffDuration|300
+    org.bepinex.plugins.valheim_plus.cfg|Player|guardianBuffCooldown|1200
+    org.bepinex.plugins.valheim_plus.cfg|Player|disableGuardianBuffAnimation|false
+    org.bepinex.plugins.valheim_plus.cfg|Player|autoEquipShield|true
+    org.bepinex.plugins.valheim_plus.cfg|Player|autoUnequipShield|false
+    org.bepinex.plugins.valheim_plus.cfg|Player|skipIntro|false
+    org.bepinex.plugins.valheim_plus.cfg|Player|iHaveArrivedOnSpawn|true
+    org.bepinex.plugins.valheim_plus.cfg|Player|queueWeaponChanges|false
+    org.bepinex.plugins.valheim_plus.cfg|Player|dontUnequipItemsWhenSwimming|false
+    org.bepinex.plugins.valheim_plus.cfg|Player|reequipItemsAfterSwimming|false
+    org.bepinex.plugins.valheim_plus.cfg|Player|fallDamageScalePercent|0
+    org.bepinex.plugins.valheim_plus.cfg|Player|maxFallDamage|100
+    org.bepinex.plugins.valheim_plus.cfg|Player|skipTutorials|false
+    org.bepinex.plugins.valheim_plus.cfg|Player|disableEncumbered|false
+    org.bepinex.plugins.valheim_plus.cfg|Player|autoPickUpWhenEncumbered|false
+    org.bepinex.plugins.valheim_plus.cfg|Player|disableEightSecondTeleport|false
+
+    # [Stamina]
+    org.bepinex.plugins.valheim_plus.cfg|Stamina|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|Stamina|dodgeStaminaUsage|-50
+    org.bepinex.plugins.valheim_plus.cfg|Stamina|encumberedStaminaDrain|-50
+    org.bepinex.plugins.valheim_plus.cfg|Stamina|jumpStaminaDrain|-50
+    org.bepinex.plugins.valheim_plus.cfg|Stamina|runStaminaDrain|-50
+    org.bepinex.plugins.valheim_plus.cfg|Stamina|sneakStaminaDrain|-50
+    org.bepinex.plugins.valheim_plus.cfg|Stamina|staminaRegen|100
+    org.bepinex.plugins.valheim_plus.cfg|Stamina|staminaRegenDelay|-50
+    org.bepinex.plugins.valheim_plus.cfg|Stamina|swimStaminaDrain|-100
+
+    # [StaminaUsage]
+    org.bepinex.plugins.valheim_plus.cfg|StaminaUsage|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|StaminaUsage|axes|-50
+    org.bepinex.plugins.valheim_plus.cfg|StaminaUsage|bows|-50
+    org.bepinex.plugins.valheim_plus.cfg|StaminaUsage|blocking|-50
+    org.bepinex.plugins.valheim_plus.cfg|StaminaUsage|clubs|-50
+    org.bepinex.plugins.valheim_plus.cfg|StaminaUsage|knives|-50
+    org.bepinex.plugins.valheim_plus.cfg|StaminaUsage|pickaxes|-50
+    org.bepinex.plugins.valheim_plus.cfg|StaminaUsage|polearms|-50
+    org.bepinex.plugins.valheim_plus.cfg|StaminaUsage|spears|-50
+    org.bepinex.plugins.valheim_plus.cfg|StaminaUsage|swords|-50
+    org.bepinex.plugins.valheim_plus.cfg|StaminaUsage|unarmed|-50
+    org.bepinex.plugins.valheim_plus.cfg|StaminaUsage|hammer|-50
+    org.bepinex.plugins.valheim_plus.cfg|StaminaUsage|hoe|-50
+    org.bepinex.plugins.valheim_plus.cfg|StaminaUsage|cultivator|-50
+    org.bepinex.plugins.valheim_plus.cfg|StaminaUsage|fishing|-50
+
+    # [Food]
+    org.bepinex.plugins.valheim_plus.cfg|Food|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|Food|foodDurationMultiplier|100
+    org.bepinex.plugins.valheim_plus.cfg|Food|disableFoodDegradation|true
+
+    # [Map]
+    org.bepinex.plugins.valheim_plus.cfg|Map|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|Map|shareMapProgression|true
+    org.bepinex.plugins.valheim_plus.cfg|Map|exploreRadius|150
+    org.bepinex.plugins.valheim_plus.cfg|Map|preventPlayerFromTurningOffPublicPosition|false
+    org.bepinex.plugins.valheim_plus.cfg|Map|shareAllPins|false
+    org.bepinex.plugins.valheim_plus.cfg|Map|displayCartsAndBoats|false
+
+    # [Ship]
+    org.bepinex.plugins.valheim_plus.cfg|Ship|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|Ship|forwardSpeed|50
+    org.bepinex.plugins.valheim_plus.cfg|Ship|backwardSpeed|0
+    org.bepinex.plugins.valheim_plus.cfg|Ship|rudderSpeed|0
+    org.bepinex.plugins.valheim_plus.cfg|Ship|steerForce|0
+    org.bepinex.plugins.valheim_plus.cfg|Ship|waterImpactDamage|0
+
+    # [Time]
+    org.bepinex.plugins.valheim_plus.cfg|Time|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|Time|forcePartOfDay|false
+    org.bepinex.plugins.valheim_plus.cfg|Time|forcePartOfDayTime|0.5
+    org.bepinex.plugins.valheim_plus.cfg|Time|totalDayTimeInSeconds|1800
+    org.bepinex.plugins.valheim_plus.cfg|Time|nightPercent|23
+
+    # [FireSource]
+    org.bepinex.plugins.valheim_plus.cfg|FireSource|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|FireSource|torches|true
+    org.bepinex.plugins.valheim_plus.cfg|FireSource|fires|true
+    org.bepinex.plugins.valheim_plus.cfg|FireSource|autoFuel|true
+    org.bepinex.plugins.valheim_plus.cfg|FireSource|ignorePrivateAreaCheck|true
+    org.bepinex.plugins.valheim_plus.cfg|FireSource|autoRange|10
+
+    # [Turret]
+    org.bepinex.plugins.valheim_plus.cfg|Turret|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|Turret|ignorePlayers|true
+    org.bepinex.plugins.valheim_plus.cfg|Turret|unlimitedAmmo|true
+    org.bepinex.plugins.valheim_plus.cfg|Turret|turnRate|0
+    org.bepinex.plugins.valheim_plus.cfg|Turret|attackCooldown|0
+    org.bepinex.plugins.valheim_plus.cfg|Turret|viewDistance|0
+    org.bepinex.plugins.valheim_plus.cfg|Turret|projectileVelocity|0
+    org.bepinex.plugins.valheim_plus.cfg|Turret|projectileAccuracy|0
+
+    # [Armor]
+    org.bepinex.plugins.valheim_plus.cfg|Armor|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|Armor|helmets|75
+    org.bepinex.plugins.valheim_plus.cfg|Armor|chests|75
+    org.bepinex.plugins.valheim_plus.cfg|Armor|legs|75
+    org.bepinex.plugins.valheim_plus.cfg|Armor|capes|75
+
+    # [Shields]
+    org.bepinex.plugins.valheim_plus.cfg|Shields|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|Shields|blockRating|75
+
+    # [Durability]
+    org.bepinex.plugins.valheim_plus.cfg|Durability|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|Durability|axes|100
+    org.bepinex.plugins.valheim_plus.cfg|Durability|pickaxes|150
+    org.bepinex.plugins.valheim_plus.cfg|Durability|hammer|150
+    org.bepinex.plugins.valheim_plus.cfg|Durability|cultivator|150
+    org.bepinex.plugins.valheim_plus.cfg|Durability|hoe|150
+    org.bepinex.plugins.valheim_plus.cfg|Durability|weapons|100
+    org.bepinex.plugins.valheim_plus.cfg|Durability|armor|100
+    org.bepinex.plugins.valheim_plus.cfg|Durability|bows|100
+    org.bepinex.plugins.valheim_plus.cfg|Durability|shields|100
+    org.bepinex.plugins.valheim_plus.cfg|Durability|torch|150
+
+    # [Items]
+    org.bepinex.plugins.valheim_plus.cfg|Items|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|Items|noTeleportPrevention|true
+    org.bepinex.plugins.valheim_plus.cfg|Items|baseItemWeightReduction|-75
+    org.bepinex.plugins.valheim_plus.cfg|Items|itemStackMultiplier|100
+    org.bepinex.plugins.valheim_plus.cfg|Items|droppedItemOnGroundDurationInSeconds|600
+    org.bepinex.plugins.valheim_plus.cfg|Items|itemsFloatInWater|false
+
+    # [Building]
+    org.bepinex.plugins.valheim_plus.cfg|Building|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|Building|noInvalidPlacementRestriction|false
+    org.bepinex.plugins.valheim_plus.cfg|Building|noMysticalForcesPreventPlacementRestriction|false
+    org.bepinex.plugins.valheim_plus.cfg|Building|noWeatherDamage|true
+    org.bepinex.plugins.valheim_plus.cfg|Building|maximumPlacementDistance|8
+    org.bepinex.plugins.valheim_plus.cfg|Building|pieceComfortRadius|10
+    org.bepinex.plugins.valheim_plus.cfg|Building|alwaysDropResources|false
+    org.bepinex.plugins.valheim_plus.cfg|Building|alwaysDropExcludedResources|false
+    org.bepinex.plugins.valheim_plus.cfg|Building|enableAreaRepair|false
+    org.bepinex.plugins.valheim_plus.cfg|Building|areaRepairRadius|7.5
+
+    # [StructuralIntegrity]
+    org.bepinex.plugins.valheim_plus.cfg|StructuralIntegrity|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|StructuralIntegrity|wood|0
+    org.bepinex.plugins.valheim_plus.cfg|StructuralIntegrity|stone|0
+    org.bepinex.plugins.valheim_plus.cfg|StructuralIntegrity|iron|0
+    org.bepinex.plugins.valheim_plus.cfg|StructuralIntegrity|hardWood|0
+    org.bepinex.plugins.valheim_plus.cfg|StructuralIntegrity|marble|0
+    org.bepinex.plugins.valheim_plus.cfg|StructuralIntegrity|ashstone|0
+    org.bepinex.plugins.valheim_plus.cfg|StructuralIntegrity|ancient|0
+    org.bepinex.plugins.valheim_plus.cfg|StructuralIntegrity|ice|0
+    org.bepinex.plugins.valheim_plus.cfg|StructuralIntegrity|timberwood|0
+    org.bepinex.plugins.valheim_plus.cfg|StructuralIntegrity|disableStructuralIntegrity|true
+    org.bepinex.plugins.valheim_plus.cfg|StructuralIntegrity|disableDamageToPlayerStructures|true
+    org.bepinex.plugins.valheim_plus.cfg|StructuralIntegrity|disableDamageToPlayerBoats|false
+    org.bepinex.plugins.valheim_plus.cfg|StructuralIntegrity|disableDamageToPlayerCarts|false
+    org.bepinex.plugins.valheim_plus.cfg|StructuralIntegrity|disableWaterDamageToPlayerBoats|false
+    org.bepinex.plugins.valheim_plus.cfg|StructuralIntegrity|disableWaterDamageToPlayerCarts|false
+
+    # [CraftFromChest]
+    org.bepinex.plugins.valheim_plus.cfg|CraftFromChest|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|CraftFromChest|range|30
+    org.bepinex.plugins.valheim_plus.cfg|CraftFromChest|disableCookingStation|false
+    org.bepinex.plugins.valheim_plus.cfg|CraftFromChest|checkFromWorkbench|true
+    org.bepinex.plugins.valheim_plus.cfg|CraftFromChest|ignorePrivateAreaCheck|false
+    org.bepinex.plugins.valheim_plus.cfg|CraftFromChest|lookupInterval|3
+    org.bepinex.plugins.valheim_plus.cfg|CraftFromChest|allowCraftingFromCarts|false
+    org.bepinex.plugins.valheim_plus.cfg|CraftFromChest|allowCraftingFromShips|false
+
+    # [Workbench]
+    org.bepinex.plugins.valheim_plus.cfg|Workbench|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|Workbench|workbenchRange|40
+    org.bepinex.plugins.valheim_plus.cfg|Workbench|workbenchEnemySpawnRange|0
+    org.bepinex.plugins.valheim_plus.cfg|Workbench|workbenchAttachmentRange|10
+    org.bepinex.plugins.valheim_plus.cfg|Workbench|disableRoofCheck|true
+
+    # [Smelter]
+    org.bepinex.plugins.valheim_plus.cfg|Smelter|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|Smelter|maximumOre|20
+    org.bepinex.plugins.valheim_plus.cfg|Smelter|maximumCoal|40
+    org.bepinex.plugins.valheim_plus.cfg|Smelter|coalUsedPerProduct|2
+    org.bepinex.plugins.valheim_plus.cfg|Smelter|productionSpeed|15
+    org.bepinex.plugins.valheim_plus.cfg|Smelter|autoDeposit|true
+    org.bepinex.plugins.valheim_plus.cfg|Smelter|autoFuel|true
+    org.bepinex.plugins.valheim_plus.cfg|Smelter|ignorePrivateAreaCheck|true
+    org.bepinex.plugins.valheim_plus.cfg|Smelter|autoRange|10
+
+    # [Furnace]
+    org.bepinex.plugins.valheim_plus.cfg|Furnace|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|Furnace|maximumOre|20
+    org.bepinex.plugins.valheim_plus.cfg|Furnace|maximumCoal|40
+    org.bepinex.plugins.valheim_plus.cfg|Furnace|coalUsedPerProduct|2
+    org.bepinex.plugins.valheim_plus.cfg|Furnace|productionSpeed|15
+    org.bepinex.plugins.valheim_plus.cfg|Furnace|autoDeposit|true
+    org.bepinex.plugins.valheim_plus.cfg|Furnace|autoFuel|true
+    org.bepinex.plugins.valheim_plus.cfg|Furnace|ignorePrivateAreaCheck|true
+    org.bepinex.plugins.valheim_plus.cfg|Furnace|autoRange|10
+    org.bepinex.plugins.valheim_plus.cfg|Furnace|allowAllOres|false
+
+    # [Kiln]
+    org.bepinex.plugins.valheim_plus.cfg|Kiln|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|Kiln|productionSpeed|7.5
+    org.bepinex.plugins.valheim_plus.cfg|Kiln|maximumWood|50
+    org.bepinex.plugins.valheim_plus.cfg|Kiln|dontProcessFineWood|false
+    org.bepinex.plugins.valheim_plus.cfg|Kiln|dontProcessRoundLog|false
+    org.bepinex.plugins.valheim_plus.cfg|Kiln|autoDeposit|true
+    org.bepinex.plugins.valheim_plus.cfg|Kiln|autoFuel|true
+    org.bepinex.plugins.valheim_plus.cfg|Kiln|stopAutoFuelThreshold|0
+    org.bepinex.plugins.valheim_plus.cfg|Kiln|ignorePrivateAreaCheck|true
+    org.bepinex.plugins.valheim_plus.cfg|Kiln|autoRange|10
+
+    # [Fermenter]
     org.bepinex.plugins.valheim_plus.cfg|Fermenter|enabled|true
-    org.bepinex.plugins.valheim_plus.cfg|Fermenter|fermenterDuration|2400
-    org.bepinex.plugins.valheim_plus.cfg|Fermenter|fermenterItemsProduced|6
+    org.bepinex.plugins.valheim_plus.cfg|Fermenter|fermenterDuration|1200
+    org.bepinex.plugins.valheim_plus.cfg|Fermenter|fermenterItemsProduced|12
     org.bepinex.plugins.valheim_plus.cfg|Fermenter|showDuration|false
-    org.bepinex.plugins.valheim_plus.cfg|Fermenter|autoDeposit|false
-    org.bepinex.plugins.valheim_plus.cfg|Fermenter|autoFuel|false
+    org.bepinex.plugins.valheim_plus.cfg|Fermenter|autoDeposit|true
+    org.bepinex.plugins.valheim_plus.cfg|Fermenter|autoFuel|true
     org.bepinex.plugins.valheim_plus.cfg|Fermenter|ignorePrivateAreaCheck|true
     org.bepinex.plugins.valheim_plus.cfg|Fermenter|autoRange|10
+
+    # [Beehive]
+    org.bepinex.plugins.valheim_plus.cfg|Beehive|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|Beehive|honeyProductionSpeed|600
+    org.bepinex.plugins.valheim_plus.cfg|Beehive|maximumHoneyPerBeehive|8
+    org.bepinex.plugins.valheim_plus.cfg|Beehive|autoDeposit|true
+    org.bepinex.plugins.valheim_plus.cfg|Beehive|autoDepositRange|10
+    org.bepinex.plugins.valheim_plus.cfg|Beehive|showDuration|false
+
+    # [Windmill]
+    org.bepinex.plugins.valheim_plus.cfg|Windmill|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|Windmill|maximumBarley|100
+    org.bepinex.plugins.valheim_plus.cfg|Windmill|productionSpeed|5
+    org.bepinex.plugins.valheim_plus.cfg|Windmill|ignoreWindIntensity|false
+    org.bepinex.plugins.valheim_plus.cfg|Windmill|autoDeposit|true
+    org.bepinex.plugins.valheim_plus.cfg|Windmill|autoFuel|true
+    org.bepinex.plugins.valheim_plus.cfg|Windmill|ignorePrivateAreaCheck|true
+    org.bepinex.plugins.valheim_plus.cfg|Windmill|autoRange|10
+
+    # [SpinningWheel]
+    org.bepinex.plugins.valheim_plus.cfg|SpinningWheel|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|SpinningWheel|maximumFlax|100
+    org.bepinex.plugins.valheim_plus.cfg|SpinningWheel|productionSpeed|15
+    org.bepinex.plugins.valheim_plus.cfg|SpinningWheel|autoDeposit|true
+    org.bepinex.plugins.valheim_plus.cfg|SpinningWheel|autoFuel|true
+    org.bepinex.plugins.valheim_plus.cfg|SpinningWheel|ignorePrivateAreaCheck|true
+    org.bepinex.plugins.valheim_plus.cfg|SpinningWheel|autoRange|10
+
+    # [EitrRefinery]
+    org.bepinex.plugins.valheim_plus.cfg|EitrRefinery|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|EitrRefinery|maximumSap|40
+    org.bepinex.plugins.valheim_plus.cfg|EitrRefinery|maximumSoftTissue|40
+    org.bepinex.plugins.valheim_plus.cfg|EitrRefinery|productionSpeed|20
+    org.bepinex.plugins.valheim_plus.cfg|EitrRefinery|autoDeposit|true
+    org.bepinex.plugins.valheim_plus.cfg|EitrRefinery|autoFuel|true
+    org.bepinex.plugins.valheim_plus.cfg|EitrRefinery|ignorePrivateAreaCheck|true
+    org.bepinex.plugins.valheim_plus.cfg|EitrRefinery|autoRange|10
+
+    # [Oven]
+    org.bepinex.plugins.valheim_plus.cfg|Oven|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|Oven|infiniteFuel|false
+    org.bepinex.plugins.valheim_plus.cfg|Oven|autoFuel|true
+    org.bepinex.plugins.valheim_plus.cfg|Oven|ignorePrivateAreaCheck|true
+    org.bepinex.plugins.valheim_plus.cfg|Oven|autoRange|10
+
+    # [SapCollector]
+    org.bepinex.plugins.valheim_plus.cfg|SapCollector|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|SapCollector|sapProductionSpeed|30
+    org.bepinex.plugins.valheim_plus.cfg|SapCollector|maximumSapPerCollector|20
+    org.bepinex.plugins.valheim_plus.cfg|SapCollector|autoDeposit|true
+    org.bepinex.plugins.valheim_plus.cfg|SapCollector|autoDepositRange|10
+    org.bepinex.plugins.valheim_plus.cfg|SapCollector|showDuration|false
+
+    # [Gathering]
+    org.bepinex.plugins.valheim_plus.cfg|Gathering|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|Gathering|wood|100
+    org.bepinex.plugins.valheim_plus.cfg|Gathering|fineWood|100
+    org.bepinex.plugins.valheim_plus.cfg|Gathering|coreWood|100
+    org.bepinex.plugins.valheim_plus.cfg|Gathering|elderBark|100
+    org.bepinex.plugins.valheim_plus.cfg|Gathering|yggdrasilWood|100
+    org.bepinex.plugins.valheim_plus.cfg|Gathering|stone|100
+    org.bepinex.plugins.valheim_plus.cfg|Gathering|blackMarble|100
+    org.bepinex.plugins.valheim_plus.cfg|Gathering|tinOre|100
+    org.bepinex.plugins.valheim_plus.cfg|Gathering|copperOre|100
+    org.bepinex.plugins.valheim_plus.cfg|Gathering|copperScrap|100
+    org.bepinex.plugins.valheim_plus.cfg|Gathering|ironScrap|100
+    org.bepinex.plugins.valheim_plus.cfg|Gathering|silverOre|100
+    org.bepinex.plugins.valheim_plus.cfg|Gathering|chitin|100
+    org.bepinex.plugins.valheim_plus.cfg|Gathering|feather|100
+    org.bepinex.plugins.valheim_plus.cfg|Gathering|dropChance|0
+    org.bepinex.plugins.valheim_plus.cfg|Gathering|grausten|100
+    org.bepinex.plugins.valheim_plus.cfg|Gathering|blackwood|100
+    org.bepinex.plugins.valheim_plus.cfg|Gathering|flametalOre|100
+    org.bepinex.plugins.valheim_plus.cfg|Gathering|proustitePowder|100
+
+    # [Experience]
+    org.bepinex.plugins.valheim_plus.cfg|Experience|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|Experience|swords|200
+    org.bepinex.plugins.valheim_plus.cfg|Experience|knives|200
+    org.bepinex.plugins.valheim_plus.cfg|Experience|clubs|200
+    org.bepinex.plugins.valheim_plus.cfg|Experience|polearms|200
+    org.bepinex.plugins.valheim_plus.cfg|Experience|spears|200
+    org.bepinex.plugins.valheim_plus.cfg|Experience|blocking|200
+    org.bepinex.plugins.valheim_plus.cfg|Experience|axes|200
+    org.bepinex.plugins.valheim_plus.cfg|Experience|bows|200
+    org.bepinex.plugins.valheim_plus.cfg|Experience|elementalMagic|200
+    org.bepinex.plugins.valheim_plus.cfg|Experience|bloodMagic|200
+    org.bepinex.plugins.valheim_plus.cfg|Experience|unarmed|200
+    org.bepinex.plugins.valheim_plus.cfg|Experience|pickaxes|200
+    org.bepinex.plugins.valheim_plus.cfg|Experience|woodCutting|200
+    org.bepinex.plugins.valheim_plus.cfg|Experience|crossbows|200
+    org.bepinex.plugins.valheim_plus.cfg|Experience|jump|200
+    org.bepinex.plugins.valheim_plus.cfg|Experience|sneak|200
+    org.bepinex.plugins.valheim_plus.cfg|Experience|run|200
+    org.bepinex.plugins.valheim_plus.cfg|Experience|swim|200
+    org.bepinex.plugins.valheim_plus.cfg|Experience|fishing|200
+    org.bepinex.plugins.valheim_plus.cfg|Experience|cooking|200
+    org.bepinex.plugins.valheim_plus.cfg|Experience|farming|200
+    org.bepinex.plugins.valheim_plus.cfg|Experience|crafting|200
+    org.bepinex.plugins.valheim_plus.cfg|Experience|ride|200
   install-mods.sh: |
     #!/bin/bash
     # Idempotent, checksum-verified installer for BepInExPack + server-side mods, plus
