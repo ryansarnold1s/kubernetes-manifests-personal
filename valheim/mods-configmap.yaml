@@ -49,13 +49,12 @@ data:
   # ValheimPlus 10.0.2 declares BepInExPack 5.4.2350; Jotunn 2.30.0 declares 5.4.2333, which
   # 5.4.2350 satisfies. All three shipped Valheim 1.0 releases on 2026-09-09/10.
   #
-  # CLIENT INSTALL: every client needs BepInExPack 5.4.2350 and ValheimPlus 10.0.2. V+ runs at
-  # its shipped defaults, which include [Server] enforceMod = true, so a client without the
-  # same V+ version is REFUSED; serverSyncsConfig = true pushes this server's V+ config to
-  # clients. Verified 2026-09-10 from the V+ 10.0.2 source (tag 0.10.0.2,
-  # ServerConfiguration.cs), which binds [Server] enabled = true, enforceMod = true and
-  # serverSyncsConfig = true. To allow mod-free joining instead, pin
-  # org.bepinex.plugins.valheim_plus.cfg|Server|enforceMod|false in MOD_CONFIG.
+  # CLIENT INSTALL: every client needs BepInExPack 5.4.2350 and ValheimPlus 10.0.2. MOD_CONFIG
+  # pins V+'s [Server] section with enforceMod = true, so a client without the same V+ version
+  # is REFUSED, and serverSyncsConfig = true, which pushes this server's V+ config to clients.
+  # Both are also V+ 10.0.2's own defaults (verified 2026-09-10 from the V+ source, tag
+  # 0.10.0.2, ServerConfiguration.cs). To allow mod-free joining instead, change the
+  # [Server] enforceMod pin in MOD_CONFIG to false.
   # Install Jotunn 2.30.0 on clients too, to match.
   MODS: |
     BepInExPack_Valheim  5.4.2350  https://thunderstore.io/package/download/denikson/BepInExPack_Valheim/5.4.2350/               37a91c000b4e88f2ed7a4bd7d812239852d2e36cbf0ff0a9f5faacfba46b105f  pack
@@ -75,8 +74,9 @@ data:
   # LegacyMode.Override).
   #
   # A rejected BepInEx value logs "could not be parsed" in the game container. Whether a
-  # rejected V+ 10 value does too is UNVERIFIED until the rebuild plan's Task 6 checks it, so
-  # verify V+ pins by reading the file back off the PVC, never by the absence of that line.
+  # rejected V+ 10 value does too is still UNVERIFIED -- the rebuild's Task 6 only tested
+  # accepted values -- so verify V+ pins by reading them back off the PVC with
+  # valheim/tests/verify-vp-config.sh, never by the absence of that line.
   #
   # ⚠️ Enabling a V+ section makes EVERY key in it live. Pin them all, including the ones
   # staying at default, or a future V+ default change takes effect silently.
@@ -103,7 +103,7 @@ data:
   # is now a free choice -- enumerate and pin every key in the section if you do.
   #
   # To change a value: edit it here, apply, rollout restart, then read EVERY key back off the
-  # PVC (README.md ### ValheimPlus). V+ pushes this config to clients on connect.
+  # PVC with valheim/tests/verify-vp-config.sh. V+ pushes this config to clients on connect.
   MOD_CONFIG: |
     # --- ValheimPlus: pre-1.0 tuning restored 2026-09-10; every key of every enabled section --
     # --- is pinned. Generated from the old pins + the live 10.0.2 file.                     --

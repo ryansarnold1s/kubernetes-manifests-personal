@@ -14,9 +14,9 @@ World: `TreeFellMeAgain`. Password lives in the `valheim-secrets` Secret.
 Crossplay is off: Steam clients only.
 
 Every client needs BepInExPack and ValheimPlus 10.0.2, the same version as the server.
-ValheimPlus runs here at its shipped defaults, which include `[Server] enforceMod=true`, so a
-client without the same V+ version is refused. `serverSyncsConfig=true` is also a default, so
-connecting clients receive the server's V+ config. Install Jotunn 2.30.0 on clients too, to
+ValheimPlus's `[Server]` section is pinned with `enforceMod = true`, so a client without the same
+V+ version is refused, and with `serverSyncsConfig = true`, so connecting clients receive the
+server's V+ config. Both are also V+ 10.0.2's own defaults. Install Jotunn 2.30.0 on clients too, to
 match the server. Versions and download links are in `mods-configmap.yaml`.
 
 ## Layout
@@ -32,6 +32,7 @@ match the server. Versions and download links are in `mods-configmap.yaml`.
 | `mods-configmap.yaml` | Pinned BepInExPack + mod table, per-mod config pins, installer script |
 | `recurringjob.yaml` | Longhorn daily snapshot (deploys to `longhorn-system`) |
 | `tests/test-install-mods.sh` | Local bash harness for the installer; run before changing it |
+| `tests/verify-vp-config.sh` | Reads every V+ pin back off the live pod; run after any `MOD_CONFIG` change |
 
 `secret.yaml` is gitignored. Copy the template, set the password, apply.
 
@@ -215,9 +216,11 @@ restart by reading the file back, never by the absence of a log line (whether V+
 kubectl exec -n valheim deploy/valheim -c valheim -- sh -c 'sed -n "/^\[Fermenter\]/,/^\[/p" /valheim/BepInEx/config/org.bepinex.plugins.valheim_plus.cfg | grep -v "^#"'
 ```
 
-To change a value: edit its line in `MOD_CONFIG`, apply, restart, read back. To turn on a section
-that is off, enumerate it in the live file first and pin **every** key in it. Enabling a section
-makes every key in it live.
+To change a value: edit its line in `MOD_CONFIG`, apply, restart, then run
+`bash valheim/tests/verify-vp-config.sh` from the repo root. It reads all 275 pins back off the
+live pod and exits non-zero on any mismatch or duplicated section. To turn on a section that is
+off, enumerate it in the live file first and pin **every** key in it. Enabling a section makes
+every key in it live.
 
 ### Confirm the mod stack is healthy
 
