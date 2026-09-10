@@ -1,3 +1,6 @@
+# Non-secret env for the indifferentbroccoli/valheim-server-docker image. Names are the
+# image's, read from scripts/start.sh and scripts/init.sh at commit cc29666 -- the README
+# documents most of them but the scripts are the truth (see PUBLIC below).
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -7,78 +10,70 @@ metadata:
     app: valheim
 data:
   SERVER_NAME: "Deathsquito Support Group"
-  WORLD_NAME: "TreeFellMeFirst"
-  SERVER_PUBLIC: "false"
-  SERVER_PORT: "2456"
+  # Fresh world for 1.0. The previous world (TreeFellMeFirst) was deleted with its PVC on
+  # 2026-09-10 by decision; there is no copy.
+  WORLD_NAME: "TreeFellMeAgain"
+  PORT: "2456"
   TZ: "America/Phoenix"
-  # Unattended auto-update DISABLED. A Valheim patch routinely breaks BepInEx mods, and the
-  # nightly restart was both the thing that could pull a breaking patch overnight and the only
-  # moment a newly-fetched plugin actually takes effect (the bootstrap rsync runs once per
-  # boot). With a mod stack installed -- including Warfare, last updated 03/2025 -- an
-  # unattended 5am update is the most likely way to find the server dark in the morning.
-  # Update deliberately instead: kubectl rollout restart deploy/valheim -n valheim
-  #
-  # ⚠️ MUST be an explicit empty string. DO NOT delete this key. The image uses
-  #   UPDATE_CRON=${UPDATE_CRON-*/15 * * * *}
-  # with `-`, not `:-`, so the default applies only when the variable is UNSET. Removing this
-  # line does not disable updates -- it silently switches them to EVERY 15 MINUTES. Empty-but-set
-  # fails the `[ -n "$UPDATE_CRON" ]` guard in valheim-bootstrap:93 and no cron is created.
-  UPDATE_CRON: ""
-  BACKUPS: "true"
-  BACKUPS_ZIP: "true"
-  BACKUPS_CRON: "0 * * * *"
-  BACKUPS_MAX_AGE: "3"
-  BACKUPS_IF_IDLE: "false"
-  BACKUPS_IDLE_GRACE_PERIOD: "3600"
-  # Space-separated SteamID64s. The image writes these to /config/adminlist.txt on start, so a
-  # change here needs a pod restart to take effect -- editing this ConfigMap alone does nothing.
-  # Admin grants the in-game F5 console admin commands (kick/ban/save/ping). It does NOT enable
-  # cheats: those need devcommands, which a dedicated server does not honour.
-  # 76561197963378853 = Ryan. Captured from the server's own "Got connection SteamID" line rather
-  # than from a profile page -- that log line is the ID the server actually authenticates.
-  ADMINLIST_IDS: "76561197963378853"
-  # Extra launch args, appended unquoted to the server command line by the image
-  # (/usr/local/bin/valheim-server, "$valheim_server" ... $SERVER_ARGS), so space-separated
-  # args work but a value containing a space will not.
-  #
-  # -modifier resources more: native Valheim world modifier, one step above normal.
-  # This is a GLOBAL drop multiplier -- it scales ore veins, trees and foraging along with
-  # mob loot. There is no native way to boost mob drops alone; that would need a BepInEx mod.
-  # Native keys: Combat, DeathPenalty, Resources, Raids, Portals (verified in
-  # assembly_valheim.dll). There is NO native durability modifier -- also mod-only.
-  #
-  # Modifiers are saved into the world once set. A malformed -modifier arg logs a parse
-  # error and is otherwise silently ignored, so check the logs after changing this.
-  #
-  # -saveinterval 3600: raised from the stock 1800 on 2026-08-08. The autosave was freezing
-  # the whole server for ~3.2s every 30 minutes -- measured, not estimated, across 7 of 7
-  # consecutive saves: 3522/3204/2937/3167/2987/3121/3578 ms.
-  #
-  # ⚠️ THIS HALVES THE FREQUENCY, IT DOES NOT SHORTEN THE FREEZE. Each save still costs ~3.2s.
-  # The duration is set by world size (59.7 MB / 1.26M ZDOs), so it will creep back up as the
-  # world grows, and raising this again only trades more crash-loss for less annoyance. The
-  # actual fix is fewer ZDOs.
-  #
-  # 🚨 DO NOT "FIX" THIS WITH FASTER STORAGE. The disk write is ALREADY asynchronous --
-  # m_saveThread, SaveThread, SaveAsync and PrepareSave are all present in
-  # assembly_valheim.dll. The blocking part is PrepareSave cloning world state in MEMORY on
-  # the main thread. Evidence: cgroup io.pressure totalled 0.32s cumulative over a pod
-  # lifetime containing ~22s of save freezes. If it were I/O those numbers would match.
-  #
-  # ⚠️ Hosting blogs claim "there's no built-in way to change the autosave interval". That is
-  # WRONG for this build: `saveinterval` is present in assembly_valheim.dll alongside savedir,
-  # backups, backupshort, backuplong, crossplay and instanceid. Recon the binary, not the docs.
-  #
-  # Tradeoff accepted: an unclean crash now loses up to 60 minutes instead of 30. Hourly zip
-  # backups (BACKUPS_CRON), Longhorn snapshots and CloudCasa all still apply, and a clean
-  # shutdown saves regardless.
-  #
-  # ⚠️ VERIFYING THIS NEEDS THE NEGATIVE CASE. The arg appearing in /proc/<pid>/cmdline only
-  # proves it was PASSED, not honoured -- a bad value is silently ignored, same as -modifier.
-  # The real check is a save that does NOT happen: confirm no "World saved" line at boot+30m,
-  # then one at boot+60m. Timing the gap between two saves is the only proof.
-  SERVER_ARGS: "-modifier resources more -saveinterval 3600"
-  BEPINEX: "true"
+  # false = Steam networking only, which is what "Join IP" over the LAN expects. true would
+  # route through PlayFab, add latency, and make the server show up for crossplay clients.
+  CROSSPLAY_ENABLED: "false"
+  # ⚠️ Dead code in this image: start.sh tests ${PUBLIC_ENABLED}, which nothing sets, so
+  # -public is ALWAYS 0 whatever this says. Kept so the intent is visible; if upstream ever
+  # fixes the variable name this is already the value we want.
+  PUBLIC: "false"
+  # Stock 1800s. The old server ran 3600 because a 60MB world froze for 3s per save; an empty
+  # world does not, so the tradeoff (up to 60 min lost on a crash) is not worth taking yet.
+  # Revisit with the same measurement once the world grows: time the gap between two
+  # "World saved" lines, and the ms figure on each.
+  SAVE_INTERVAL: "1800"
+  # Valheim's native rolling backups in worlds_local/, stated explicitly rather than trusted
+  # to image defaults: one at 2h then three 12h apart. These are the ONLY in-app backups on
+  # this image -- there is no cron and no zip. Longhorn snapshots and CloudCasa cover the rest.
+  KEEP_BACKUPS: "4"
+  BACKUPS_SHORT: "7200"
+  BACKUPS_LONG: "43200"
+  # Plain Normal preset, no MODIFIER_* keys: this world starts unmodified. The old
+  # "-modifier resources more" was deliberately not carried over.
+  SERVER_PRESET: "Normal"
+  # -setkey nobuildcost. ⚠️ -setkey persists a global key INTO THE WORLD SAVE. Setting this
+  # back to false removes the arg but NOT the key; reversal is an admin running
+  # `removekey nobuildcost` in the in-game F5 console, then restarting so the arg is gone too.
+  NO_BUILD_COST: "true"
+  # The other -setkey toggles, pinned so an upstream default change cannot flip them.
+  NO_MAP: "false"
+  PLAYER_EVENTS: "false"
+  PASSIVE_MOBS: "false"
+  FIRE_HAZARDS: "false"
+  # true makes start.sh export the doorstop/LD_PRELOAD env that loads BepInEx. The pack ITSELF
+  # is installed by the fetch-mods initContainer (see mods-configmap.yaml for why the image
+  # must not do it). Do not set the image's MODS variable: its downloader re-fetches
+  # everything unverified on every boot and flattens every zip into one directory.
+  BEPINEX_ENABLED: "true"
+  # Inert while the initContainer installs the pack (the image only reads this on ITS OWN
+  # first install), but pinned to the version in mods-configmap.yaml so the two never disagree.
+  BEPINEXPACK_VERSION: "5.4.2350"
+  # false = SteamCMD runs only when /valheim/valheim_server.x86_64 is absent. Game updates are
+  # deliberate on this server because a Valheim patch routinely breaks BepInEx mods -- this is
+  # exactly how the previous server got stuck on a pre-1.0 build with 1.0 clients locked out,
+  # so when an update IS wanted: set this to "true", apply, rollout restart, verify the mods,
+  # set it back. (Deleting the valheim-server PVC forces the same thing the hard way.)
+  UPDATE_ON_START: "false"
+  BETA: "public"
+  # Required by init.sh, which exits without them. It usermods the steam user to these ids
+  # and chown -Rs both volumes -- and then runs the game as root regardless (there is no su
+  # in the image despite the comment saying "PID of su"). Kept at the values the old server
+  # used so nothing on disk changes owner.
   PUID: "10000"
   PGID: "10000"
-  STATUS_HTTP: "false"
+  # Space-separated SteamID64s. Consumed by the fetch-mods initContainer, which rewrites
+  # /valheim-saves/adminlist.txt every boot -- the image itself does nothing with admins.
+  # Edit here, apply, rollout restart. Admin grants the F5 console kick/ban/save/removekey
+  # commands; it does not enable cheats.
+  # 76561197963378853 = Ryan, captured from the server's own "Got connection SteamID" line.
+  ADMINLIST_IDS: "76561197963378853"
+  # Deliberately absent:
+  #   MODS        -- see BEPINEX_ENABLED above
+  #   MAX_PLAYERS -- any value other than 10 makes start.sh silently install its bundled
+  #                  MaxPlayerCount mod into BepInEx/plugins/
+  #   MODIFIER_*  -- see SERVER_PRESET
