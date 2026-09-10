@@ -90,6 +90,19 @@ data:
   #
   # Populated after the first boot, from the file V+ actually generated -- see README.md.
   MOD_CONFIG: |
+    # --- ValheimPlus sentinel: [Fermenter] on, every other key at its generated default ------
+    # enabled = true is the ONLY non-default line; it is what proves the applier reached
+    # org.bepinex.plugins.valheim_plus.cfg. The other seven are pinned because enabling a
+    # section makes every key in it live. Values read from the file V+ 10.0.2 generated on
+    # first boot (2026-09-10), not from docs. Read back after every restart.
+    org.bepinex.plugins.valheim_plus.cfg|Fermenter|enabled|true
+    org.bepinex.plugins.valheim_plus.cfg|Fermenter|fermenterDuration|2400
+    org.bepinex.plugins.valheim_plus.cfg|Fermenter|fermenterItemsProduced|6
+    org.bepinex.plugins.valheim_plus.cfg|Fermenter|showDuration|false
+    org.bepinex.plugins.valheim_plus.cfg|Fermenter|autoDeposit|false
+    org.bepinex.plugins.valheim_plus.cfg|Fermenter|autoFuel|false
+    org.bepinex.plugins.valheim_plus.cfg|Fermenter|ignorePrivateAreaCheck|true
+    org.bepinex.plugins.valheim_plus.cfg|Fermenter|autoRange|10
   install-mods.sh: |
     #!/bin/bash
     # Idempotent, checksum-verified installer for BepInExPack + server-side mods, plus
