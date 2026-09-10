@@ -1,28 +1,30 @@
-# Server-side BepInEx mod set and per-mod config, applied by the `fetch-mods` initContainer
-# in deployment.yaml.
+# BepInEx framework, server-side mods, and per-mod config, applied by the `fetch-mods`
+# initContainer in deployment.yaml straight into the live install on the valheim-server PVC.
 #
-# WHY AN INIT CONTAINER: Kubernetes has no bind-mount equivalent for a workstation file, so a
-# DLL has to reach the valheim-data PVC somehow. The pod has outbound internet (verified:
-# thunderstore.io -> HTTP 200), so fetching pinned releases at pod start is declarative,
-# reproducible from an empty PVC, and keeps versions in git instead of in someone's memory.
+# WHY AN INIT CONTAINER: Kubernetes has no bind-mount for a workstation file, so a DLL has to
+# reach the PVC somehow. The pod has outbound internet, so fetching pinned, checksummed
+# releases at pod start is declarative and reproducible from an empty PVC.
 #
-# ADDING/UPGRADING A MOD: add or edit a line in MODS below, then apply + rollout restart. The
-# installer keys off "<version> <sha256>", so changing either triggers a clean reinstall of just
-# that mod. Get a new checksum with:
+# WHY THE INIT CONTAINER INSTALLS BEPINEXPACK TOO (and not the image): the image downloads
+# BepInExPack only when /valheim/BepInEx is ABSENT. This container has to create
+# BepInEx/plugins/<mod>/ before the game container's first boot, so the image would see the
+# directory, skip its own install, and the game would boot vanilla with no error. Owning the
+# pack also owns /valheim/.bepinex_version, which the image's start.sh reads to choose the
+# doorstop env var names -- no marker means "legacy 5.4.22", the old names, and BepInEx never
+# loads. So: BEPINEX_ENABLED=true in configmap.yaml (for the LD_PRELOAD/doorstop env), the
+# pack from here, and the image's own MODS variable left unset so its downloader never runs.
+#
+# ADDING/UPGRADING: add or edit a line in MODS, then apply + rollout restart. The installer
+# keys off "<version> <sha256>", so changing either reinstalls just that entry. Checksum:
 #   kubectl exec -n valheim deploy/valheim -c valheim -- sh -c 'curl -fsSL -o /tmp/m.zip "<url>" && sha256sum /tmp/m.zip'
 #
-# REMOVING A MOD: delete the line, apply, restart. The installer prunes any plugin directory not
-# listed in MODS from BOTH the staged copy here and the live install at
-# /opt/valheim/bepinex/BepInEx/plugins, and drops its .mod-state marker. This used to require a
-# manual rm -rf in two places, because the image syncs with `rsync -a` and no --delete.
+# REMOVING: delete the line, apply, restart. Any plugins/<dir> not named in MODS is pruned,
+# with a breaker that refuses more than 2 removals in one boot (a truncated MODS block looks
+# exactly like a mass removal). Only mods that register no prefabs are free to remove --
+# a mod that added items or creatures leaves orphaned ZDOs in the world save.
 #
-# Deleting the valheim-server PVC does NOT remove a mod, despite being the disposable one -- the
-# staged copy here survives and the bootstrap rsync restores it.
-#
-# ⚠️ The prune handles FILES, not world data. A mod that registered prefabs -- EpicLoot, Warfare,
-# Armory, OdinsFoodBarrels, OdinHorse, BoatAdditions -- has its items or creatures persisted as
-# ZDOs in the world save, and dropping it orphans them. Only pure runtime-patch mods are free to
-# remove.
+# The first install of any NEW mod costs two applies: a mod does not write its .cfg until
+# it has booted once, and MOD_CONFIG cannot name a section that does not exist yet.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -33,1266 +35,82 @@ metadata:
 data:
   # name  version  url  sha256  layout
   #
+  # layout=pack    -> BepInExPack_Valheim/* is copied over /valheim (the framework itself)
   # layout=plugins -> the zip has a plugins/ dir; its contents go to BepInEx/plugins/<name>/
   # layout=bepinex -> the zip nests under BepInEx/plugins/ (ValheimPlus does this)
   # layout=root    -> the .dll sits at the zip root; it goes to BepInEx/plugins/<name>/
   #
-  # A zip's optional config/ dir is always copied to /config/bepinex/ , which IS
-  # BepInEx/config/ (the live install symlinks it). Only Warfare ships one -- its
-  # TherzieTranslations YAMLs. Verified against each zip's actual contents, not assumed.
+  # Checksums captured from the real downloads on 2026-09-10. Layouts verified with unzip -l,
+  # not assumed from the store page.
   #
-  # Checksums captured from the real downloads (2026-07-27; later additions dated at their entry).
-  # CLIENT INSTALL: every mod here except PlantEverything, LazyVikings and BetterNetworking
-  # must also be on each client. AzuExtendedPlayerInventory, AzuContainerSizes and
-  # Recycle_N_Reclaim actively KICK clients that lack them. LazyVikings does not kick, but its
-  # automation runs on the ZDO owner, so a player without it may see no auto-cooking -- install
-  # it anyway. BetterNetworking does not kick either and is useful server-only, but it is only
-  # HALF effective that way: its compression needs BN at both ends, and the client that owns a
-  # creature's ZDO is the one sending its updates. Install it per-client too once the
-  # server-side effect has been measured. See README.md for the full client list.
+  # ValheimPlus 10.0.2 declares BepInExPack 5.4.2350; Jotunn 2.30.0 declares 5.4.2333, which
+  # 5.4.2350 satisfies. All three shipped Valheim 1.0 releases on 2026-09-09/10.
+  #
+  # CLIENT INSTALL: ValheimPlus is pinned at its defaults with enforceMod off, so a client
+  # without it can still join. Players who want V+ features install the same version.
   MODS: |
-    Jotunn                     2.29.2   https://thunderstore.io/package/download/ValheimModding/Jotunn/2.29.2/                      c018eb5876ea0b4a509c32b7926055918ea95bc4698610df6b2acc58d72029ad  plugins
-    JsonDotNET                 13.0.4   https://thunderstore.io/package/download/ValheimModding/JsonDotNET/13.0.4/                  a221c7be7163ab9739274b962fbd1f63abde65b1418839a62f02aca210868147  plugins
-    EpicLoot                   0.12.15  https://thunderstore.io/package/download/RandyKnapp/EpicLoot/0.12.15/                       0b13feefd8b23df985505f6b9fba6fcd71bcdff1c33935e03bf1c84378bba5eb  plugins
-    AzuExtendedPlayerInventory 2.4.1    https://thunderstore.io/package/download/Azumatt/AzuExtendedPlayerInventory/2.4.1/          813b4310b571ddc4465cc9b9d627b137410c6027088e5516ac299b4c5febb2be  root
-    Warfare                    1.8.9    https://thunderstore.io/package/download/Therzie/Warfare/1.8.9/                             bd591233da37ba3be3d2edcb5745df154f18fab91fb3da434e647b3f1c49a405  root
-    PlantEverything            1.20.0   https://thunderstore.io/package/download/Advize/PlantEverything/1.20.0/                     cbea097f4d8ac6bd7020d6c76a98f271ef8ae5a3e405ae64e110ed15c2941fe6  root
-    AzuContainerSizes          1.1.4    https://thunderstore.io/package/download/Azumatt/AzuContainerSizes/1.1.4/                   801dfcd3cea2d37a009780a6fe6fb8091414fd36bd84678bd17fd06bb51c9112  root
-    ValheimPlus                9.17.1   https://thunderstore.io/package/download/Grantapher/ValheimPlus_Grantapher_Temporary/9.17.1/ 51974dc21c1a2414bb966f7fc8b043ee13c5b95dddc0b678e11edc5c44d91484  bepinex
-    Armory                     1.3.1    https://thunderstore.io/package/download/Therzie/Armory/1.3.1/                             8be5e52c400dc27975dcbcb8d870b762df67932b2161b2c44184958b8acbb5ce  root
-    OdinsFoodBarrels           1.2.3    https://thunderstore.io/package/download/OdinPlus/OdinsFoodBarrels/1.2.3/                  0f451a6f634c17e698ad592979be98f710283eeb235f732cbf4200496ef6e3f6  root
-    XPortal                    1.2.24   https://thunderstore.io/package/download/SpikeHimself/XPortal/1.2.24/                      ba141d8c0dba3e102d83c54665a5a938abb2fcbe90b5197a127fdd74d976150a  plugins
-    # OdinHorse: rideable/tameable/breedable horses plus a horse cart. Pinned at 1.6.5 rather
-    # than an older "more proven" release because 1.6.2 was the server-side fix ("error when
-    # using Mod on Server. Any array-typed config, fixed at the ServerSync.cs layer") -- anything
-    # before that is actively wrong for a dedicated server. Everything since is cosmetic.
-    #
-    # Saddle storage ships DISABLED by default for performance and is deliberately left that way.
-    # Turning it on needs a second apply: MOD_CONFIG needs exact section/key names, and those do
-    # not exist until the mod generates its .cfg on first boot.
-    #
-    # ⚠️ Requires the [Wagon] pin in MOD_CONFIG to stay disabled -- see the note there.
-    OdinHorse                  1.6.5    https://thunderstore.io/package/download/OdinPlus/OdinHorse/1.6.5/                          23a455aa79c074f2098107ea9f09f044460442d152732d928f511a16023209bc  root
-    # Recycle_N_Reclaim: un-craft items back into components at a crafting station
-    # ([3 - Reclaiming]) and discard items from the inventory screen
-    # ([2 - Inventory Recycle]). Both halves are deliberately enabled -- see MOD_CONFIG.
-    #
-    # 🚨 KICKS CLIENTS THAT LACK IT. Its own README: "Version checks with itself. If
-    # installed on the server, it will kick clients who do not have it installed."
-    # Confirmed statically too: RemoveDisconnectedPeerFromVerified and RPC_*_Version are
-    # present, matching AzuEPI and AzuContainerSizes and absent from PlantEverything and
-    # XPortal. Note that MinimumRequiredVersion and DisconnectClient are NOT discriminating
-    # -- PlantEverything has both and does not kick. Use the other two markers.
-    #
-    # Registers NO prefabs (AssetBundle/LoadAsset/PrefabManager/CustomItem/CustomPrefab/
-    # ItemManager all zero, no bundled assets), so unlike EpicLoot/Warfare/Armory/
-    # OdinsFoodBarrels/OdinHorse this one is free to remove without orphaning ZDOs.
-    Recycle_N_Reclaim          1.4.0    https://thunderstore.io/package/download/Azumatt/Recycle_N_Reclaim/1.4.0/                    919794da00dc630dc2171c9f1daefb9df97117ee15119b4d7fe1f7454aaa4d16  root
-    # --- LazyVikings: unattended cooking-station automation, NARROWED to that alone -------
-    #
-    # Fills cooking stations from nearby containers WITHOUT player interaction. This is the
-    # one thing ValheimPlus cannot do: V+ implements the interact-driven half
-    # (CookingStation_FindCookableItem_Transpiler -> PullCookableItemFromNearbyChests, which
-    # DOES work -- press E at a grill and it takes meat from a nearby chest) but has no
-    # unattended engine. Its own patch set shows the gap: Smelter has both
-    # FindCookableItem_Transpiler AND UpdateSmelter_Patch; CookingStation has only the former.
-    # There is no [CookingStation] section in valheim_plus.cfg at all.
-    #
-    # 🚨 EVERY OTHER STATION TYPE IS PINNED OFF in MOD_CONFIG. Eleven of the fourteen name a
-    # station ValheimPlus ALREADY automates: Kilns, Smelters, Blast Furnaces (⚠️ V+ calls
-    # that section [Furnace], NOT [BlastFurnace] -- which is why this one is easy to miss),
-    # Windmills, Fermenters, Beehives, SapCollectors, SpinningWheels, EitrRefineries, Stone
-    # Ovens and Fireplaces. Enabling any of them puts two mods on the same station. The other
-    # three (Hot Tub, Steel Kiln, Steel Slack Tub) are off for consistency. See MOD_CONFIG.
-    #
-    # Does NOT kick clients: RemoveDisconnectedPeerFromVerified and RPC_*_Version are both 0,
-    # matching PlantEverything and XPortal, unlike AzuEPI and Recycle_N_Reclaim which have
-    # both. It does carry ServerSync, so config still reaches clients.
-    #
-    # Registers no prefabs, so removal is clean. Patches with Harmony Prefix rather than
-    # transpilers, which is why a 2025-10-20 release is still fine against current Valheim.
-    LazyVikings                1.2.3    https://thunderstore.io/package/download/blacks7ar/LazyVikings/1.2.3/                        25cc50aeb44be09d08998b937dde671b60f8a420656d5b36cc236c52c8588437  root
-    # --- BoatAdditions: 8 new boats, anchors on vanilla boats, and a Boatyard station -------
-    #
-    # Chosen over Marlthon/OdinShip 0.7.6, evaluated 2026-08-04 and declined. OdinShip nests its
-    # DLL one level down (OdinShip/OdinShip.dll plus OdinShip/OSPMusic/) -- a FOURTH zip shape
-    # install_one does not handle. Under layout=root it fails SILENTLY: the find matches no .dll
-    # at maxdepth 1, exits 0, the marker is written and "[ok ]" printed with nothing installed --
-    # and it then skips forever, because the marker matches and mkdir -p already made the dir.
-    # Adding it would mean a new layout type, not a new MODS line. Its author also states server
-    # config sync "is still in development", the same gap that got CookingStationTweaks declined.
-    # Artifact if ever reconsidered: sha256
-    # fbb5c2acb0fa015bc87d41965521a15a6e709b5e8309b68f8ef5d5ee16246385, 40770039 bytes.
-    #
-    # Does NOT kick clients: RemoveDisconnectedPeerFromVerified is 0 and there is no RPC_*_Version
-    # machinery at all -- the cleanest profile in this roster.
-    # ⚠️ RUN THE FULL MARKER, NOT A PREFIX. A truncated "RemoveDisconnected" also matches an
-    # unrelated Unity mesh string present in nearly every DLL, which scores PlantEverything and
-    # LazyVikings identical to the known kickers and makes the check useless. Controls on the
-    # full string: AzuEPI 1, PlantEverything 0.
-    #
-    # 🚨 REGISTERS PREFABS (AssetBundle, PieceManager, ItemManager). Unlike LazyVikings this is
-    # NOT free to remove -- built boats persist as ZDOs. See the prune warning at the top.
-    #
-    # No kick means no enforcement, and it DOES register prefabs, so a client missing it hits
-    # missing prefabs on someone else's boat. Convention, not mechanism: everyone installs it.
-    #
-    # Does NOT collide with AzuContainerSizes [3 - Ships]: its storage keys name its OWN hulls
-    # ("Outrigger Karve storage row size"), and Outrigger Karve is a different prefab from the
-    # vanilla Karve. Does NOT fight V+ [Ship] either -- it touches vanilla boats only to add the
-    # anchor (a velocity lock on the rudder), never the sail stats, so forwardSpeed 50 still
-    # applies and now also applies to the new hulls.
-    #
-    # Config is deliberately NOT pinned yet. The generated file appeared on first boot as
-    # blacks7ar.BoatAdditions.cfg -- 18 sections, 265 keys (enumerated 2026-08-04).
-    #
-    # ⚠️ ITS SECTION NAMES ARE INCONSISTENT, AND SOME ARE NEAR-DUPLICATES. Both spacing styles
-    # exist side by side in the SAME file: [Large Raft] AND [LargeRaft], [Outrigger Karve] AND
-    # [OutriggerKarve], [Outrigger Skeid] AND [OutriggerSkeid]. Capitalisation drifts too --
-    # [Small hull] vs [Sturdy Hull] vs [Large Hull]. A MOD_CONFIG line naming the wrong variant
-    # writes a real-looking key into a section the mod never reads, and nothing logs. Copy the
-    # section name from the generated file verbatim; do not retype it from the boat's display
-    # name. Enumerate first:
-    #   kubectl exec -n valheim deploy/valheim -c valheim -- grep '^\[' \
-    #     /config/bepinex/blacks7ar.BoatAdditions.cfg
-    BoatAdditions              1.4.2    https://thunderstore.io/package/download/blacks7ar/BoatAdditions/1.4.2/                      123bd3fb25002ae067c529b9674e00ceaaed9b0083b5108d3fdd5150c53a629c  root
-    # BetterNetworking: raises Valheim's hardcoded per-peer ZDO send queue cap. Added 2026-08-08
-    # to fix mobs teleporting/skipping in the Ashlands.
-    #
-    # WHY THIS AND NOT A SERVER TUNE: the bottleneck is a CONSTANT COMPILED INTO THE GAME, not a
-    # resource limit. ZDOMan.SendZDOToPeers refuses to send once a peer's socket queue exceeds
-    # 10240 bytes:
-    #     if (!flush && sendQueueSize > 10240) { return false; }
-    # Measured against that ceiling, the server was idling: 0.063 cores, ~95 KB/s tx on a <1ms
-    # gigabit LAN, zero UDP drops, zero rx_queue backlog, zero PSI pressure on cpu/io/memory.
-    # It had every resource available and would not use them. Do NOT go looking for a CPU,
-    # memory, disk or MetalLB fix -- all nine were measured and eliminated on 2026-08-08.
-    #
-    # ⚠️ THE MOD TARGETS THAT EXACT CALL, verified in the artifact rather than believed from the
-    # store page: it registers BN_Patch_QueueSize containing Steamworks_GetSendQueueSize and
-    # PlayFab_GetSendQueueSize -- the same GetSendQueueSize() the 10240 check reads. Other patch
-    # classes: BN_Patch_SendRate, _UpdateRate, _Compression, _NewConnectionBuffer,
-    # _DedicatedServer, _ForceCrossplay, _ChangePlayerLimit.
-    #
-    # 🚨 PLAYER-LIMIT COLLISION -- DECIDED UP FRONT, NOT DISCOVERED LATER. BN ships
-    # BN_Patch_ChangePlayerLimit (configPlayerLimit -> SetPlayerLimit, applied at
-    # DedicatedServerInit) and ValheimPlus [Server] maxPlayers = 10 already owns that property.
-    # Two mods, one property -- the same situation as the [Wagon]/OdinHorse and [Inventory]/AzuEPI
-    # pins. DECISION: V+ keeps ownership at 10, and BN's player limit is PINNED TO THE SAME 10 so
-    # the result is identical whichever patch applies last. This deliberately does NOT depend on
-    # undocumented patch ordering -- that is the same reasoning recorded for [Wagon]. The pin
-    # cannot be written until the key name is known; see the second-apply note below. It is NOT
-    # optional and NOT deferred-by-choice.
-    #
-    # ⚠️ THE ARTIFACT IS STALE AND THIS IS THE REAL RISK. Last updated 2023-11-12; its own README
-    # tops out at "Now compatible with Mistlands!". It PREDATES ASHLANDS -- the biome it is being
-    # installed to fix -- and is ~16 months older than Warfare, already the oldest thing here.
-    # Not deprecated, 158k downloads, and BepInEx 5.4.2333 installed satisfies its 5.4.2202 pin.
-    # If Valheim has moved those method signatures since, the Harmony patch fails to apply.
-    # CHECK THE LOG FOR PATCH FAILURES AFTER ANY VALHEIM UPDATE, not just after this install.
-    #
-    # ✅ DOES NOT KICK -- control-verified 2026-08-08, not taken from the author's README.
-    # Ran the discriminating grep against two known kickers and two known non-kickers:
-    #   AzuContainerSizes [kicker]     RemoveDisconnectedPeerFromVerified=1
-    #   Recycle_N_Reclaim [kicker]     RemoveDisconnectedPeerFromVerified=1
-    #   PlantEverything   [non-kicker] RemoveDisconnectedPeerFromVerified=0  RPC_*Version=1
-    #   BoatAdditions     [non-kicker] RemoveDisconnectedPeerFromVerified=0
-    #   BetterNetworking               RemoveDisconnectedPeerFromVerified=0  RPC_*Version=1
-    # BN carries NO MinimumRequiredVersion and NO DisconnectClient at all -- less kick-capable
-    # than either non-kicker control. Vanilla clients can still join.
-    #
-    # ⚠️ That run also DISPROVED half of the kick heuristic in CLAUDE.md, which claims
-    # RemoveDisconnectedPeerFromVerified and RPC_*_Version both discriminate. RPC_*Version is 0 on
-    # BOTH known kickers and 1 on a known non-kicker -- anti-correlated in this sample. Only
-    # RemoveDisconnectedPeerFromVerified separates them cleanly. Trusting RPC_*Version alone would
-    # have wrongly condemned this mod as a kicker.
-    #
-    # AssetBundle/PrefabManager/CustomItem/ItemManager/PieceManager all 0 -> registers no prefabs
-    # -> removal is clean, no orphaned ZDOs. Deleting this line and restarting fully reverts it.
-    #
-    # CLIENT INSTALL: not required (it does not kick), so this is deliberately deployed
-    # SERVER-FIRST to measure before asking four people to install anything. But server-side is a
-    # PARTIAL fix by design: compression only works between two BN-equipped peers, and mob updates
-    # travel owner-client -> server -> other clients. This install only widens the second hop.
-    # The mod's own README: "The player who arrives in an area first is responsible for lag
-    # there" -- which independently matches what the ownership evidence showed.
-    #
-    # Config is deliberately NOT pinned yet -- SECOND APPLY REQUIRED, same as OdinHorse above.
-    # Sections seen in the DLL are [Networking], [Compression] and [Crossplay], with options
-    # NetworkQueueSize, NetworkSendRateMin, NetworkSendRateMax, NetworkUpdateRate,
-    # NetworkCompression, ForceCrossplay and Logger_LogLevel -- but those are SYMBOL names, not
-    # verified .cfg key names. Enumerate the generated file before pinning anything, and read
-    # "# Setting type:" for each key; do not retype these from here:
-    #   kubectl exec -n valheim deploy/valheim -c valheim -- \
-    #     grep -n '^\[\|^# Setting type\|^[A-Za-z]' /config/bepinex/CW_Jesse.BetterNetworking.cfg
-    # Tuning targets from the mod README once the real keys are known: default queue size 32 KB
-    # (already 3.2x the vanilla 10240); "if NPCs are skipping, reduce update rate to 75% and
-    # raise queue size to 48 KB" -- which is this server's exact symptom.
-    BetterNetworking_Valheim   2.3.2    https://thunderstore.io/package/download/CW_Jesse/BetterNetworking_Valheim/2.3.2/            1e4a654d091e87ece8ccb507dc1df8f2c7944a44372d5b8ec42185dabf146c10  root
-    # TrashItems is deliberately NOT here. It is a client-side inventory-UI mod with no server
-    # role, and it would contend with AzuExtendedPlayerInventory AND Recycle_N_Reclaim's
-    # [2 - Inventory Recycle] half, both of which already redraw that same screen. That
-    # three-way contention was accepted knowingly -- it is the top risk on Recycle_N_Reclaim's
-    # design spec -- and is gated by an in-game check, not assumed safe.
-    # Its dependency pin is BepInExPack 5.4.800 and it was last updated 2024-01, so it predates
-    # AzuEPI's current version by ~2 years. Install it per-client and test the inventory UI.
-    #
-    # CookingStationTweaks (Grizzzly, 0.7.1) is deliberately NOT here. Evaluated 2026-07-29 and
-    # declined. Its features are useful and it does NOT collide with V+ -- [Oven] there covers
-    # only fuel, this covers slots, cook time, burning and auto-pop. Grizzzly's is the right
-    # fork: 0.7.1 (2025-05) vs yeldarb420 0.6.0 (2024-06) vs digitiliad 0.2.0 (deprecated).
-    #
-    # It was declined because it has NO enforcement mechanism. It ships no ServerSync and no
-    # Jotunn, so unlike everything else here it can neither kick mismatched clients (AzuEPI,
-    # AzuContainerSizes do) nor push config from the server (ValheimPlus does, via
-    # serverSyncsConfig). Correct client config would be convention, not mechanism.
-    #
-    # The failure mode is the one already documented for AzuContainerSizes below: a player on a
-    # different SlotMultiplier -- or without the mod -- sees a DIFFERENT slot count on a shared
-    # station, and food in the extra slots is invisible and unrecoverable to them. Silent and
-    # per-player. If it is ever reconsidered, the artifact is sha256
-    # 62c11fa57ca3ff34d0ef09942da77966835ce042ca03e378e7eb749398714477, 115605 bytes, layout
-    # root, and its config file is aedenthorn.CookingStationTweaks.cfg.
-    #
-    # TeleportEverything (OdinPlus, 2.9.1) is deliberately NOT here either. Evaluated 2026-07-29.
-    # It is a good mod -- 700K downloads, and unlike CookingStationTweaks it HAS server-synced
-    # settings, so it does not carry that config-consistency problem. Its stated partial
-    # incompatibilities (TargetPortal, CreatureLevelAndLootControl, UnrestrictedPortals) are all
-    # absent here, and it does NOT conflict with XPortal: XPortal is an AnyPortal revamp that
-    # manages portal naming/targeting, while this manages what may pass through.
-    #
-    # It was declined because V+ [Items] noTeleportPrevention -- one line, in a section already
-    # enabled -- covers ores and ingots, which was most of the want. Knowingly given up: tamed
-    # animals and carts through portals, enemy-follow modes, transport fees.
-    #
-    # ⚠️ If it is ever added, set [Items] noTeleportPrevention back to false -- both patch the
-    # same check. Artifact: sha256
-    # 266b6d6b1799796555d9d188963fdccd28578c9118aac2bc911d174a301807a8, 308447 bytes, layout root,
-    # config file com.kpro.TeleportEverything.cfg. Would compose well with OdinHorse's horse and
-    # horse cart, though its ally filter is mask/regex based so a custom creature may need config.
-    #
-    # VikingsDoSwim (blacks7ar) is deliberately NOT here. Evaluated 2026-08-04 for a "+75% swim
-    # speed" request and declined -- deferred, not rejected on quality.
-    #
-    # ⚠️ FIRST, THE FACT THAT MOTIVATED IT: THERE IS NO SWIM SPEED SETTING IN VALHEIM PLUS, and
-    # none anywhere in valheim_plus.cfg. Enumerated off the PVC: the only swim keys in the whole
-    # file are [Experience] swim (XP gain), dontUnequipItemsWhenSwimming, reequipItemsAfterSwimming
-    # and [Stamina] swimStaminaDrain. Every speed/velocity key belongs to a production station, a
-    # projectile or a ship. Do not go looking for this knob again -- it does not exist.
-    #
-    # There is no no-mod route either. In assembly_valheim.dll only m_swimStaminaDrainMinSkill and
-    # m_swimStaminaDrainMaxSkill are skill-paired; m_swimSpeed has no skill variant, so vanilla
-    # swim speed is FLAT and levelling Swimming does not make you faster.
-    #
-    # 🚨 IF IT IS EVER ADDED, IT COLLIDES WITH [Stamina] swimStaminaDrain. Its own feature list
-    # includes "Configurable swim stamina drain min/max skill" -- the exact two fields V+ writes to
-    # implement swimStaminaDrain = -100. Two mods on the same fields with undefined patch ordering,
-    # the same collision class that keeps [Wagon] and [Inventory] pinned off. Decide ownership
-    # first: either pin V+ swimStaminaDrain back to 0 and let the mod own swimming end to end, or
-    # do not install it.
-    #
-    # ⚠️ It also would NOT have delivered a flat +75%. Its knob is "Max Swim Speed at max swim
-    # skill level" and speed ramps with the Swimming skill -- and swimStaminaDrain = -100 may keep
-    # that skill near zero, so the two changes could partly cancel. Artifact NOT downloaded, so
-    # there is no hash here and no kick/prefab recon: run the full evaluation before trusting it.
-    # It also bundles a diving mechanic and underwater brightness/fog, well beyond the ask.
-    #
-    # RecipePinner (KadrioS, 1.3.0) is deliberately NOT here. Evaluated 2026-08-02 and declined
-    # for SERVER install specifically -- it is recommended CLIENT-side. Pins recipes and build
-    # pieces to the HUD and tracks missing materials live, with pin groups and an optional
-    # nearby-chest scan.
-    #
-    # It has NO server role at all. It patches InventoryGui and Hud, neither of which exists on a
-    # headless server, and it persists pins to a local save path -- per-player data that never
-    # touches the world. Installed here it would load, patch nothing, and add 220KB of executable
-    # code inside the server process plus a prune entry, for zero function.
-    #
-    # The evidence, run against four controls already on this PVC (all counts from the DLL):
-    #                       ServerSync  RPCreg  MinReqVer  Disconnect  RemovePeer  ZRoutedRpc
-    #   RecipePinner            0         0         0          0           0           0
-    #   AzuEPI      (kicks)     9         5         1          1           1           2
-    #   Recycle_N_R (kicks)     9         3         1          1           1           1
-    #   XPortal     (no kick)   0         1         0          0           0           1
-    #   PlantEvery. (no kick)  11         7         1          1           0           1
-    # It is the ONLY one with zeros straight across. Even the two non-kicking controls carry RPC
-    # and ZRoutedRpc machinery. ZDOMan, ZoneSystem and ConfigSync are all 0 as well.
-    #
-    # ⚠️ Tell players to check the inventory screen after installing. It references InventoryGui
-    # 20 times, but the symbols are state reads (InventoryGui_Hide_BlockDuringDialog,
-    # IsBlockingInventoryPanelOpen) rather than slot redraws, so it is a far lighter touch than
-    # TrashItems. It would still be the FOURTH thing drawing on that area after vanilla, AzuEPI's
-    # extra rows and Recycle_N_Reclaim's trash slot. Client-side, so the blast radius is one
-    # player's UI, not the server -- which is what makes this a comfortable recommendation.
-    #
-    # Artifact, if it is ever reconsidered for server install: sha256
-    # 812082425eac5c5cf6b0d2ef3fa819d4066f13275387518f19762d7722fe11ff, 219968 bytes, layout
-    # PLUGINS (the zip nests plugins/RecipePinner.dll plus a plugins/RecipePinner_languages/
-    # folder of 39 translation JSONs), GUID com.Kadrio.RecipePinner, sole dependency
-    # denikson-BepInExPack_Valheim-5.4.2333. Registers no prefabs. Soft MyLittleUI integration;
-    # that mod is not installed here and there is no conflict.
-
-  # Per-mod BepInEx config, declared here instead of hand-edited on the PVC.
+    BepInExPack_Valheim  5.4.2350  https://thunderstore.io/package/download/denikson/BepInExPack_Valheim/5.4.2350/               37a91c000b4e88f2ed7a4bd7d812239852d2e36cbf0ff0a9f5faacfba46b105f  pack
+    Jotunn               2.30.0    https://thunderstore.io/package/download/ValheimModding/Jotunn/2.30.0/                        f7f218ac3f97b27a7e65d62b5ebe7c29b93129bf3e56cf41b6870bef1ef161fd  plugins
+    ValheimPlus          10.0.2    https://thunderstore.io/package/download/Grantapher/ValheimPlus_Grantapher_Temporary/10.0.2/  6fece0e93ffe3604210fa04dd58a2773d22c4334ee1f0069ac6a6977d89acb1c  bepinex
+  # Per-mod config, declared here instead of hand-edited on the PVC. One line per key:
+  #   <file under BepInEx/config>|<section>|<key>|<value>
   #
-  # Format: <cfg filename>|<Section>|<Key>|<Value>          (pipe-delimited; keys contain spaces)
+  # Two parsers, two failure modes. valheim_plus.cfg is parsed by V+'s own INI reader
+  # (true/false, "key=value" with no spaces, CRLF line endings). BepInEx-bound mods use
+  # "Key = Value" and Toggle enums (On/Off). The applier preserves whichever separator style
+  # the file already uses. A rejected BepInEx value logs "could not be parsed" in the game
+  # container; a rejected V+ value logs NOTHING -- verify V+ by reading the file back.
   #
-  # The image's BEPINEXCFG_<Section>_<Var> env mechanism CANNOT do this -- it only ever writes
-  # BepInEx.cfg (`env2cfg --config "$config_path/BepInEx.cfg"` in common), never per-mod files.
-  # Without this block those settings exist only as untracked edits on the volume.
+  # ⚠️ Enabling a V+ section makes EVERY key in it live. Pin them all, including the ones
+  # staying at default, or a future V+ default change takes effect silently.
   #
-  # Applied on every boot, so this file is the source of truth: a value changed in-game or by a
-  # mod's own config manager is reverted on the next restart. Change it here, not there.
+  # ⚠️ A pin whose value equals the mod's default is inert and unverifiable -- it reads back
+  # correct even if the section name is wrong. The [Fermenter] enabled=true line below is the
+  # sentinel that proves the applier reached this file; every other key in that section is
+  # pinned at its generated default so enabling it changes no behaviour.
   #
-  # Only keys listed here are touched -- everything else in the .cfg keeps whatever the mod
-  # wrote. Settings marked "[Synced with Server]" propagate to all clients automatically, so
-  # they need no client-side action.
-  # ⚠️ ONLY EVER GROW A CONTAINER. Every value below started at its range minimum, which is also
-  # the vanilla default, so these are all increases. Shrinking a container that already holds
-  # items puts those items in slots that no longer exist -- take a Longhorn snapshot first if you
-  # ever reduce one.
+  # Populated after the first boot, from the file V+ actually generated -- see README.md.
   MOD_CONFIG: |
-    Azumatt.AzuExtendedPlayerInventory.cfg|2 - Inventory|Extra Inventory Rows|5
-    Azumatt.AzuContainerSizes.cfg|2 - Chests|Personal Chest Rows|4
-    Azumatt.AzuContainerSizes.cfg|2 - Chests|Personal Chest Columns|4
-    Azumatt.AzuContainerSizes.cfg|2 - Chests|Wood Chest Rows|4
-    Azumatt.AzuContainerSizes.cfg|2 - Chests|Wood Chest Columns|6
-    Azumatt.AzuContainerSizes.cfg|2 - Chests|Iron Chest Rows|6
-    Azumatt.AzuContainerSizes.cfg|2 - Chests|Iron Chest Columns|8
-    Azumatt.AzuContainerSizes.cfg|2 - Chests|Blackmetal Chest Rows|8
-    Azumatt.AzuContainerSizes.cfg|2 - Chests|Blackmetal Chest Columns|8
-    Azumatt.AzuContainerSizes.cfg|3 - Ships|Karve Rows|4
-    Azumatt.AzuContainerSizes.cfg|3 - Ships|Karve Columns|4
-    Azumatt.AzuContainerSizes.cfg|3 - Ships|Longboat Rows|5
-    Azumatt.AzuContainerSizes.cfg|3 - Ships|Longboat Columns|8
-    Azumatt.AzuContainerSizes.cfg|4 - Carts|Cart Rows|5
-    Azumatt.AzuContainerSizes.cfg|4 - Carts|Cart Columns|8
-    #
-    # ValheimPlus: [Inventory] and [Wagon] are pinned OFF because they would fight other mods.
-    # V+ ships with EVERY gameplay section enabled=false (only [ValheimPlus] and [Server] are on,
-    # and both are meta), so these are already false -- pinning them makes it explicit and
-    # drift-proof, because MOD_CONFIG is reapplied on every boot.
-    #
-    #   [Inventory] -> playerInventoryRows collides with AzuExtendedPlayerInventory, and
-    #                  wood/personal/iron/blackmetal/cart/karve/longboat rows+columns collide
-    #                  with every value set in AzuContainerSizes above. V+'s own README: "Player
-    #                  inventory slot configuration is not compatible with Equipment and Quick
-    #                  slots mod unless the Inventory section is disabled."
-    #   [Wagon]     -> ⚠️ THIS PIN IS LOAD-BEARING FOR OdinHorse. It is not leftover caution.
-    #                  wagonBaseMass sets the base mass of the wagon object outright (default 20).
-    #                  OdinHorse's horse cart is deliberately too heavy for a player to drag --
-    #                  that weight is the entire reason taming a horse is worth doing. Enabling
-    #                  this section would stomp it back to draggable. This pin previously read as
-    #                  a SkilledCarryWeight collision; that mod is gone and the pin still stays.
-    #                  ✅ VERIFIED IN-GAME 2026-07-30, with this pin at false: a player on foot
-    #                  could NOT drag the horse cart. That is the whole point of the migration,
-    #                  and it is the negative case -- so if anyone ever finds the cart draggable,
-    #                  check this pin FIRST, before suspecting OdinHorse or a client mod.
-    #
-    # Everything else in V+ is free to enable -- building, hotkeys, food, stamina, map, etc.
-    valheim_plus.cfg|Inventory|enabled|false
-    valheim_plus.cfg|Wagon|enabled|false
-    #
-    # [Player]: ENABLED. This section was pinned off while SkilledCarryWeight owned carry weight.
-    # That mod has been removed -- it was incompatible with OdinHorse's horse cart -- so V+ now
-    # owns carry weight outright and nothing else patches it.
-    #
-    # ⚠️ baseMaximumWeight and baseMegingjordBuff are ABSOLUTE VALUES, not percentages. This
-    # inverts [Armor] and [Durability] further down this file, where the numbers ARE percentage
-    # modifiers. 850 means 850 units, NOT +850%. Vanilla is 300 and 150 respectively.
-    #
-    # 850 replaces what SkilledCarryWeight gave at roughly average skill level 50 (300 base plus
-    # ~550 summed across 24 skills). The tradeoff is deliberate and worth knowing before anyone
-    # "restores progression": carry weight is now a CONSTANT rather than something skill levels
-    # earn, so a new character starts with what previously took ~50 average levels to reach.
-    # [Items] baseItemWeightReduction is -75, so everything weighs 25% -- 850 is roughly 3400
-    # vanilla-equivalent hauling capacity.
-    #
-    # baseMegingjordBuff is pinned at its vanilla 150 deliberately. Enabling the section makes
-    # every key in it live, so "unchanged from vanilla" is recorded as a decision rather than
-    # left to chance.
-    #
-    # autoRepair and autoEquipShield were requested when this server was set up and refused ONLY
-    # because [Player] was pinned off over the SkilledCarryWeight collision. That objection died
-    # with the mod. autoUnequipShield is a SEPARATE key and stays at its default false.
-    #
-    # ⚠️ RE-VERIFY THIS SECTION ON ANY V+ UPGRADE. All 26 keys in [Player] were enumerated against
-    # the generated valheim_plus.cfg at 9.17.1. Every one EXCEPT deathPenaltyMultiplier sits at a
-    # vanilla-equivalent default (fallDamageScalePercent is a modifier at 0; maxFallDamage 100 is
-    # annotated "Game default is 100"; guardianBuffDuration 300 / Cooldown 1200 match vanilla;
-    # iHaveArrivedOnSpawn is true because it is a DISABLE toggle -- "if set to false, disables the
-    # 'I have arrived!' message" -- so true is the neutral state, not an opt-in).
-    # That is what makes enabling the section neutral apart from the SIX pin lines below. A future
-    # release adding a non-neutral default would now take effect SILENTLY -- a pinned-off section
-    # could not do that.
-    #
-    # ⚠️ "Six pins" and "five diff lines" below are BOTH correct and are different counts. Six
-    # lines are pinned here; only five of them differ from V+'s shipped default, because
-    # baseMegingjordBuff 150 is pinned TO the default. Do not reconcile them to a single number --
-    # conflating the two is the exact miscount that put a wrong key count in this comment for
-    # months. (Was five and four until deathPenaltyMultiplier was pinned on 2026-08-08.)
-    #
-    # ⚠️ The count was 24 here until 2026-07-29 and was wrong; it had been asserted without ever
-    # being enumerated. Do not re-verify by eye. ValheimPlus.dll EMBEDS the default cfg it writes
-    # on first run, as plain text, so the check is a diff against the shipped defaults rather than
-    # a judgement about what vanilla does -- and it covers [Gathering] and [Experience] too. The
-    # runnable command is in README.md, "Re-verify [Player] on any V+ upgrade" -- use that, not a
-    # snippet from here. In outline it is:
-    #   D=/opt/valheim/bepinex/BepInEx/plugins/ValheimPlus/ValheimPlus.dll
-    #   tr -c '[:print:]\n' '\n' < "$D" > /tmp/flat    # extracts the SHIPPED DEFAULTS only;
-    #   awk -v s='[Player]' '$0==s{f=1;next} f&&/^\[/{f=0} f' /tmp/flat | grep -E '^[A-Za-z]+='
-    # ...then diff that against the same section of the LIVE /config/bepinex/valheim_plus.cfg.
-    # The two lines above do NOT read the live file and do NOT diff -- they are half the check.
-    # Every line the diff reports must be one of the pins below. At 9.17.1 that is exactly five
-    # diff lines -- enabled, baseMaximumWeight, autoRepair, autoEquipShield, deathPenaltyMultiplier.
-    # baseMegingjordBuff 150 is the sixth pin and shows NO diff, because 150 is already the shipped
-    # default; that is the pin working as intended, not a missing change.
-    valheim_plus.cfg|Player|enabled|true
-    valheim_plus.cfg|Player|baseMaximumWeight|850
-    valheim_plus.cfg|Player|baseMegingjordBuff|150
-    valheim_plus.cfg|Player|autoRepair|true
-    valheim_plus.cfg|Player|autoEquipShield|true
-    # deathPenaltyMultiplier: -100 zeroes the skill drain on death. Added 2026-08-08, after a run
-    # of roughly a dozen deaths in the Ashlands.
-    #
-    # ⚠️ SKILL LOSS ONLY -- this does NOT stop you dropping your gear. The key patches
-    # Skills.LowerAllSkills, verified by class name in ValheimPlus.dll (the same dump carries
-    # Skills_RaiseSkill, which is what [Experience] drives). Gravestones are a separate mechanism
-    # and are untouched: you still make the corpse run. Anyone asked to "turn off the death
-    # penalty" who actually means the corpse run needs `-modifier deathpenalty casual` in
-    # configmap.yaml instead. That was considered and NOT chosen: native modifiers bake into
-    # TreeFellMeFirst.fwl permanently, while this key is undone by editing this file and
-    # restarting. Same reversibility tradeoff already recorded for [Items] noTeleportPrevention.
-    #
-    # -100 is the floor, not a typo for -50. The generated cfg documents the key as a modifier
-    # where "-50 will reduce it by 50%", so -100 reduces it by 100% and going lower buys nothing.
-    # Same shape as the [Stamina] swimStaminaDrain pin further down.
-    valheim_plus.cfg|Player|deathPenaltyMultiplier|-100
-    #
-    # --- ValheimPlus gameplay tuning -------------------------------------------------------
-    # ⚠️ THREE OF THESE READ BACKWARDS FROM THEIR NAMES. Verified against the comments in the
-    # generated valheim_plus.cfg, not assumed:
-    #   productionSpeed is SECONDS PER ITEM, not a percentage. "Twice as fast" means HALVING it.
-    #     Setting 30 -> 60 would make smelters twice as SLOW.
-    #   baseItemWeightReduction reduces on NEGATIVE values despite the name: "-50 will reduce
-    #     item weight by 50%, 50 will increase". -75 is a 75% reduction.
-    #   nightPercent is ABSOLUTE, not a modifier: "0 is all daytime, 100 is all nighttime".
-    # Floats are fine -- [Building] areaRepairRadius ships as 7.5.
-    #
-    # Stamina: +100% regen, -50% on every drain -- except swimming, which is OFF entirely.
-    valheim_plus.cfg|Stamina|enabled|true
-    valheim_plus.cfg|Stamina|staminaRegen|100
-    valheim_plus.cfg|Stamina|staminaRegenDelay|-50
-    valheim_plus.cfg|Stamina|runStaminaDrain|-50
-    valheim_plus.cfg|Stamina|jumpStaminaDrain|-50
-    valheim_plus.cfg|Stamina|sneakStaminaDrain|-50
-    # -100 is deliberate and is the floor, not a typo for -50. V+ pushes this key onto both
-    # m_swimStaminaDrainMinSkill and m_swimStaminaDrainMaxSkill (the only two fields vanilla uses
-    # for swim drain, at swim skill 0 and 100), so -100 zeroes drain at EVERY skill level --
-    # swimming is unlimited and you cannot drown from running the bar out. Going below -100 buys
-    # nothing. Note this makes the Swimming skill dead weight: it only ever reduced this drain.
-    valheim_plus.cfg|Stamina|swimStaminaDrain|-100
-    valheim_plus.cfg|Stamina|dodgeStaminaUsage|-50
-    valheim_plus.cfg|Stamina|encumberedStaminaDrain|-50
-    valheim_plus.cfg|StaminaUsage|enabled|true
-    valheim_plus.cfg|StaminaUsage|axes|-50
-    valheim_plus.cfg|StaminaUsage|blocking|-50
-    valheim_plus.cfg|StaminaUsage|bows|-50
-    valheim_plus.cfg|StaminaUsage|clubs|-50
-    valheim_plus.cfg|StaminaUsage|knives|-50
-    valheim_plus.cfg|StaminaUsage|pickaxes|-50
-    valheim_plus.cfg|StaminaUsage|polearms|-50
-    valheim_plus.cfg|StaminaUsage|spears|-50
-    valheim_plus.cfg|StaminaUsage|swords|-50
-    valheim_plus.cfg|StaminaUsage|unarmed|-50
-    valheim_plus.cfg|StaminaUsage|hammer|-50
-    valheim_plus.cfg|StaminaUsage|hoe|-50
-    valheim_plus.cfg|StaminaUsage|cultivator|-50
-    valheim_plus.cfg|StaminaUsage|fishing|-50
-    # Food: lasts 100% longer, no degradation.
-    valheim_plus.cfg|Food|enabled|true
-    valheim_plus.cfg|Food|foodDurationMultiplier|100
-    valheim_plus.cfg|Food|disableFoodDegradation|true
-    # Map: shared exploration, and a 50% wider discovery radius.
-    #
-    # ⚠️ exploreRadius IS ABSOLUTE, NOT A PERCENTAGE MODIFIER. The generated cfg describes it as
-    # "The radius of the map that you explore when moving", and [Map] carries no "This section
-    # contains modifiers" banner -- unlike [Stamina], [StaminaUsage] and [Ship], which all do.
-    # Vanilla and V+ both ship 100, so +50% is 150. Writing 50 here would HALVE the radius, the
-    # same reading-backwards trap as nightPercent and productionSpeed. Set 2026-08-04 after
-    # reading the section off the PVC; do not "correct" 150 to 50.
-    #
-    # ⚠️ THE THREE false PINS BELOW ARE DELIBERATE, NOT PADDING. [Map] had been enabled with only
-    # enabled+shareMapProgression pinned, leaving four keys live but unpinned -- exactly the gap
-    # the [Ship] block below warns about. Closed 2026-08-04: all six keys in the section are now
-    # pinned, so a future V+ default change cannot alter map behaviour silently.
-    # shareAllPins stays false on purpose -- exploration is already shared via
-    # shareMapProgression, and auto-sharing every pin would remove the choice to mark something
-    # privately. displayCartsAndBoats stays at vanilla false.
-    valheim_plus.cfg|Map|enabled|true
-    valheim_plus.cfg|Map|shareMapProgression|true
-    valheim_plus.cfg|Map|exploreRadius|150
-    valheim_plus.cfg|Map|preventPlayerFromTurningOffPublicPosition|false
-    valheim_plus.cfg|Map|shareAllPins|false
-    valheim_plus.cfg|Map|displayCartsAndBoats|false
-    # Ship: 50% faster under sail. Everything else in the section stays vanilla.
-    #
-    # forwardSpeed is a PERCENTAGE MODIFIER, not an absolute -- 50 means +50%, -50 would mean
-    # half speed. Same family as [Armor] and [Durability], and the opposite of [Player]
-    # baseMaximumWeight, which IS absolute. Integer field: V+ writes floats with an explicit
-    # decimal (defaultFOV 65.0, Kiln productionSpeed 7.5) and this one as a bare 0.
-    #
-    # ⚠️ THE FOUR ZEROS BELOW ARE DELIBERATE, NOT PADDING. Enabling a V+ section makes EVERY
-    # key in it live -- the same reason baseMegingjordBuff is pinned at its vanilla 150 in
-    # [Player] and all four [Time] keys are pinned. All four sit at V+'s neutral 0 today, so
-    # they are a behavioural no-op now; unpinned, a future V+ release changing one of these
-    # defaults would silently alter steering or boat damage. rudderSpeed and steerForce at 0
-    # are also a RECORDED DECISION: steering was deliberately left vanilla so that if the
-    # faster hull feels unwieldy, exactly one variable changed and it is obvious which.
-    #
-    # ⚠️ THERE IS NO WIND-DIRECTION SETTING IN [Ship], and none anywhere else in this file.
-    # V+ cannot give a permanent tailwind. [Windmill] ignoreWindIntensity is about power
-    # generation, not sailing. Evaluated 2026-08-03 and left alone: the no-mod route would be
-    # [Player] guardianBuffDuration/Cooldown, but those apply to ALL SIX guardian powers
-    # (permanent Bonemass resistance and Elder chopping, not just Moder), and the mod route is
-    # NaNNaBoaT/Simple_Sailing 2.0.0, which is CLIENT-SIDE ONLY -- unenforceable, and last
-    # flagged compatible with Ashlands while this server runs l-0.221.12. Faster hulls were
-    # chosen instead so headwind stings less without changing anything else.
-    #
-    # 🚨 THE "could not be parsed" CHECK DOES NOT APPLY TO ValheimPlus. V+ reads
-    # valheim_plus.cfg with its OWN INI parser, not BepInEx config binding, so a bad V+ value
-    # produces no BepInEx warning -- that check would come back empty whether these landed or
-    # not. It is only a gate for BepInEx-bound mods (Recycle_N_Reclaim, LazyVikings). Verify a
-    # V+ change by READING THE VALUE BACK off the PVC and confirming exactly one [Ship] header.
-    valheim_plus.cfg|Ship|enabled|true
-    valheim_plus.cfg|Ship|forwardSpeed|50
-    valheim_plus.cfg|Ship|backwardSpeed|0
-    valheim_plus.cfg|Ship|rudderSpeed|0
-    valheim_plus.cfg|Ship|steerForce|0
-    valheim_plus.cfg|Ship|waterImpactDamage|0
-    # Time: night is SHORTER than vanilla but no longer drastically so. nightPercent is the share
-    # of the whole day cycle that is night ("0 is all daytime, 100 is all nighttime", default 30).
-    # ⚠️ ABSOLUTE, NOT A MODIFIER -- 23 means "night is 23% of the cycle", not "+23%".
-    #
-    # totalDayTimeInSeconds is 1800 and is NOT pinned, so the arithmetic is:
-    #   30 -> 9 min night / 21 min day   (vanilla)
-    #   23 -> 6m54s night / 23m06s day   (current)
-    #   10 -> 3 min night / 27 min day   (previous)
-    #
-    # ⚠️ INTEGER FIELD. V+ serialises float settings with an explicit decimal point --
-    # defaultFOV = 65.0, forcePartOfDayTime = 0.5, Kiln productionSpeed = 7.5 -- and writes
-    # nightPercent as a bare "10". A fractional value here truncates. That is why this is 23 and
-    # not 23.33: 7m00s of night is not reachable at totalDayTimeInSeconds 1800 with an integer
-    # percent. Hitting exactly 7 min would need totalDayTimeInSeconds 1680 with nightPercent 25 --
-    # which shortens the whole cycle and, per the setting's own note, "may change time of day once
-    # after activation" on an existing world. Not worth six seconds.
-    #
-    # The total cycle is fixed at 1800s, so lengthening night SHORTENS day by the same amount.
-    # Deliberately not 0 -- night still needs to exist for night-spawning mobs, light sources and
-    # sleeping to remain meaningful.
-    #
-    # The other three keys are pinned at the values V+ 9.17.1 already ships, so they are a
-    # behavioural no-op TODAY. They are here because [Time] is ENABLED, which makes every key in
-    # the section live -- the same reason baseMegingjordBuff is pinned at its vanilla 150 in
-    # [Player]. Unpinned, a future V+ release changing one of these defaults would silently
-    # alter day length or freeze the clock, and MOD_CONFIG would not be the source of truth it
-    # claims to be. All four keys in [Time] are now accounted for.
-    #
-    # ⚠️ totalDayTimeInSeconds is the DENOMINATOR for nightPercent. Changing it silently
-    # rescales night: at nightPercent 23, 1800 -> 6m54s but 3600 -> 13m48s. Its own note warns
-    # it "may change time of day once after activation" on an existing world, so it is not a
-    # free dial -- change it only in a window, and recompute the night arithmetic above.
-    #
-    # forcePartOfDay freezes the clock at forcePartOfDayTime (0 = midnight, 0.5 = midday) and
-    # DISABLES every other setting in this section, nightPercent included. It stays false.
-    valheim_plus.cfg|Time|enabled|true
-    valheim_plus.cfg|Time|nightPercent|23
-    valheim_plus.cfg|Time|totalDayTimeInSeconds|1800
-    valheim_plus.cfg|Time|forcePartOfDay|false
-    valheim_plus.cfg|Time|forcePartOfDayTime|0.5
-    # Fires: torches/sconces/braziers and other fires keep infinite fuel, and pull wood from
-    # nearby chests (autoRange stays at the default 10m).
-    valheim_plus.cfg|FireSource|enabled|true
-    valheim_plus.cfg|FireSource|torches|true
-    valheim_plus.cfg|FireSource|fires|true
-    valheim_plus.cfg|FireSource|autoFuel|true
-    # Turret: both toggles on. The numeric modifiers stay at 0 (no change) -- raise them if you
-    # want faster/further/more accurate turrets.
-    valheim_plus.cfg|Turret|enabled|true
-    valheim_plus.cfg|Turret|ignorePlayers|true
-    valheim_plus.cfg|Turret|unlimitedAmmo|true
-    # Armor: +75% on every slot. This multiplier compounds with two other sources -- Armory's
-    # upgraded biome-tier armor variants and EpicLoot's ModifyArmor / ModifyArmorLowHealth
-    # enchants (both confirmed present in magiceffects.json) -- so it deliberately stops short
-    # of doubling. V+'s own example scale: base armor 14 -> 21 at +50%, -> 24.5 at +75%,
-    # -> 28 at +100%, before either of those other two sources applies.
-    #
-    # ⚠️ SECOND CORRECTION TO THIS NUMBER -- read before changing it again. It shipped at +100%
-    # (4fbbbeb), was scaled back to +50% the same day (ca08bb8) on the compounding argument
-    # above, and was raised to +75% on 2026-08-05 because +50% did not read as a large enough
-    # difference in play. 75 is the deliberate middle: it concedes the compounding concern was
-    # partly right rather than discarding it. The pattern to notice is that this key has been
-    # moved three times and the compounding argument has been correct each time -- if the
-    # characters start feeling unkillable, THIS and [Shields] below are the two to walk back
-    # first, not [Durability], which is a convenience number (see the block after Shields).
-    #
-    # ⚠️ These four keys are the WHOLE of [Armor]: helmets, chests, legs, capes. Shields are NOT
-    # covered here -- they live in their own [Shields] section immediately below.
-    valheim_plus.cfg|Armor|enabled|true
-    valheim_plus.cfg|Armor|helmets|75
-    valheim_plus.cfg|Armor|chests|75
-    valheim_plus.cfg|Armor|legs|75
-    valheim_plus.cfg|Armor|capes|75
-    # Shields: +75% block rating, matched to [Armor] above and moved at the same time (2026-08-05)
-    # so that one survivability tier covers both the passive side (armor, always on) and the
-    # active side (blocking, only when you actually raise the shield). They are NOT equivalent
-    # buffs -- if only one of them is ever walked back, that asymmetry is the reason to pick.
-    #
-    # The section shipped enabled=false with blockRating 0, so this is a move from vanilla rather
-    # than an increase on an existing bonus. Both keys in the section are pinned: enabling a
-    # section makes every key in it live, and [Shields] has exactly these two.
-    #
-    # Percent modifier, same convention as [Armor] and [Durability]: 50 = 50% more block rating,
-    # -50 = 50% less.
-    #
-    # ⚠️ DISTINCT FROM `Durability|shields` in the block below, which is at 100. That governs how
-    # long a shield survives before repair; this governs how much damage it stops. Two unrelated
-    # numbers that both say "shields" -- do not reconcile them to each other.
-    #
-    # Compounds with EpicLoot the same way [Armor] does: ModifyBlockPower, ModifyBlockPowerLowHealth,
-    # ModifyBlockForce and AddBlockingSkill are all present in magiceffects.json. [StaminaUsage]
-    # blocking is already at -50, so blocking is cheap as well as strong now.
-    valheim_plus.cfg|Shields|enabled|true
-    valheim_plus.cfg|Shields|blockRating|75
-    # Durability: +100% on combat gear, +150% on tools. DISTINCT FROM [Armor] ABOVE -- that one raises
-    # the armor VALUE (damage reduction), this one raises how long gear lasts before repair.
-    # Enabling this section is what turns it on at all; it shipped enabled=false with every value
-    # at 0, so this is a move from vanilla, not an increase on an existing bonus.
-    #
-    # Percent modifier, same convention as [Armor]: 100 takes durability 100 -> 200, -50 -> 50.
-    #
-    # ⚠️ DO NOT "fix" this to match [Armor] above (currently 75). The two look like they should
-    # match and deliberately do not. [Armor] is held below +100% because armor value is a
-    # COMBAT BALANCE number -- it compounds with Armory's biome-tier variants and EpicLoot's
-    # enchants into a character that is hard to kill. Durability is a CONVENIENCE number: it
-    # changes how often you walk back to a workbench, not whether you survive. Doubling it was
-    # asked for explicitly with that distinction on the table. [Armor] has now moved 100 -> 50
-    # -> 75 across three commits without this number following it. That is the intended
-    # behaviour, not drift -- these two are not coupled and never have been.
-    #
-    # Still compounds with two other sources, so the effective number exceeds +100% on some gear:
-    #   EpicLoot's ModifyDurability enchant (a % roll on top of this, in magiceffects.json)
-    #   Warfare's custom weapons, which set ABSOLUTE durability per item (Blackmetal Scimitar is
-    #     200, +50/level) that this percentage then scales.
-    #
-    # Tools are at +150%, HIGHER than the +100% on combat gear above. ⚠️ That asymmetry is
-    # deliberate -- do not "correct" it to match, for the same reason [Armor] and [Durability]
-    # deliberately differ. Combat-gear durability is still adjacent to balance: it governs how
-    # long you last in a fight before a weapon breaks. Tool durability is pure convenience --
-    # it changes only how often you walk back to a workbench. Tools being the MORE generous
-    # number follows from that distinction rather than contradicting it.
-    #
-    # This reverses an earlier decision. These five keys previously sat at vanilla 0 with a
-    # comment saying tools were deliberately excluded because "the ask was weapons and armor".
-    # Raising them was then asked for explicitly, with the convenience-vs-balance split above on
-    # the table.
-    #
-    # `axes` stays at 100 with the WEAPONS, not with the tools. An axe is a weapon that also
-    # chops wood and was raised on that basis; moving it here would be a combat-balance change
-    # wearing a tools-change disguise.
-    #
-    # `torch` is grouped with the tools. It is a light source rather than a tool, but its
-    # durability is burn time -- the same kind of convenience number.
-    valheim_plus.cfg|Durability|enabled|true
-    valheim_plus.cfg|Durability|weapons|100
-    valheim_plus.cfg|Durability|axes|100
-    valheim_plus.cfg|Durability|bows|100
-    valheim_plus.cfg|Durability|shields|100
-    valheim_plus.cfg|Durability|armor|100
-    valheim_plus.cfg|Durability|pickaxes|150
-    valheim_plus.cfg|Durability|hammer|150
-    valheim_plus.cfg|Durability|cultivator|150
-    valheim_plus.cfg|Durability|hoe|150
-    valheim_plus.cfg|Durability|torch|150
-    # Items: -75% weight, +100% stack size. Stack size lives in [Items], NOT the pinned
-    # [Inventory] section, so it does not collide with AzuContainerSizes.
-    #
-    # noTeleportPrevention lifts vanilla's ban on carrying ores and ingots through a portal. V+'s
-    # own description: "Enables you to teleport with ores and other usually teleport restricted
-    # objects." Vanilla default is false.
-    #
-    # ⚠️ THIS COVERS ITEMS ONLY -- ores, ingots, dragon eggs. It does NOT teleport tamed animals
-    # or carts. That was a deliberate trade: the OdinPlus/TeleportEverything mod does all of it,
-    # and was evaluated and declined because this one line covers most of the want with no new
-    # mod, no client install and nothing extra to keep updated. See the note beside MODS above.
-    #
-    # ⚠️ THERE ARE THREE POSSIBLE OWNERS OF THIS ONE BEHAVIOUR. Only this key is in use:
-    #   1. this V+ key (in use)
-    #   2. the OdinPlus/TeleportEverything mod -- evaluated and declined, see the note beside MODS
-    #   3. the NATIVE `-modifier portals casual` world modifier, set via SERVER_ARGS in
-    #      configmap.yaml, which lifts the same restriction with NO mod and NO config line
-    #
-    # Owner 3 was missed when this key was chosen -- the native modifier list was not checked, even
-    # though configmap.yaml and README.md both document that `portals` exists in this build. The V+
-    # key is KEPT anyway, deliberately, on reversibility grounds: configmap.yaml records that
-    # "modifiers are saved into the world once set", whereas this pin is undone by editing this
-    # file and restarting. The native route needs no mod but bakes into the world; this one is
-    # reversible by config. That is the whole tradeoff -- re-examine it, do not assume it.
-    #
-    # ✅ THE PERSISTENCE QUESTION IS SETTLED -- modifiers ARE written into the world save. This was
-    # once recorded here as an open contradiction between configmap.yaml and README.md; README.md
-    # was the wrong one and that claim has been deleted. Evidence: TreeFellMeFirst.fwl (1745 bytes)
-    # contains the string
-    # `preset combat_default:deathpenalty_default:resources_more:raids_default:portals_default`
-    # -- `resources_more` is a modifier that was set via SERVER_ARGS and is now baked into the
-    # .fwl. configmap.yaml was right. So the reversibility argument above is
-    # EVIDENCED, not asserted: the native `-modifier portals casual` route really does bake into
-    # the world, while this V+ key is undone by editing this file. Do not reopen this as a question;
-    # if you want to challenge it, re-read the .fwl, do not re-read the docs.
-    #
-    # ⚠️ IF TeleportEverything IS EVER INSTALLED, SET THIS BACK TO false. Both patch the same
-    # "may this item teleport" check and the mod should own it -- same one-owner-per-property
-    # discipline as the [Wagon] and [Inventory] pins.
-    #
-    # ⚠️ OVERRIDE DIRECTION -- INFERRED FROM PATCH MECHANICS, NOT TESTED. While this key is true, a
-    # future `-modifier portals hard` is expected to be silently overridden: V+ applies a Harmony
-    # patch to the teleport check at runtime, after the native modifier has been applied. Someone
-    # will eventually set that modifier, see no change, and suspect the modifier never parsed.
-    # Check this key FIRST. This ordering has NOT been verified -- deliberately, because a wrong
-    # world modifier is written into the world and testing it on the live server is not free.
-    valheim_plus.cfg|Items|enabled|true
-    valheim_plus.cfg|Items|baseItemWeightReduction|-75
-    valheim_plus.cfg|Items|itemStackMultiplier|100
-    valheim_plus.cfg|Items|noTeleportPrevention|true
-    #
-    # droppedItemOnGroundDurationInSeconds: 3600 -> 600. This is a PERFORMANCE setting, not a
-    # convenience one. Every item lying on the ground is a live ZDO held in server memory until
-    # it despawns, so an hour of accumulated clutter is an hour of ZDOs.
-    #
-    # It matters more than it used to: [Gathering] above was set to +100%, which DOUBLED what
-    # every resource node drops. Ground clutter roughly doubled with it, and this was still at
-    # the vanilla hour.
-    #
-    # ⚠️ The tradeoff is real and player-visible: anything deliberately left on the ground is gone
-    # in 10 minutes instead of 60. Death drops are NOT affected -- those are gravestones, a
-    # different mechanism. If players complain about stashes vanishing, this is the setting.
-    valheim_plus.cfg|Items|droppedItemOnGroundDurationInSeconds|600
-    # Building: no weather deterioration, structures indestructible.
-    valheim_plus.cfg|Building|enabled|true
-    valheim_plus.cfg|Building|noWeatherDamage|true
-    valheim_plus.cfg|StructuralIntegrity|enabled|true
-    valheim_plus.cfg|StructuralIntegrity|disableStructuralIntegrity|true
-    valheim_plus.cfg|StructuralIntegrity|disableDamageToPlayerStructures|true
-    # Craft/build/interact using nearby chests (one section covers all three).
-    #
-    # range: raised from the V+ default 20 to 30 metres on 2026-08-02. Integer field -- V+
-    # writes floats with an explicit decimal (defaultFOV 65.0, Kiln productionSpeed 7.5) and
-    # writes this one as a bare number, so a fractional value would truncate.
-    #
-    # ⚠️ THIS IS A DIFFERENT RADIUS FROM THE STATIONS. Crafting scans 30m; every station's
-    # autoRange/autoDepositRange (Smelter, Furnace, Kiln, Fermenter, Windmill, SpinningWheel,
-    # EitrRefinery, Oven, FireSource, Beehive, SapCollector) is 10m and unpinned. A chest that
-    # reliably feeds crafting can still be too far for a smelter sitting next to it to pull
-    # from. That asymmetry is the likely answer to "why won't the smelter take from that chest".
-    #
-    # Why 30 and not more: it narrows a real gap. [Workbench] workbenchRange is pinned to 40
-    # here (vanilla is 20), and checkFromWorkbench is true, which means that when you are
-    # inside a workbench area the chest scan originates AT THE WORKBENCH, not at you. So a
-    # chest could sit inside the 40m workbench area and still fall outside the 20m scan. 30
-    # narrows that dead band without scanning the whole area every lookupInterval (3s).
-    #
-    # Not pinned, and still floating at V+ defaults: checkFromWorkbench (true),
-    # lookupInterval (3), ignorePrivateAreaCheck (false), disableCookingStation (false),
-    # allowCraftingFromCarts (false), allowCraftingFromShips (false). ignorePrivateAreaCheck
-    # is the odd one out -- every station section sets it true and this one is false.
-    valheim_plus.cfg|CraftFromChest|enabled|true
-    valheim_plus.cfg|CraftFromChest|range|30
-    # Workbench: radius and attachment radius both doubled (meters, absolute).
-    #
-    # disableRoofCheck removes vanilla's requirement that a workbench be roofed and unexposed
-    # before it will function at all. V+'s own description: "Disables the roof and exposure
-    # requirement to use a workbench." Vanilla default is false.
-    #
-    # This is NOT the same thing as workbenchRange above -- range governs how far from a bench
-    # you can build, while the roof check governs whether the bench works in the first place.
-    # A sheltered bench already worked at 40m without this.
-    #
-    # Pairs with [Player] autoRepair: repair fires on interacting with a workbench, so while the
-    # roof check stands, auto-repair only works under a roof. Both together are what make it
-    # automatic anywhere.
-    #
-    # No new section is enabled here -- [Workbench] was already on for the two range values.
-    valheim_plus.cfg|Workbench|enabled|true
-    valheim_plus.cfg|Workbench|workbenchRange|40
-    valheim_plus.cfg|Workbench|workbenchAttachmentRange|10
-    valheim_plus.cfg|Workbench|disableRoofCheck|true
-    # Production: capacity doubled, time halved (= twice the speed), pull/deposit from chests.
-    valheim_plus.cfg|Smelter|enabled|true
-    valheim_plus.cfg|Smelter|maximumOre|20
-    valheim_plus.cfg|Smelter|maximumCoal|40
-    valheim_plus.cfg|Smelter|productionSpeed|15
-    valheim_plus.cfg|Smelter|autoDeposit|true
-    valheim_plus.cfg|Smelter|autoFuel|true
-    valheim_plus.cfg|Furnace|enabled|true
-    valheim_plus.cfg|Furnace|maximumOre|20
-    valheim_plus.cfg|Furnace|maximumCoal|40
-    valheim_plus.cfg|Furnace|productionSpeed|15
-    valheim_plus.cfg|Furnace|autoDeposit|true
-    valheim_plus.cfg|Furnace|autoFuel|true
-    valheim_plus.cfg|Kiln|enabled|true
-    valheim_plus.cfg|Kiln|maximumWood|50
-    valheim_plus.cfg|Kiln|productionSpeed|7.5
-    valheim_plus.cfg|Kiln|autoDeposit|true
-    valheim_plus.cfg|Kiln|autoFuel|true
-    valheim_plus.cfg|Fermenter|enabled|true
-    valheim_plus.cfg|Fermenter|fermenterDuration|1200
-    valheim_plus.cfg|Fermenter|fermenterItemsProduced|12
-    valheim_plus.cfg|Fermenter|autoDeposit|true
-    valheim_plus.cfg|Fermenter|autoFuel|true
-    valheim_plus.cfg|Beehive|enabled|true
-    valheim_plus.cfg|Beehive|honeyProductionSpeed|600
-    valheim_plus.cfg|Beehive|maximumHoneyPerBeehive|8
-    valheim_plus.cfg|Beehive|autoDeposit|true
-    valheim_plus.cfg|Windmill|enabled|true
-    valheim_plus.cfg|Windmill|maximumBarley|100
-    valheim_plus.cfg|Windmill|productionSpeed|5
-    valheim_plus.cfg|Windmill|autoDeposit|true
-    valheim_plus.cfg|Windmill|autoFuel|true
-    valheim_plus.cfg|SpinningWheel|enabled|true
-    valheim_plus.cfg|SpinningWheel|maximumFlax|100
-    valheim_plus.cfg|SpinningWheel|productionSpeed|15
-    valheim_plus.cfg|SpinningWheel|autoDeposit|true
-    valheim_plus.cfg|SpinningWheel|autoFuel|true
-    valheim_plus.cfg|EitrRefinery|enabled|true
-    valheim_plus.cfg|EitrRefinery|maximumSap|40
-    valheim_plus.cfg|EitrRefinery|maximumSoftTissue|40
-    valheim_plus.cfg|EitrRefinery|productionSpeed|20
-    valheim_plus.cfg|EitrRefinery|autoDeposit|true
-    valheim_plus.cfg|EitrRefinery|autoFuel|true
-    valheim_plus.cfg|Oven|enabled|true
-    # [Oven] has NO autoDeposit key -- autoFuel is the only auto-* setting the section defines
-    # (verified against the generated valheim_plus.cfg). Adding one would append a dead key that
-    # V+ ignores. Same shape elsewhere: [Beehive] and [SapCollector] define autoDeposit but no
-    # autoFuel (neither burns fuel), and [FireSource] defines autoFuel but no autoDeposit.
-    valheim_plus.cfg|Oven|autoFuel|true
-    valheim_plus.cfg|SapCollector|enabled|true
-    valheim_plus.cfg|SapCollector|sapProductionSpeed|30
-    valheim_plus.cfg|SapCollector|maximumSapPerCollector|20
-    valheim_plus.cfg|SapCollector|autoDeposit|true
-    # --- Gathering: double the yield from every node broken with a tool ---------------------
-    # This was asked for as "increase tool damage". V+ CANNOT do that -- verified by enumerating
-    # all 58 sections and every key containing "damage": the complete set is monster scaling,
-    # unarmed, fall, structural and hull. There is no [Damage] section and no per-weapon-type
-    # modifier. So this is a yield change, not a damage change: a rock still takes the same
-    # number of swings, you just mine fewer rocks. [Experience] below is the damage half.
-    #
-    # ⚠️ COMPOUNDS with `-modifier resources more` in configmap.yaml -- a NATIVE global drop
-    # multiplier already one step above normal. The effective multiplier is therefore MORE than
-    # 2x, not exactly 2x. There are two independent sources; know which one you are changing.
-    #
-    # dropChance stays at 0 deliberately. It is a different mechanic: it raises the CHANCE on
-    # nodes that have no guaranteed drop (dungeon scrap piles), not the AMOUNT from ore veins.
-    #
-    # feather is included for consistency, with a quirk worth knowing: it also affects drops
-    # from shooting gulls and crows, not only trees.
-    #
-    # ⚠️ Enabling this section makes every key in it live. The ones not listed sit at 0, which is
-    # a no-op -- same situation as [Player]. RE-VERIFY ON ANY V+ UPGRADE: a release adding a
-    # non-neutral default here would now take effect silently.
-    valheim_plus.cfg|Gathering|enabled|true
-    valheim_plus.cfg|Gathering|wood|100
-    valheim_plus.cfg|Gathering|fineWood|100
-    valheim_plus.cfg|Gathering|coreWood|100
-    valheim_plus.cfg|Gathering|elderBark|100
-    valheim_plus.cfg|Gathering|yggdrasilWood|100
-    valheim_plus.cfg|Gathering|blackwood|100
-    valheim_plus.cfg|Gathering|stone|100
-    valheim_plus.cfg|Gathering|grausten|100
-    valheim_plus.cfg|Gathering|blackMarble|100
-    valheim_plus.cfg|Gathering|tinOre|100
-    valheim_plus.cfg|Gathering|copperOre|100
-    valheim_plus.cfg|Gathering|copperScrap|100
-    valheim_plus.cfg|Gathering|ironScrap|100
-    valheim_plus.cfg|Gathering|silverOre|100
-    valheim_plus.cfg|Gathering|chitin|100
-    valheim_plus.cfg|Gathering|feather|100
-    valheim_plus.cfg|Gathering|flametalOre|100
-    valheim_plus.cfg|Gathering|proustitePowder|100
-    # --- Experience: EVERY skill levels at TRIPLE rate ----------------------------------------
-    # Was pickaxes-only, then all 23 skill keys at +100%. Raised to +200% on 2026-08-08, together
-    # with the [Player] deathPenaltyMultiplier pin above. The pickaxe rationale generalises: skill
-    # level scales WEAPON damage in vanilla exactly as it scales tool damage, so this is the only
-    # route V+ offers to more damage per swing -- there is no [Damage] section and no
-    # per-weapon-type modifier (see [Gathering] above). Faster levelling is therefore a real power
-    # increase, not just faster numbers.
-    #
-    # ⚠️ 200 is TRIPLE the vanilla rate, not double. These are percentage MODIFIERS -- the section
-    # header in the generated cfg reads "50 will increase experience gained by 50%" -- so the old
-    # 100 was already double. Read the number as "+200%". Anyone treating it as "200% of vanilla"
-    # will under-count the change by a full multiple.
-    #
-    # Self-limiting across the board: a skill at 100 gains nothing further from this.
-    #
-    # ⚠️ THIS NOW COMPOUNDS WITH [Player] deathPenaltyMultiplier = -100. Skill drain on death is
-    # zero, so skills are MONOTONIC -- they only ever go up, and now at triple rate. Vanilla's 5%
-    # per-death drain was the only mechanism that ever took banked XP back, and it is gone. The
-    # two settings were made in the same change and point the same direction; if anyone ever
-    # restores the death penalty, re-read this pairing before ALSO lowering these values, or the
-    # correction lands twice.
-    #
-    # ⚠️ This is a PROGRESSION change, not a convenience one, and it is the reason to think twice
-    # before widening it again. Combat difficulty in Valheim is largely gated by how slowly your
-    # weapon skills climb; tripling that removes the gate outright. Nothing here can be un-levelled
-    # once players have banked the XP -- lowering these values later only slows FUTURE gains, it
-    # does not roll anyone back. With the death penalty at zero that is now the ONLY direction
-    # available.
-    #
-    # Two specific interactions worth knowing before anyone reads a line here as load-bearing:
-    #   - swim is very nearly a no-op. [Player] swimStaminaDrain = -100 already zeroes swim
-    #     stamina drain at every skill level, and reducing that drain was the only thing the
-    #     Swimming skill did. It is pinned for completeness, not effect.
-    #   - blocking COMPOUNDS with the recent armor/block work (V+ armor +75%, [Shields] enabled
-    #     at +75% block rating). Block strength scales with the skill as well, so the effective
-    #     increase is larger than the 75% those settings name.
-    #
-    # Every key the section defines is now pinned, so unlike [Gathering] and [Player] there is no
-    # unpinned V+ default left in here to change under us. The re-verify-on-upgrade caveat
-    # narrows to NEW keys: a V+ release that adds a skill would leave it unpinned and live.
-    # Enumerate the section off the PVC after any upgrade and pin whatever appeared.
-    #
-    # Key order matches the installed build's config file, to keep diffing the two cheap.
-    valheim_plus.cfg|Experience|enabled|true
-    valheim_plus.cfg|Experience|swords|200
-    valheim_plus.cfg|Experience|knives|200
-    valheim_plus.cfg|Experience|clubs|200
-    valheim_plus.cfg|Experience|polearms|200
-    valheim_plus.cfg|Experience|spears|200
-    valheim_plus.cfg|Experience|blocking|200
-    valheim_plus.cfg|Experience|axes|200
-    valheim_plus.cfg|Experience|bows|200
-    valheim_plus.cfg|Experience|elementalMagic|200
-    valheim_plus.cfg|Experience|bloodMagic|200
-    valheim_plus.cfg|Experience|unarmed|200
-    valheim_plus.cfg|Experience|pickaxes|200
-    valheim_plus.cfg|Experience|woodCutting|200
-    valheim_plus.cfg|Experience|crossbows|200
-    valheim_plus.cfg|Experience|jump|200
-    valheim_plus.cfg|Experience|sneak|200
-    valheim_plus.cfg|Experience|run|200
-    valheim_plus.cfg|Experience|swim|200
-    valheim_plus.cfg|Experience|fishing|200
-    valheim_plus.cfg|Experience|cooking|200
-    valheim_plus.cfg|Experience|farming|200
-    valheim_plus.cfg|Experience|crafting|200
-    valheim_plus.cfg|Experience|ride|200
-    #
-    # --- PlantEverything: crop growth and forage respawn, 4x faster --------------------------
-    # FIRST NON-V+, NON-AZU MOD PINNED HERE. Until now advize.PlantEverything.cfg lived on the
-    # PVC as untracked edits -- the exact drift this block exists to prevent. Anything changed in
-    # that mod from now on belongs here, not in the file on the volume.
-    #
-    # ⚠️ ValheimPlus CANNOT do crop growth. Every V+ section was checked: the only `grow` keys it
-    # has are [Egg] growTime and a [Player] cropNotifier placement warning. The production
-    # STATIONS above ([Windmill], [SpinningWheel], [Beehive], [SapCollector]) were all tuned long
-    # ago; the PLANTS never were, because the mod that can do it is not V+. Do not go looking for
-    # a V+ setting for this.
-    #
-    # These are SECONDS, and lower is faster -- the opposite direction to most values in this
-    # file. Vanilla is 4000-5000s (67-83 min) for a barley or flax cycle; 1000-1250 makes it
-    # 17-21 min. The Min/Max pair is a range the mod randomises within, so keep Min < Max.
-    advize.PlantEverything.cfg|Crops|CropGrowTimeMin|1000
-    advize.PlantEverything.cfg|Crops|CropGrowTimeMax|1250
-    #
-    # Forage respawn, same 4x. Berries were 300s, flowers and debris 240s (fiddlehead 300).
-    # PickableStoneRespawnTime is deliberately NOT listed -- it already ships at 0, which is
-    # instant, and there is nothing to speed up.
-    advize.PlantEverything.cfg|Berries|RaspberryRespawnTime|75
-    advize.PlantEverything.cfg|Berries|BlueberryRespawnTime|75
-    advize.PlantEverything.cfg|Berries|CloudberryRespawnTime|75
-    advize.PlantEverything.cfg|Flowers|ThistleRespawnTime|60
-    advize.PlantEverything.cfg|Flowers|DandelionRespawnTime|60
-    advize.PlantEverything.cfg|Flowers|FiddleheadRespawnTime|75
-    advize.PlantEverything.cfg|Debris|PickableBranchRespawnTime|60
-    advize.PlantEverything.cfg|Debris|PickableFlintRespawnTime|60
-    #
-    # ⚠️ CLIENT CONSISTENCY IS UNVERIFIED HERE, unlike the V+ values above. README lists
-    # PlantEverything as client-OPTIONAL ("works without, minor cosmetic loss"), and crop growth
-    # is driven by the ZDO owner -- often a nearby client rather than the server. A player without
-    # the mod may therefore see vanilla growth on crops they are standing near. V+ pushes its
-    # config to clients via serverSyncsConfig; this mod has no such mechanism. Verify in-game
-    # before assuming everyone sees the same rates.
-    #
-    # Not changed, but adjacent if wanted: [Crops] CropsRequireSunlight is true, so crops will not
-    # grow under a roof -- the same restriction family as the workbench roof check lifted above.
-    #
-    # --- Recycle_N_Reclaim: un-craft at a station, discard from the inventory ---------------
-    # Section names are NUMBERED -- "1 - General", "2 - Inventory Recycle", "3 - Reclaiming",
-    # "4 - UI" -- NOT the bare names the Thunderstore page lists. Verified against literals in
-    # the 1.4.0 DLL. Pinning the bare names would append four duplicate sections that the mod
-    # ignores, while logging ten successful [cfg ] lines.
-    #
-    # ⚠️ ReturnEnchantedResources appears TWICE on purpose. The key genuinely exists in
-    # both [2 - Inventory Recycle] and [3 - Reclaiming], governing the discard path and the
-    # reclaim path independently. Deleting either line as a duplicate reopens one of them.
-    #
-    # Lock Configuration = true: clients cannot override server config locally, matching
-    # this file's rule that MOD_CONFIG is the source of truth and in-game edits are
-    # reverted on the next boot.
-    #
-    # ReturnEnchantedResources = false (both): EpicLoot's Sacrifice at the Enchanter stays
-    # the ONLY conversion path for magic gear, at EpicLoot's own balance. The mod's README
-    # confirms the overlap is real -- "If on and Epic Loot or Jewelcrafting is installed,
-    # discarding an item in the inventory will return resources for Epic Loot".
-    #
-    # AllowRecyclingUnknownRecipes / ReturnUnknownResources = false: EpicLoot, Warfare and
-    # Armory all add loot drops. Without these, a lucky Meadows drop converts into
-    # out-of-tier materials and skips a biome.
-    #
-    # PreventZeroResourceYields / UnstackableItemsAlwaysReturnAtLeastOneResource = true:
-    # at RecyclingRate 0.5 a 1-unit item yields 0.5 -> nothing. Without these, recycling
-    # cheap gear silently consumes it for no return.
-    #
-    # RecyclingRate is pinned at the mod's own default so the value is recorded as a
-    # decision rather than left to drift, the same reason baseMegingjordBuff is pinned at
-    # its vanilla 150 above.
-    #
-    # NOT pinned, deliberately: RequireExactCraftingStationForRecycling (default on, the
-    # author's note says it keeps behaviour close to vanilla); all keybinds (client-side
-    # preference); EnableExperimentalCraftingTabUI (default on, and it appears to BE the
-    # Reclaim tab -- ⚠️ first thing to toggle if the crafting UI misbehaves).
-    #
-    # ⚠️ NOT MANAGEABLE HERE: the mod also reads Azumatt.Recycle_N_Reclaim_ExcludeLists.yml,
-    # whose recycleRates block overrides RecyclingRate per item. MOD_CONFIG is INI
-    # key=value only and cannot manage a YAML side-file, so the global 0.5 applies to
-    # everything. Per-item rates would need a new mechanism in install-mods.sh.
-    # ⚠️ VALUES ARE On/Off, NOT true/false. Every boolean-looking key here is
-    # "Setting type: Toggle" -- a two-member enum {Off, On} -- so BepInEx rejects
-    # `true`/`false` with "Requested value 'true' was not found" and silently keeps the
-    # mod's own default. RecyclingRate is the one genuine primitive (a float).
-    #
-    # 🚨 THIS SHIPPED WRONG ONCE, ON 2026-07-31. All nine Toggle keys were first written as
-    # true/false. The installer logged ten successful [cfg ] lines; nine were discarded by
-    # BepInEx. It was NOT caught by the config-file check either -- the file looked healthy,
-    # because the values in it were the mod's defaults, correctly formatted. The ONLY place
-    # it surfaced was the game container's own log:
-    #   kubectl logs -n valheim deploy/valheim -c valheim | Select-String "could not be parsed"
-    # Six of the nine happened to match the mod's defaults and looked fine. Three did not:
-    # both ReturnEnchantedResources keys stayed On (EpicLoot guard inactive) and
-    # Lock to Admin stayed On (inventory discard admin-only). Add that grep to the checks
-    # after ANY MOD_CONFIG change, for any mod -- a [cfg ] line means the applier wrote
-    # the file, never that the mod accepted the value.
-    #
-    # Before adding a key here, read its "# Setting type:" line in the generated .cfg on the
-    # PVC. Toggle -> On/Off. Do not infer the type from the key reading like a boolean.
-    #
-    # ✅ VERIFIED IN-GAME 2026-08-01, against the CORRECTED On/Off values. All four checks
-    # passed: reclaim returns ~50% at the correct station; an EpicLoot magic item returned NO
-    # enchanting materials by either the reclaim or the discard path; an item whose recipe was
-    # not yet unlocked was REFUSED; a 1-unit item returned 1, not 0. AzuEPI's 5 extra rows and
-    # quick slots still render alongside the trash slot -- the contention accepted above did
-    # not materialise.
-    #
-    # ⚠️ The middle three are the NEGATIVE cases -- each guard was seen REFUSING, not merely
-    # seen not misbehaving. That distinction is load-bearing here: run against the ORIGINAL
-    # true/false pins these same checks would have passed for the wrong reason, because
-    # AllowRecyclingUnknownRecipes and ReturnUnknownResources happened to match the mod's
-    # defaults. The EpicLoot checks would have FAILED, which is what makes them the ones worth
-    # re-running after any version bump.
-    Azumatt.Recycle_N_Reclaim.cfg|1 - General|Lock Configuration|On
-    Azumatt.Recycle_N_Reclaim.cfg|2 - Inventory Recycle|Enabled|On
-    Azumatt.Recycle_N_Reclaim.cfg|2 - Inventory Recycle|Lock to Admin|Off
-    Azumatt.Recycle_N_Reclaim.cfg|2 - Inventory Recycle|ReturnEnchantedResources|Off
-    Azumatt.Recycle_N_Reclaim.cfg|2 - Inventory Recycle|ReturnUnknownResources|Off
-    Azumatt.Recycle_N_Reclaim.cfg|3 - Reclaiming|RecyclingRate|0.5
-    Azumatt.Recycle_N_Reclaim.cfg|3 - Reclaiming|ReturnEnchantedResources|Off
-    Azumatt.Recycle_N_Reclaim.cfg|3 - Reclaiming|AllowRecyclingUnknownRecipes|Off
-    Azumatt.Recycle_N_Reclaim.cfg|3 - Reclaiming|PreventZeroResourceYields|On
-    Azumatt.Recycle_N_Reclaim.cfg|3 - Reclaiming|UnstackableItemsAlwaysReturnAtLeastOneResource|On
-    #
-    # --- LazyVikings: ONLY the two cooking stations are enabled ----------------------------
-    #
-    # ⚠️ SECTION NAMES ARE "NN- Name" -- zero-padded, NO space before the dash, one space
-    # after. This is a THIRD convention in this file: Azumatt uses "2 - Inventory Recycle",
-    # ValheimPlus uses bare [Time], this uses "05- Cooking Station". Recovered from literals
-    # in the 1.2.3 DLL. A regex written for one convention silently misses the others -- the
-    # first recon pass here searched for "N - Name" and found nothing, which read as a clean
-    # negative result.
-    #
-    # 🚨 VALUES ARE On/Off, NOT true/false. Every description in the mod reads "If On, ..."
-    # and the setting type is Toggle. This is the same failure that cost two restarts on
-    # Recycle_N_Reclaim on 2026-07-31: BepInEx rejects true/false, keeps the mod's own
-    # default, and the installer logs a successful [cfg ] line anyway. After applying, ALWAYS:
-    #   kubectl logs -n valheim deploy/valheim -c valheim | Select-String "could not be parsed"
-    # Empty is the pass.
-    #
-    # 🚨 THE FOURTEEN "Off" LINES ARE LOAD-BEARING. They are not redundant defaults. Eleven
-    # of the fourteen name a station ValheimPlus ALREADY automates, and turning one On would
-    # put two mods on the same station. The remaining three (08- Hot Tub, 17- Steel Kiln,
-    # 18- Steel Slack Tub) are pinned off for consistency instead: V+'s [HotTub] exists but
-    # is disabled, and the Steel pieces come from OdinSteelWorks, which is not installed here.
-    #   03- Beehive         -> V+ [Beehive] autoDeposit
-    #   04- Blast Furnace   -> V+ [Furnace] autoDeposit/autoFuel -- ⚠️ V+ calls the Blast
-    #                          Furnace "[Furnace]", NOT "[BlastFurnace]". This row was
-    #                          originally and wrongly written as "not present here".
-    #   06- Eitr Refinery   -> V+ [EitrRefinery] autoDeposit/autoFuel
-    #   07- Fermenter       -> V+ [Fermenter] autoDeposit/autoFuel
-    #   08- Hot Tub         -> V+ [HotTub] exists but is enabled=false; off for consistency
-    #   10- Kiln            -> V+ [Kiln] autoDeposit/autoFuel
-    #   11- SapCollector    -> V+ [SapCollector] autoDeposit
-    #   12- Smelter         -> V+ [Smelter] autoDeposit/autoFuel
-    #   13- Spinning Wheel  -> V+ [SpinningWheel] autoDeposit/autoFuel
-    #   14- Stone Oven      -> V+ [Oven] autoFuel
-    #   15- Windmill        -> V+ [Windmill] autoDeposit/autoFuel
-    #   16- Fireplace       -> V+ [FireSource] autoFuel
-    #   17- Steel Kiln      -> OdinSteelWorks piece; that mod is not installed here; off for
-    #                          consistency
-    #   18- Steel Slack Tub -> OdinSteelWorks piece; that mod is not installed here; off for
-    #                          consistency
-    # DO NOT "tidy up" these lines.
-    #
-    # 02- General is deliberately not pinned. ENUMERATED 2026-08-02 after first boot: it holds
-    # only "Leave One = On" (never fully drains a chest) and "Must Have = Off". There is NO
-    # global automation master switch, so containment rests entirely on the fourteen Off pins
-    # above -- that assumption is now observed, not assumed.
-    #
-    # ⚠️ Radius = 5 (per station, acceptable 1-50, left at the mod's default). That is TIGHT:
-    # V+ stations use autoRange 10 and V+ [CraftFromChest] uses 30. A chest must be almost
-    # adjacent to the grill. If auto-cooking "does not work", check the chest distance BEFORE
-    # suspecting the pins.
-    #
-    # ⚠️ Automation = Both (per station, default; a THIRD setting type -- "Setting type:
-    # Automation", values Deposit/Fuel/Both). It does not only ADD raw food, it also DEPOSITS
-    # cooked food back into nearby containers. Combined with General's Must Have = Off, cooked
-    # food can land in ANY container within 5m, not only one already holding that item. This is
-    # fuller smelter-parity than the design specified -- recorded because it is behaviour
-    # nobody asked for and someone will eventually report it as a bug.
-    #
-    # ✅ VERIFIED IN-GAME 2026-08-02, immediately after the apply:
-    #   - 09- Iron Cooking Station: a chest built directly beside it and filled with raw meat
-    #     was drawn from, cooked unattended with no player interaction, and the cooked meat was
-    #     deposited back into that chest. Both halves of Automation=Both confirmed.
-    #   - CONTAINMENT (the checks that matter): smelter, blast furnace and the other V+-owned
-    #     stations observed still working as before. The fourteen Off pins held.
-    #   - ⚠️ NOT separately tested: 05- Cooking Station (the regular grill). It carries
-    #     identical pins and identical generated settings to 09, so it is expected equivalent,
-    #     but only 09 was actually exercised. Test it if you ever need certainty.
-    #   - ⚠️ Containment was an operator observation ("working as intended still"), not an
-    #     instrumented measurement of consumption rate. A subtle double-feed would not
-    #     necessarily have shown up. Good enough to proceed; not proof against a slow leak.
-    blacks7ar.LazyVikings.cfg|01- ServerSync|Lock Configuration|On
-    blacks7ar.LazyVikings.cfg|05- Cooking Station|Enable|On
-    blacks7ar.LazyVikings.cfg|09- Iron Cooking Station|Enable|On
-    blacks7ar.LazyVikings.cfg|03- Beehive|Enable|Off
-    blacks7ar.LazyVikings.cfg|04- Blast Furnace|Enable|Off
-    blacks7ar.LazyVikings.cfg|06- Eitr Refinery|Enable|Off
-    blacks7ar.LazyVikings.cfg|07- Fermenter|Enable|Off
-    blacks7ar.LazyVikings.cfg|08- Hot Tub|Enable|Off
-    blacks7ar.LazyVikings.cfg|10- Kiln|Enable|Off
-    blacks7ar.LazyVikings.cfg|11- SapCollector|Enable|Off
-    blacks7ar.LazyVikings.cfg|12- Smelter|Enable|Off
-    blacks7ar.LazyVikings.cfg|13- Spinning Wheel|Enable|Off
-    blacks7ar.LazyVikings.cfg|14- Stone Oven|Enable|Off
-    blacks7ar.LazyVikings.cfg|15- Windmill|Enable|Off
-    blacks7ar.LazyVikings.cfg|16- Fireplace|Enable|Off
-    blacks7ar.LazyVikings.cfg|17- Steel Kiln|Enable|Off
-    blacks7ar.LazyVikings.cfg|18- Steel Slack Tub|Enable|Off
-    #
-    # --- BetterNetworking: all 8 keys pinned ------------------------------------------------
-    #
-    # 🚨 THESE PINS ARE SERVER-ONLY AND REACH NO CLIENT. BN ships zero config-sync: ServerSync,
-    # ConfigSync and SyncedConfigEntry are all 0 in its DLL, against 11-16 for OdinHorse,
-    # Recycle_N_Reclaim and AzuContainerSizes. V+ serverSyncsConfig covers V+'s OWN config only.
-    # Every player configures their own copy by hand. That is CORRECT, not a gap -- a BN setting
-    # governs that peer's OWN OUTGOING data, so the server's Queue Size is server->clients and a
-    # client's is client->server. Do not "fix" this by looking for a sync switch; there isn't one.
-    # ⚠️ Consequence: changing Queue Size here fixes HALF the path. See README.md,
-    # "BetterNetworking client config", before assuming an escalation took effect group-wide.
-    #
-    # Enumerated off the generated /config/bepinex/CW_Jesse.BetterNetworking.cfg on 2026-08-08,
-    # first boot after install. 4 sections, 8 keys. Section names are verbatim from that file --
-    # note [Networking (Steamworks)] carries PARENTHESES and [Dedicated Server] a space.
-    #
-    # 🚨 ENUM VALUES CARRY A LEADING UNDERSCORE. It is `_32KB`, not `32KB`; `_100`, not `100`.
-    # This is not cosmetic -- a value in the wrong form is rejected and replaced by the mod's own
-    # default, correctly formatted, in the right section, logging nothing. The file would look
-    # healthy either way. Copy these from the generated cfg, never retype them.
-    # Acceptable sets, from the file itself:
-    #   Queue Size         _80KB _64KB _48KB _32KB _vanilla
-    #   Update Rate        _100 _75 _50
-    #   Send Rate Min/Max  _1024KB _768KB _512KB _256KB _150KB
-    #   Force Crossplay    vanilla playfab steamworks        (NO underscore on these three)
-    # Player Limit is a plain Int32 (range 1-127) and Compression Enabled a plain true/false --
-    # two different value conventions in the SAME file. Read `# Setting type:` per key.
-    #
-    # 🚨 `Player Limit` = 10 IS THE COLLISION PIN, and it is the reason this section exists.
-    # BN_Patch_ChangePlayerLimit sets the player limit at DedicatedServerInit; ValheimPlus
-    # [Server] maxPlayers = 10 sets the same property. Two mods, one property. BN's default
-    # happens to be 10 already, so nothing is broken TODAY -- which is exactly why this is pinned
-    # rather than left alone. Unpinned, a future BN default change would silently disagree with
-    # V+ and the winner would come down to undocumented patch ordering. Same discipline as the
-    # [Wagon]/OdinHorse pin. ⚠️ IF V+ maxPlayers EVER CHANGES, CHANGE THIS LINE IN THE SAME EDIT.
-    #
-    # ⚠️ SEVEN OF THESE EIGHT PINS ARE INERT BY CONSTRUCTION -- they match BN's defaults. That is
-    # deliberate (explicit state beats implicit), but it means they cannot be verified by reading
-    # values back: they would "pass" even if the section name were wrong, because the default is
-    # already the expected value. This is the exact trap recorded above for Recycle_N_Reclaim,
-    # where two pins passed for the wrong reason.
-    #   -> `Log Level` is therefore pinned to `info`, a NON-default, on purpose. It is the only
-    #      key here whose written value differs from what the mod would produce on its own, so it
-    #      is the one line that actually proves the applier reached this file and parsed these
-    #      section names. It also buys extra visibility while a 2023-era mod is on trial.
-    #      Returning it to `message` is fine once BN is trusted -- but then NO pin in this block
-    #      is verifiable any more. Re-verify the block by flipping one key if you do.
-    #
-    # Networking values are at defaults DELIBERATELY, not lazily. Queue Size _32KB is already
-    # 3.2x vanilla's hardcoded 10240-byte cap, which is the entire problem being fixed. The mod
-    # README's escalation for this exact symptom is Queue Size _48KB plus Update Rate _75 -- NOT
-    # applied yet, because moving two networking variables at once makes the result
-    # unattributable. Measure _32KB first. Escalate only if mobs still skip.
-    # ✅ EVERY PLAYER IS ON THE LAN (confirmed by the owner 2026-08-08). That retires ONE of the
-    # two cautions on raising Queue Size, not both:
-    #   - "can overload a player's internet" -> DOES NOT APPLY. Sub-millisecond gigabit LAN,
-    #     measured 0% loss. Bandwidth is not the constraint here.
-    #   - "deprioritizes IMPORTANT objects" -> STILL APPLIES, and is independent of bandwidth.
-    #     A bigger queue ships more data per flush but reorders what gets in it, so bigger is
-    #     NOT monotonically better even on a perfect network. This is the reason _80KB is not
-    #     simply the right answer.
-    # ⚠️ If a remote player is ever added, the first caution comes back and this note is stale.
-    #
-    # Compression Enabled is true but is a NO-OP until clients install BN -- compression requires
-    # the mod at BOTH ends. It costs nothing server-side and starts working per-player as people
-    # install it, so it is on from the start rather than switched on later and forgotten.
-    CW_Jesse.BetterNetworking.cfg|Dedicated Server|Force Crossplay|vanilla
-    CW_Jesse.BetterNetworking.cfg|Dedicated Server|Player Limit|10
-    CW_Jesse.BetterNetworking.cfg|Logging|Log Level|info
-    CW_Jesse.BetterNetworking.cfg|Networking|Compression Enabled|true
-    CW_Jesse.BetterNetworking.cfg|Networking|Update Rate|_100
-    CW_Jesse.BetterNetworking.cfg|Networking|Queue Size|_32KB
-    CW_Jesse.BetterNetworking.cfg|Networking (Steamworks)|Minimum Send Rate|_256KB
-    CW_Jesse.BetterNetworking.cfg|Networking (Steamworks)|Maximum Send Rate|_1024KB
-
   install-mods.sh: |
     #!/bin/bash
-    # Idempotent, checksum-verified mod installer + declarative per-mod config.
-    # Runs as an initContainer before the game container starts, so everything is in place for
-    # the bootstrap rsync on the same boot.
+    # Idempotent, checksum-verified installer for BepInExPack + server-side mods, plus
+    # declarative per-mod config and the admin list. Runs as an initContainer and writes
+    # straight into the live install -- this image has no staged copy and no bootstrap rsync.
     set -euo pipefail
 
-    BEPINEX_CONFIG=/config/bepinex          # == BepInEx/config/ in the live install (symlink)
-    PLUGINS="$BEPINEX_CONFIG/plugins"       # rsynced -> BepInEx/plugins/ at bootstrap
-    STATE="$BEPINEX_CONFIG/.mod-state"      # install markers; deliberately NOT under plugins/
-    TMP=/tmp/mods                           # emptyDir, so a failed download never litters the PVC
+    # SERVER/SAVES/TMP are overridable ONLY so valheim/tests/test-install-mods.sh can run this
+    # against a temp directory. deployment.yaml sets none of them.
+    SERVER=${SERVER:-/valheim}                  # the image's force_install_dir
+    SAVES=${SAVES:-/valheim-saves}              # the image's SAVE_DIR; adminlist.txt lives here
+    TMP=${TMP:-/tmp/mods}                       # emptyDir, so a failed download never litters a PVC
+    PLUGINS="$SERVER/BepInEx/plugins"           # live plugin dir
+    BEPINEX_CONFIG="$SERVER/BepInEx/config"     # a real directory here, not a symlink
+    STATE="$SERVER/.mod-state"                  # install markers; deliberately NOT under plugins/
 
-    mkdir -p "$PLUGINS" "$STATE" "$TMP"
+    mkdir -p "$PLUGINS" "$BEPINEX_CONFIG" "$STATE" "$TMP"
 
     installed=0; skipped=0
+
+    # Is this entry already present at the pinned version+sha? The pack has no plugins/<name>
+    # directory, so it is tested by its two signature files instead.
+    is_installed() {
+      local name=$1 layout=$2 marker="$STATE/$name" want=$3
+      [ -f "$marker" ] && [ "$(cat "$marker")" = "$want" ] || return 1
+      case "$layout" in
+        pack) [ -f "$SERVER/.bepinex_version" ] && [ -f "$SERVER/BepInEx/core/BepInEx.dll" ] ;;
+        *)    [ -d "$PLUGINS/$name" ] ;;
+      esac
+    }
 
     install_one() {
       local name=$1 ver=$2 url=$3 sha=$4 layout=$5
       local marker="$STATE/$name" want="$ver $sha"
 
-      # Skip when the marker matches AND the payload is actually present. Warfare alone is
-      # 182MB -- re-downloading the set on every restart would be slow and would hammer
-      # Thunderstore for no reason.
-      if [ -f "$marker" ] && [ "$(cat "$marker")" = "$want" ] && [ -d "$PLUGINS/$name" ]; then
+      case "$layout" in pack|plugins|bepinex|root) ;;
+        *) echo "[FAIL ] $name: unknown layout '$layout'" >&2; exit 1 ;;
+      esac
+
+      if is_installed "$name" "$layout" "$want"; then
         echo "[skip ] $name $ver (already installed)"
         skipped=$((skipped + 1))
         return 0
@@ -1317,21 +135,34 @@ data:
       rm -rf "$ex"; mkdir -p "$ex"
       unzip -q -o "$zip" -d "$ex"
 
-      # Replace rather than merge, so an upgrade cannot leave stale files from the old version.
-      rm -rf "${PLUGINS:?}/${name:?}"
-      mkdir -p "$PLUGINS/$name"
       case "$layout" in
-        plugins) cp -a "$ex/plugins/." "$PLUGINS/$name/" ;;
-        bepinex) cp -a "$ex/BepInEx/plugins/." "$PLUGINS/$name/" ;;
-        root)    find "$ex" -maxdepth 1 -type f -name '*.dll' -exec cp -a {} "$PLUGINS/$name/" \; ;;
-        *)       echo "[FAIL ] $name: unknown layout '$layout'" >&2; exit 1 ;;
+        pack)
+          # Replace the framework's own directories so an upgrade cannot leave stale core
+          # files behind. plugins/ and config/ are NOT touched: plugins are managed per entry
+          # below, and config/ holds the per-mod .cfg files the applier maintains. The pack's
+          # own BepInEx.cfg is copied over the existing one; nothing here pins BepInEx.cfg.
+          rm -rf "${SERVER:?}/BepInEx/core" "${SERVER:?}/doorstop_libs"
+          cp -a "$ex/BepInExPack_Valheim/." "$SERVER/"
+          # The image's start.sh reads this to choose doorstop env var names. Absent => it
+          # assumes 5.4.22 and exports the OLD names, and BepInEx never loads. See README.
+          echo "$ver" > "$SERVER/.bepinex_version"
+          ;;
+        *)
+          # Replace rather than merge, so an upgrade cannot leave stale files from the old version.
+          rm -rf "${PLUGINS:?}/${name:?}"
+          mkdir -p "$PLUGINS/$name"
+          case "$layout" in
+            plugins) cp -a "$ex/plugins/." "$PLUGINS/$name/" ;;
+            bepinex) cp -a "$ex/BepInEx/plugins/." "$PLUGINS/$name/" ;;
+            root)    find "$ex" -maxdepth 1 -type f -name '*.dll' -exec cp -a {} "$PLUGINS/$name/" \; ;;
+          esac
+          # Thunderstore's optional config/ maps to BepInEx/config/.
+          if [ -d "$ex/config" ]; then
+            echo "[     ] $name: installing bundled config/ -> $BEPINEX_CONFIG/"
+            cp -a "$ex/config/." "$BEPINEX_CONFIG/"
+          fi
+          ;;
       esac
-
-      # Thunderstore's config/ maps to BepInEx/config/, which is the /config/bepinex symlink.
-      if [ -d "$ex/config" ]; then
-        echo "[     ] $name: installing bundled config/ -> $BEPINEX_CONFIG/"
-        cp -a "$ex/config/." "$BEPINEX_CONFIG/"
-      fi
 
       rm -rf "$ex" "$zip"
       echo "$want" > "$marker"
@@ -1339,28 +170,18 @@ data:
       installed=$((installed + 1))
     }
 
-    # Sets one key in a BepInEx .cfg, touching nothing else in the file. Handles all four cases:
-    # key present in section (replace in place), key absent but section present (append to that
-    # section), section absent (create at end), file absent (create it -- BepInEx honours a
-    # partial config and fills in the remaining defaults on first load, which is what makes this
-    # work for a mod that has never run yet).
-    # ⚠️ DO NOT "clean up" the norm() calls below. The CRLF handling is load-bearing TODAY (see
-    # the note further down); the zero-width handling is now defensive, and both stay.
-    # SkilledCarryWeight was the mod that needed the zero-width stripping: it prefixed keys and
-    # sections with U+200B (E2 80 8B) to force sort order in its config manager, so its real key
-    # was "<ZWSP>Enabled" and a literal comparison would append a SECOND, plain Enabled line that
-    # the mod ignored -- while the applier reported success and changed nothing. That mod has
-    # been removed, so nothing currently installed exercises this path. It is kept because the
-    # failure mode is silent and expensive to rediscover, and because Thunderstore mods that
-    # abuse zero-width characters for sort order are not rare.
-    # Separator style is preserved per line, not normalised. BepInEx writes "Key = Value";
-    # ValheimPlus writes "enabled=false" with no spaces and parses its own INI. Forcing spaces
-    # into valheim_plus.cfg risks its parser reading " false" or missing the key entirely, so the
-    # replacement copies whatever style the original line used.
-    # CRLF matters too: ValheimPlus writes valheim_plus.cfg with \r\n, so "[Inventory]\r" never
-    # equals "[Inventory]". norm() strips \r before comparing, and the \r is re-appended on write
-    # so the file keeps consistent line endings. Without this every V+ pin would miss its section
-    # and append a duplicate one at the end -- silently, while logging success.
+    # Sets one key in a .cfg, touching nothing else. Handles: key present in section (replace
+    # in place), key absent but section present (append to that section), section absent
+    # (create at end), file absent (create it -- BepInEx honours a partial config and fills in
+    # the rest on first load).
+    # ⚠️ DO NOT "clean up" the norm() calls. CRLF handling is load-bearing: ValheimPlus writes
+    # valheim_plus.cfg with \r\n, so "[Fermenter]\r" never equals "[Fermenter]" without it, and
+    # every V+ pin would miss its section and append a duplicate at the end -- silently, while
+    # logging success. Zero-width/BOM stripping is defensive: some Thunderstore mods prefix
+    # keys with U+200B to force sort order, and a literal compare then appends a second, plain
+    # key the mod ignores.
+    # Separator style is preserved per line: BepInEx writes "Key = Value", V+ writes "key=value"
+    # and parses its own INI, so forcing spaces into valheim_plus.cfg risks a missed key.
     CFG_AWK='
     function norm(s,   t) { t=s; gsub(zw,"",t); gsub(bom,"",t); gsub(/\r/,"",t); gsub(/^[ \t]+|[ \t]+$/,"",t); return t }
     BEGIN { insec=0; done=0; sawsec=0 }
@@ -1395,148 +216,84 @@ data:
         echo "[cfg  ] $file [$section] $key = $value (created)"
         return 0
       fi
-      awk -v zw="$ZW" -v bom="$BOM" -v sep=" = " -v sec="$section" -v k="$key" -v v="$value" \
+      awk -v zw="$ZW" -v bom="$BOM" -v sep="=" -v sec="$section" -v k="$key" -v v="$value" \
         "$CFG_AWK" "$path" > "$path.new"
       mv "$path.new" "$path"
       echo "[cfg  ] $file [$section] $key = $value"
     }
 
     echo "=== valheim mod installer ==="
+
+    # Names MODS still lists. Computed FIRST so an empty or unparseable MODS aborts before any
+    # download, and so the prune below cannot disagree with the install loop about the set.
+    keep=$(while read -r name _rest; do
+             [ -z "${name:-}" ] && continue
+             case "$name" in \#*) continue ;; esac
+             printf '%s\n' "$name"
+           done <<< "${MODS:-}")
+
+    # An EMPTY MODS -- the ConfigMap key missing, or its block scalar emptied -- must never be
+    # read as "delete everything". This guards that one shape of bad input. A TRUNCATED MODS
+    # still parses to a valid non-empty set and walks past here; the bulk-prune breaker below
+    # is what catches that.
+    if [ -z "$keep" ]; then
+      echo "[FAIL ] MODS parsed to an empty set -- refusing to run" >&2
+      exit 1
+    fi
+
     while read -r name ver url sha layout; do
       [ -z "${name:-}" ] && continue
       case "$name" in \#*) continue ;; esac
       install_one "$name" "$ver" "$url" "$sha" "$layout"
     done <<< "$MODS"
 
-    # --- prune: mods no longer listed in MODS --------------------------------------------
-    # Deleting a line from MODS used to be insufficient. The staged copy survived here, and the
-    # image's bootstrap sync is `rsync -a` with NO --delete, so the stale DLL also survived in
-    # the live install -- a "removed" mod kept running. Both copies are pruned here, which is
-    # what makes removal declarative.
+    # --- prune: plugin directories no longer listed in MODS ----------------------------
+    # ⚠️ Every rm below uses ${VAR:?}, so an unset or empty path aborts instead of expanding
+    # to a bare root. Do NOT rewrite these as plain "$VAR".
     #
-    # ⚠️ $PLUGINS is on valheim-data, the SAME Longhorn volume as /config/worlds_local. Every rm
-    # below uses ${VAR:?}, so an unset or empty path aborts the script instead of expanding to a
-    # bare root path. Do NOT rewrite these as plain "$VAR" -- that is the one bug in this file
-    # that could reach the world save.
-    LIVE_PLUGINS=/opt/valheim/bepinex/BepInEx/plugins
+    # ⚠️ The herestring in is_kept is deliberate -- do NOT "simplify" it to `printf | grep -q`.
+    # Under pipefail, grep -q exiting on a match before printf finishes can SIGPIPE printf and
+    # invert the test, deleting a mod MODS still lists. A herestring has no pipeline.
+    is_kept() { grep -qxF "$1" <<< "$keep"; }
 
-    keep=$(while read -r name _rest; do
-             [ -z "${name:-}" ] && continue
-             case "$name" in \#*) continue ;; esac
-             printf '%s\n' "$name"
-           done <<< "$MODS")
+    # Only DIRECTORIES under plugins/ are candidates. The pack's core/, config/ and doorstop
+    # files live outside plugins/, and a loose file dropped in by the image (MaxPlayerCount.dll,
+    # only ever present if MAX_PLAYERS is changed from 10) is a file, not a directory.
+    doomed=$( [ -d "$PLUGINS" ] && for d in "$PLUGINS"/*/; do
+                [ -d "$d" ] || continue
+                n=$(basename "$d"); is_kept "$n" || printf '%s\n' "$n"
+              done || true )
+    if [ -z "$doomed" ]; then doomed_n=0
+    else doomed_n=$(printf '%s\n' "$doomed" | wc -l | tr -d '[:space:]'); fi
 
-    # An EMPTY MODS -- the ConfigMap key missing, or its block scalar emptied -- must never be read
-    # as "delete everything". That is all this guard covers. It does NOT cover a truncated MODS: a
-    # block scalar clipped mid-list still parses to a perfectly valid non-empty set and walks
-    # straight past here. The bulk-prune breaker below is what catches truncation. Do not read
-    # this guard as protecting against malformed input generally -- it protects against one shape
-    # of it.
-    if [ -z "$keep" ]; then
-      echo "[FAIL ] MODS parsed to an empty set -- refusing to prune" >&2
-      exit 1
-    fi
-
-    # Single source of truth for "does MODS still list this directory name?". The pre-flight count
-    # and the removal itself both go through it, so the breaker can never disagree about what the
-    # prune then deletes.
-    # `grep` exits 1 on no-match. Every caller below puts that in a tested position (`if !` or
-    # `||`), where a non-zero exit is the condition being tested and is NOT fatal under `set -e`.
-    # Do not call this bare, and do not "simplify" a caller into an untested command.
-    # ⚠️ The herestring is deliberate -- do NOT "simplify" it back to `printf ... | grep -qxF`.
-    # Under `set -o pipefail`, if `grep -q` exits on a match before `printf` has finished writing,
-    # `printf` takes SIGPIPE and the pipeline returns non-zero -- inverting this test and deleting
-    # a mod that MODS still lists, on the same Longhorn volume as the world save. `keep` is ~250
-    # bytes today so it fits the pipe buffer atomically and this cannot fire, but the failure mode
-    # is silent and destructive and the size is not guaranteed. A herestring has no pipeline.
-    is_kept() {
-      grep -qxF "$1" <<< "$keep"
-    }
-
-    # Directory names present under a root that MODS no longer lists.
-    doomed_in() {
-      local root=$1 d n
-      [ -d "$root" ] || return 0
-      for d in "$root"/*/; do
-        [ -d "$d" ] || continue
-        n=$(basename "$d")
-        is_kept "$n" || printf '%s\n' "$n"
-      done
-    }
-
-    # DISTINCT names across both roots -- `sort -u`, deliberately NOT the sum of the two counts.
-    # A mod is normally present in the staged copy AND the live install, so summing would double
-    # every removal and trip the breaker below at half its intended threshold, on an ordinary
-    # two-mod change.
-    doomed=$( { doomed_in "$PLUGINS"; doomed_in "$LIVE_PLUGINS"; } | sort -u )
-    if [ -z "$doomed" ]; then
-      doomed_n=0
-    else
-      doomed_n=$(printf '%s\n' "$doomed" | wc -l | tr -d '[:space:]')
-    fi
-
-    # --- bulk-prune circuit breaker -------------------------------------------------------
+    # --- bulk-prune circuit breaker -----------------------------------------------------
     # ⚠️ DO NOT raise this threshold to push a large cleanup through, and do NOT delete it on the
-    # grounds that the empty-set guard above already covers bad input. It does not. A MODS block
-    # scalar clipped mid-list by a bad edit still parses to a valid, non-empty set, and the prune
-    # would then read every mod BELOW the cut as deliberately removed and delete it from both
-    # plugin dirs and its marker -- silently, while logging success.
-    #
-    # Restoring the clipped line does NOT undo that. EpicLoot, Warfare, Armory and
-    # OdinsFoodBarrels register prefabs whose placed instances are persisted as ZDOs in
-    # TreeFellMeFirst.db. Boot once without the DLL and those ZDOs are orphaned; reinstalling the
-    # mod later brings back the item definitions, not the objects players had built or dropped.
-    # That is why this is a hard refusal and not a warning.
-    #
-    # A deliberate removal in this repo is one mod at a time. More than two in a single boot is
-    # the signature of a clipped MODS block, not an intention. Failing the initContainer keeps the
-    # pod down until a human looks -- recoverable. A wrongly pruned world is not.
+    # grounds that the empty-set guard covers bad input. It does not: a MODS block clipped
+    # mid-list still parses to a valid non-empty set, and the prune would read every mod below
+    # the cut as deliberately removed. A deliberate removal in this repo is one mod at a time;
+    # more than two in one boot is the signature of a clipped block. Failing the initContainer
+    # keeps the pod down until a human looks -- recoverable. A wrongly pruned mod that had
+    # registered prefabs is not: its placed objects are orphaned ZDOs in the world save.
     if [ "$doomed_n" -gt 2 ] && [ "${PRUNE_ALLOW_BULK:-}" != "yes" ]; then
-      doomed_list=$(printf '%s\n' "$doomed" | tr '\n' ' ')
-      echo "[FAIL ] prune would remove $doomed_n mods in a single boot: $doomed_list" >&2
+      echo "[FAIL ] prune would remove $doomed_n mods in a single boot: $(printf '%s ' $doomed)" >&2
       echo "         Refusing. More than 2 at once usually means the MODS block in" >&2
       echo "         mods-configmap.yaml was truncated, not that this many mods were dropped." >&2
-      echo "         Check MODS still lists every mod you expect before doing anything else." >&2
-      echo "         If this removal really is intended, add to the fetch-mods container in" >&2
-      echo "         deployment.yaml an env var PRUNE_ALLOW_BULK with value \"yes\", apply, let" >&2
-      echo "         it boot once, then remove it again." >&2
+      echo "         If this removal really is intended, add env PRUNE_ALLOW_BULK=\"yes\" to the" >&2
+      echo "         fetch-mods container in deployment.yaml, apply, let it boot once, remove it." >&2
       exit 1
     fi
 
-    prune_dir() {
-      local root=$1 label=$2 d n
-      if [ ! -d "$root" ]; then
-        echo "[prune] $label: $root absent, nothing to do"
-        return 0
-      fi
-      for d in "$root"/*/; do
-        [ -d "$d" ] || continue
-        n=$(basename "$d")
-        if ! is_kept "$n"; then
-          echo "[prune] $label: removing $n (not in MODS)"
-          rm -rf "${root:?}/${n:?}"
-        fi
-      done
-    }
-
-    echo "=== pruning mods no longer in MODS ($doomed_n to remove) ==="
-    prune_dir "$PLUGINS"      "staged"
-    prune_dir "$LIVE_PLUGINS" "live"
-
-    # Orphaned install markers go too, so re-adding a mod later reinstalls it cleanly instead of
-    # being skipped by a stale version+sha marker.
-    #
-    # Markers are deliberately NOT counted by the breaker above: a marker is regenerable metadata,
-    # and one left behind with no plugin dir is a cosmetic inconsistency, not data loss. The
-    # breaker exits before this loop anyway, so a truncation large enough to trip the breaker
-    # never reaches it.
+    echo "=== pruning plugins no longer in MODS ($doomed_n to remove) ==="
+    for n in $doomed; do
+      echo "[prune] removing $n (not in MODS)"
+      rm -rf "${PLUGINS:?}/${n:?}"
+    done
+    # Orphaned markers go too, so re-adding a mod later reinstalls it instead of being skipped
+    # by a stale marker. Markers are regenerable metadata, so they are not counted by the breaker.
     for m in "$STATE"/*; do
       [ -f "$m" ] || continue
       n=$(basename "$m")
-      if ! is_kept "$n"; then
-        echo "[prune] marker: removing $n"
-        rm -f "${STATE:?}/${n:?}"
-      fi
+      is_kept "$n" || { echo "[prune] marker: removing $n"; rm -f "${STATE:?}/${n:?}"; }
     done
 
     echo "=== applying per-mod config ==="
@@ -1546,9 +303,20 @@ data:
       set_cfg "$file" "$section" "$key" "$value"
     done <<< "${MOD_CONFIG:-}"
 
-    # Match the ownership the game container expects (PUID/PGID 10000).
-    chown -R 10000:10000 "$BEPINEX_CONFIG"
+    # --- adminlist -----------------------------------------------------------------------
+    # The image does nothing with admins. Valheim reads <savedir>/adminlist.txt at start and
+    # re-reads it periodically; the header line is the one the game itself writes. Rewritten
+    # every boot from ADMINLIST_IDS, so a ConfigMap edit + restart is the whole procedure.
+    mkdir -p "$SAVES"
+    {
+      echo "// List admin players ID  ONE per line"
+      for id in ${ADMINLIST_IDS:-}; do echo "$id"; done
+    } > "$SAVES/adminlist.txt"
+    echo "[admin] wrote $SAVES/adminlist.txt ($(( $(wc -l < "$SAVES/adminlist.txt") - 1 )) ids)"
+
+    # No chown here: the image's init.sh chown -Rs both volumes on every start and then runs
+    # the game as root anyway.
 
     echo "=== done: $installed installed, $skipped already present ==="
-    echo "--- BepInEx/plugins staged on the PVC ---"
+    echo "--- BepInEx/plugins ---"
     ls -1 "$PLUGINS"
