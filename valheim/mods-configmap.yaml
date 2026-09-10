@@ -12,7 +12,10 @@
 # pack also owns /valheim/.bepinex_version, which the image's start.sh reads to choose the
 # doorstop env var names -- no marker means "legacy 5.4.22", the old names, and BepInEx never
 # loads. So: BEPINEX_ENABLED=true in configmap.yaml (for the LD_PRELOAD/doorstop env), the
-# pack from here, and the image's own MODS variable left unset so its downloader never runs.
+# pack from here, and the image's own MODS variable left unset. Its downloader still RUNS on
+# every boot -- start.sh calls install_mods whenever BEPINEX_ENABLED=true -- but with MODS
+# unset all it does is `rm -rf` and recreate an empty BepInEx/plugins/thunderstore/. That
+# directory belongs to the image; the prune in install-mods.sh leaves it alone.
 #
 # ADDING/UPGRADING: add or edit a line in MODS, then apply + rollout restart. The installer
 # keys off "<version> <sha256>", so changing either reinstalls just that entry. Checksum:
@@ -47,10 +50,12 @@ data:
   # 5.4.2350 satisfies. All three shipped Valheim 1.0 releases on 2026-09-09/10.
   #
   # CLIENT INSTALL: every client needs BepInExPack 5.4.2350 and ValheimPlus 10.0.2. V+ runs at
-  # its shipped defaults, which include [Server] enforceMod=true, so a client without the same
-  # V+ version is REFUSED; serverSyncsConfig=true pushes this server's V+ config to clients.
-  # Verified from upstream Grantapher/ValheimPlus valheim_plus.cfg on 2026-09-10. To allow
-  # mod-free joining instead, pin valheim_plus.cfg|Server|enforceMod|false in MOD_CONFIG.
+  # its shipped defaults, which include [Server] enforceMod = true, so a client without the
+  # same V+ version is REFUSED; serverSyncsConfig = true pushes this server's V+ config to
+  # clients. Verified 2026-09-10 from the V+ 10.0.2 source (tag 0.10.0.2,
+  # ServerConfiguration.cs), which binds [Server] enabled = true, enforceMod = true and
+  # serverSyncsConfig = true. To allow mod-free joining instead, pin
+  # org.bepinex.plugins.valheim_plus.cfg|Server|enforceMod|false in MOD_CONFIG.
   # Install Jotunn 2.30.0 on clients too, to match.
   MODS: |
     BepInExPack_Valheim  5.4.2350  https://thunderstore.io/package/download/denikson/BepInExPack_Valheim/5.4.2350/               37a91c000b4e88f2ed7a4bd7d812239852d2e36cbf0ff0a9f5faacfba46b105f  pack
@@ -59,19 +64,29 @@ data:
   # Per-mod config, declared here instead of hand-edited on the PVC. One line per key:
   #   <file under BepInEx/config>|<section>|<key>|<value>
   #
-  # Two parsers, two failure modes. valheim_plus.cfg is parsed by V+'s own INI reader
-  # (true/false, "key=value" with no spaces, CRLF line endings). BepInEx-bound mods use
-  # "Key = Value" and Toggle enums (On/Off). The applier preserves whichever separator style
-  # the file already uses. A rejected BepInEx value logs "could not be parsed" in the game
-  # container; a rejected V+ value logs NOTHING -- verify V+ by reading the file back.
+  # One parser. ValheimPlus >= 10 is BepInEx-bound like every other mod here: its config is
+  # org.bepinex.plugins.valheim_plus.cfg ("Key = Value", `# Setting type:` headers), created
+  # by V+ on its first boot. The applier preserves whichever separator style a file uses.
+  #
+  # ⚠️ NEVER name valheim_plus.cfg on a line here. That is the LEGACY (V+ <= 9.x) INI file,
+  # and set_cfg creates any file it is pointed at. V+ 10 treats a valheim_plus.cfg found
+  # beside its BepInEx config as an override that wins on every launch, makes settings
+  # read-only in-game, and logs a deprecation warning (V+ BepInExConfig.cs at tag 0.10.0.2,
+  # LegacyMode.Override).
+  #
+  # A rejected BepInEx value logs "could not be parsed" in the game container. Whether a
+  # rejected V+ 10 value does too is UNVERIFIED until the rebuild plan's Task 6 checks it, so
+  # verify V+ pins by reading the file back off the PVC, never by the absence of that line.
   #
   # ⚠️ Enabling a V+ section makes EVERY key in it live. Pin them all, including the ones
   # staying at default, or a future V+ default change takes effect silently.
   #
   # ⚠️ A pin whose value equals the mod's default is inert and unverifiable -- it reads back
-  # correct even if the section name is wrong. The [Fermenter] enabled=true line below is the
-  # sentinel that proves the applier reached this file; every other key in that section is
-  # pinned at its generated default so enabling it changes no behaviour.
+  # correct even if the section name is wrong. The planned sentinel is [Fermenter]
+  # enabled = true (the section defaults to false): it proves the applier reached this file,
+  # while every other key in that section is pinned at its generated default so enabling it
+  # changes no behaviour. The exact key set is enumerated from the live file after first
+  # boot, never copied from docs or from an older V+ version.
   #
   # Populated after the first boot, from the file V+ actually generated -- see README.md.
   MOD_CONFIG: |
@@ -178,14 +193,20 @@ data:
     # in place), key absent but section present (append to that section), section absent
     # (create at end), file absent (create it -- BepInEx honours a partial config and fills in
     # the rest on first load).
-    # ⚠️ DO NOT "clean up" the norm() calls. CRLF handling is load-bearing: ValheimPlus writes
-    # valheim_plus.cfg with \r\n, so "[Fermenter]\r" never equals "[Fermenter]" without it, and
-    # every V+ pin would miss its section and append a duplicate at the end -- silently, while
-    # logging success. Zero-width/BOM stripping is defensive: some Thunderstore mods prefix
-    # keys with U+200B to force sort order, and a literal compare then appends a second, plain
-    # key the mod ignores.
-    # Separator style is preserved per line: BepInEx writes "Key = Value", V+ writes "key=value"
-    # and parses its own INI, so forcing spaces into valheim_plus.cfg risks a missed key.
+    # ⚠️ DO NOT "clean up" the norm() calls. CRLF handling is load-bearing for any file written
+    # with \r\n: "[Section]\r" never equals "[Section]" without it, so every pin would miss its
+    # section and append a duplicate at the end -- silently, while logging success. History:
+    # this was found on ValheimPlus <= 9.x, whose legacy valheim_plus.cfg was CRLF. V+ 10 writes
+    # an LF BepInEx file (org.bepinex.plugins.valheim_plus.cfg) and no longer needs it; the
+    # handling stays because other Thunderstore mods can do the same -- a config/ shipped in a
+    # mod's zip is copied here verbatim, CRLF and all. Zero-width/BOM stripping is defensive:
+    # some Thunderstore mods prefix keys with U+200B to force sort order, and a literal compare
+    # then appends a second, plain key the mod ignores.
+    # Separator style is preserved per line: BepInEx writes "Key = Value"; legacy INI-style
+    # files (V+ <= 9.x) used "key=value", and forcing spaces into one risks a missed key.
+    # Known wart, deliberately left: a key APPENDED into a CRLF file (absent key, or a new
+    # section) is written without \r, leaving mixed line endings. Harmless for LF files like
+    # V+ 10's.
     CFG_AWK='
     function norm(s,   t) { t=s; gsub(zw,"",t); gsub(bom,"",t); gsub(/\r/,"",t); gsub(/^[ \t]+|[ \t]+$/,"",t); return t }
     BEGIN { insec=0; done=0; sawsec=0 }
@@ -263,9 +284,19 @@ data:
     # Only DIRECTORIES under plugins/ are candidates. The pack's core/, config/ and doorstop
     # files live outside plugins/, and a loose file dropped in by the image (MaxPlayerCount.dll,
     # only ever present if MAX_PLAYERS is changed from 10) is a file, not a directory.
+    #
+    # ⚠️ plugins/thunderstore is the IMAGE's, not ours -- do NOT remove this skip. The image's
+    # start.sh calls install_mods on every boot once BEPINEX_ENABLED=true, and functions.sh's
+    # install_mods begins `rm -rf plugins/thunderstore; mkdir -p plugins/thunderstore`, so with
+    # the image's MODS unset it recreates the directory, empty, every boot. This initContainer
+    # runs before the game container, so from the second boot on it is always here. Pruning it
+    # would be undone seconds later, log a removal on every boot, and count toward the breaker
+    # below -- two deliberate removals plus this one would trip it. Neither delete nor count it.
     doomed=$( [ -d "$PLUGINS" ] && for d in "$PLUGINS"/*/; do
                 [ -d "$d" ] || continue
-                n=$(basename "$d"); is_kept "$n" || printf '%s\n' "$n"
+                n=$(basename "$d")
+                case "$n" in thunderstore) continue ;; esac
+                is_kept "$n" || printf '%s\n' "$n"
               done || true )
     if [ -z "$doomed" ]; then doomed_n=0
     else doomed_n=$(printf '%s\n' "$doomed" | wc -l | tr -d '[:space:]'); fi

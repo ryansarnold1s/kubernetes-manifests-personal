@@ -27,6 +27,14 @@ data:
   # Revisit with the same measurement once the world grows: time the gap between two
   # "World saved" lines, and the ms figure on each.
   SAVE_INTERVAL: "1800"
+  # Pinned although the image's Dockerfile ENV already sets it, because it is load-bearing:
+  # start.sh passes -savedir "${SAVE_DIR}", and three other places hardcode the same path --
+  # the valheim-data mountPath in deployment.yaml (both containers), SAVES in the fetch-mods
+  # script in mods-configmap.yaml (where adminlist.txt is written), and the image's init.sh
+  # (chown -R /valheim-saves). Change this alone and the world is written to the container's
+  # ephemeral filesystem, off the PVC, and lost on the next restart, while adminlist.txt
+  # lands where the game never reads it. Change all of them together or none.
+  SAVE_DIR: "/valheim-saves"
   # Valheim's native rolling backups in worlds_local/, stated explicitly rather than trusted
   # to image defaults: one at 2h then three 12h apart. These are the ONLY in-app backups on
   # this image -- there is no cron and no zip. Longhorn snapshots and CloudCasa cover the rest.
@@ -62,8 +70,8 @@ data:
   BETA: "public"
   # Required by init.sh, which exits without them. It usermods the steam user to these ids
   # and chown -Rs both volumes -- and then runs the game as root regardless (there is no su
-  # in the image despite the comment saying "PID of su"). Kept at the values the old server
-  # used so nothing on disk changes owner.
+  # in the image despite the comment saying "PID of su"). The ids themselves are arbitrary --
+  # both PVCs are new and the game runs as root -- but they must be set, or init.sh exits.
   PUID: "10000"
   PGID: "10000"
   # Space-separated SteamID64s. Consumed by the fetch-mods initContainer, which rewrites

@@ -186,6 +186,9 @@ assert_dir "$R/valheim/BepInEx/plugins/StaleA"
 run "$R" 0 MODS="$MODS_OK" MOD_CONFIG="" ADMINLIST_IDS="" PRUNE_ALLOW_BULK=yes
 assert_nofile "$R/valheim/BepInEx/plugins/StaleA"
 assert_nofile "$R/valheim/BepInEx/plugins/StaleC"
+# The override widens the breaker, not the prune: mods MODS still lists must survive it.
+assert_file "$R/valheim/BepInEx/plugins/Jotunn/Jotunn.dll"
+assert_file "$R/valheim/BepInEx/plugins/ValheimPlus/ValheimPlus.dll"
 ok "breaker"
 
 echo "test: two removals pass the breaker without the override"
@@ -194,6 +197,30 @@ mkdir -p "$R/valheim/BepInEx/plugins/StaleA" "$R/valheim/BepInEx/plugins/StaleB"
 run "$R" 0 MODS="$MODS_OK" MOD_CONFIG="" ADMINLIST_IDS=""
 assert_nofile "$R/valheim/BepInEx/plugins/StaleB"
 ok "breaker threshold"
+
+# The image's start.sh calls install_mods on every boot once BEPINEX_ENABLED=true, and that
+# function does `rm -rf plugins/thunderstore; mkdir -p plugins/thunderstore` even with its MODS
+# unset. So from the second boot on, an EMPTY plugins/thunderstore is always there when the
+# initContainer runs. It is the image's: never a prune candidate, never counted by the breaker.
+echo "test: the image's empty plugins/thunderstore is neither pruned nor counted"
+R="$WORK/t12"; run "$R" 0 MODS="$MODS_OK" MOD_CONFIG="" ADMINLIST_IDS=""
+mkdir -p "$R/valheim/BepInEx/plugins/thunderstore"
+run "$R" 0 MODS="$MODS_OK" MOD_CONFIG="" ADMINLIST_IDS=""
+assert_dir "$R/valheim/BepInEx/plugins/thunderstore"
+assert_count "(0 to remove)" 1
+assert_count "^\[prune\] removing" 0
+ok "thunderstore kept"
+
+echo "test: two stale dirs plus thunderstore pass the breaker without the override"
+R="$WORK/t13"; run "$R" 0 MODS="$MODS_OK" MOD_CONFIG="" ADMINLIST_IDS=""
+mkdir -p "$R/valheim/BepInEx/plugins/StaleA" "$R/valheim/BepInEx/plugins/StaleB" "$R/valheim/BepInEx/plugins/thunderstore"
+run "$R" 0 MODS="$MODS_OK" MOD_CONFIG="" ADMINLIST_IDS=""
+assert_count "(2 to remove)" 1
+assert_nofile "$R/valheim/BepInEx/plugins/StaleA"
+assert_nofile "$R/valheim/BepInEx/plugins/StaleB"
+assert_dir "$R/valheim/BepInEx/plugins/thunderstore"
+assert_file "$R/valheim/BepInEx/plugins/Jotunn/Jotunn.dll"
+ok "thunderstore not counted by breaker"
 
 echo "test: empty MODS is refused before anything is touched"
 R="$WORK/t9"; run "$R" 0 MODS="$MODS_OK" MOD_CONFIG="" ADMINLIST_IDS=""
@@ -208,6 +235,11 @@ run "$R" 1 MODS="Jotunn 2.30.0 $JOT_URL $JOT_SHA sideways" MOD_CONFIG="" ADMINLI
 assert_count "unknown layout" 1
 ok "layout"
 
+# This fixture models the LEGACY ValheimPlus <= 9.x file: valheim_plus.cfg, CRLF, "key=value".
+# V+ 10 no longer writes it (its config is org.bepinex.plugins.valheim_plus.cfg, LF, BepInEx
+# "Key = Value"), and MOD_CONFIG must never name valheim_plus.cfg, because V+ 10 treats that file
+# as an override. The test stays because the applier must still handle CRLF and no-space
+# separators for any mod whose config arrives in that shape.
 echo "test: config applier replaces in place on a CRLF file, preserves separator style, keeps section count"
 R="$WORK/t11"; run "$R" 0 MODS="$MODS_OK" MOD_CONFIG="" ADMINLIST_IDS=""
 printf '[ValheimPlus]\r\nenabled=true\r\n\r\n[Fermenter]\r\nenabled=false\r\nshowDuration=false\r\n\r\n[Map]\r\nenabled=false\r\n' > "$R/valheim/BepInEx/config/valheim_plus.cfg"
