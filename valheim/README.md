@@ -123,6 +123,17 @@ Read from its scripts, not its README. Each of these shaped a manifest comment.
   re-announces from the new node. Expected.
 - **Never write the live server password into a tracked file**, not even as a grep pattern.
   Derive it from the Secret at runtime if needed.
+- **A first boot on a fresh `valheim-server` PVC can crash-loop, and it heals itself.** On
+  2026-09-10 SteamCMD failed five times with
+  `ERROR! Failed to install app '896660' (Missing configuration)`, the image exited 1 each
+  time, and the pod sat in `CrashLoopBackOff`; the sixth attempt, about 8 minutes in,
+  installed the game into the same directory. It is a transient Steam-side/first-run error:
+  two throwaway pods running the identical command into empty directories downloaded fine
+  minutes later, and the failed attempts left nothing that blocked the successful one. Do
+  not scale down, delete the PVC or edit manifests in response — that only resets the
+  backoff. Watch `kubectl logs -n valheim deploy/valheim -c valheim --previous` and wait;
+  investigate only if it persists past the 20-minute startup window. Once the binary exists,
+  `UPDATE_ON_START=false` means later boots never run SteamCMD at all.
 
 ### Memory and world growth
 
