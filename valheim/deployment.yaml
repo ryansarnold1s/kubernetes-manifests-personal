@@ -8,7 +8,8 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    # Recreate: RollingUpdate deadlocks on the ReadWriteOnce Longhorn volume (new pod can't mount while old pod holds it).
+    # Recreate: RollingUpdate deadlocks on the ReadWriteOnce Longhorn volumes (the new pod
+    # cannot mount while the old pod holds them).
     type: Recreate
   selector:
     matchLabels:
@@ -18,38 +19,34 @@ spec:
       labels:
         app: valheim
     spec:
-      # Valheim needs ~2 minutes to flush the world on SIGTERM; a lower value corrupts the world on every restart.
+      # The image traps SIGTERM, sends SIGINT to the game and waits for it to finish saving.
+      # Valheim needs up to ~2 minutes for that on a large world. The image's own compose
+      # example says 30s; that is not enough and was deliberately not copied.
       terminationGracePeriodSeconds: 120
-      securityContext:
-        fsGroup: 10000
+      # No fsGroup: init.sh chown -Rs both volumes itself on every start, and kubelet doing a
+      # second recursive pass over a multi-GB game install on every mount buys nothing.
       initContainers:
-      # Fetches the pinned, checksum-verified server-side mod set onto the valheim-data PVC
-      # BEFORE the game container starts, so the image's bootstrap rsync
-      # (/config/bepinex/plugins/ -> BepInEx/plugins/) picks them up on the same boot. That
-      # ordering is the whole point -- the rsync runs once at bootstrap, so a DLL delivered any
-      # later would sit inert until the next restart.
+      # Installs BepInExPack + the pinned mod set + per-mod config + adminlist.txt BEFORE the
+      # game container starts. Writes straight into the live install on /valheim: this image
+      # has no staged copy and no bootstrap rsync. See mods-configmap.yaml for why this
+      # container, and not the image, installs BepInExPack.
       #
-      # Idempotent: markers in /config/bepinex/.mod-state are keyed on version+sha256, so a
-      # normal restart re-downloads nothing and this adds ~1s. Only a first install or a version
-      # bump in mods-configmap.yaml pulls from the network. That matters -- Warfare alone is
-      # 182MB, and the nightly UPDATE_CRON restart would otherwise refetch the whole set daily.
+      # Idempotent: markers in /valheim/.mod-state are keyed on version+sha256, so a normal
+      # restart re-downloads nothing. A checksum mismatch fails this container and the pod
+      # will not start -- intentional for executable code, and it only gates a first install
+      # or a version change, so a Thunderstore outage cannot take down a provisioned server.
       #
-      # Reuses the game image deliberately: it is already pulled on the node
-      # (imagePullPolicy: IfNotPresent) and already ships curl, unzip and sha256sum, so this
-      # costs no extra pull and adds no new supply-chain surface.
-      #
-      # A checksum mismatch fails the init container and the pod will not start. That is
-      # intentional for executable code running inside the server. It only gates a first
-      # install or a version change, so a Thunderstore outage cannot take down an
-      # already-provisioned server.
+      # Reuses the game image deliberately: already pulled on the node, ships bash, curl,
+      # unzip and sha256sum, adds no new supply-chain surface.
       - name: fetch-mods
-        image: lloesche/valheim-server:sha-732221f4d5b5
+        image: indifferentbroccoli/valheim-server-docker:v1.0.11@sha256:3702926c5e174e4e28189136b512a034cacb9b57636c5d29d978e9a97c6e2f98
         imagePullPolicy: IfNotPresent
+        # Bypasses the image's ENTRYPOINT (init.sh), which would try to install the game.
         command: ["/bin/bash", "/scripts/install-mods.sh"]
         env:
-        # Explicit key, not envFrom: the ConfigMap also holds install-mods.sh, and "install-mods.sh"
-        # is not a valid environment variable name -- envFrom would skip it and emit an
-        # InvalidEnvironmentVariableNames event on every pod start.
+        # Explicit keys, not envFrom: valheim-mods also holds install-mods.sh, which is not a
+        # valid env var name -- envFrom would skip it and emit an InvalidEnvironmentVariableNames
+        # event on every pod start.
         - name: MODS
           valueFrom:
             configMapKeyRef:
@@ -60,16 +57,16 @@ spec:
             configMapKeyRef:
               name: valheim-mods
               key: MOD_CONFIG
+        - name: ADMINLIST_IDS
+          valueFrom:
+            configMapKeyRef:
+              name: valheim-config
+              key: ADMINLIST_IDS
         volumeMounts:
-        - name: config
-          mountPath: /config
-        # The prune in install-mods.sh has to reach the LIVE install, not just the staged copy.
-        # The image's bootstrap sync is `rsync -a` with no --delete, so a mod removed only from
-        # /config/bepinex/plugins survives here and keeps running. Both PVCs are ReadWriteOnce,
-        # but this is the same pod that already mounts both, and strategy: Recreate guarantees
-        # there is never a second pod contending for them.
         - name: server
-          mountPath: /opt/valheim
+          mountPath: /valheim
+        - name: saves
+          mountPath: /valheim-saves
         - name: mod-scripts
           mountPath: /scripts
           readOnly: true
@@ -78,12 +75,12 @@ spec:
         resources:
           requests:
             cpu: "200m"
-            memory: "256Mi"
+            memory: "128Mi"
           limits:
-            memory: "1Gi"
+            memory: "512Mi"
       containers:
       - name: valheim
-        image: lloesche/valheim-server:sha-732221f4d5b5
+        image: indifferentbroccoli/valheim-server-docker:v1.0.11@sha256:3702926c5e174e4e28189136b512a034cacb9b57636c5d29d978e9a97c6e2f98
         imagePullPolicy: IfNotPresent
         ports:
         - name: game
@@ -96,40 +93,42 @@ spec:
         - configMapRef:
             name: valheim-config
         env:
-        - name: SERVER_PASS
+        - name: SERVER_PASSWORD
           valueFrom:
             secretKeyRef:
               name: valheim-secrets
               key: server-password
         volumeMounts:
-        - name: config
-          mountPath: /config
+        # /valheim is the image's force_install_dir; /valheim-saves is its SAVE_DIR (-savedir).
         - name: server
-          mountPath: /opt/valheim
-        # Deliberately no livenessProbe: it would SIGKILL the server mid-world-save and corrupt the world;
-        # supervisord restarts the game process internally, and the Deployment restarts the container if it exits.
+          mountPath: /valheim
+        - name: saves
+          mountPath: /valheim-saves
+        # Deliberately no livenessProbe: it would SIGKILL the server mid-world-save. The
+        # Deployment restarts the container if it exits.
         #
         # The pattern MUST stay bracketed as '[v]alheim_server'. `pgrep -f` matches full command
         # lines, so a bare `pgrep -f valheim_server` matches the probe's own `sh -c` process and
-        # returns 0 unconditionally — a probe that can never fail. (The `> /dev/null` is what keeps
-        # that shell alive: without a redirect bash exec-replaces itself and there is nothing to
-        # self-match, which is why the bare form passes a manual smoke test and still never fails.)
-        # '[v]alheim_server' matches the real process but not the literal shell argv. Verified in
-        # the live container against a process name that does not exist: bare form -> 0, bracketed
-        # form -> 1. Do not "simplify" the brackets away.
+        # returns 0 unconditionally -- a probe that can never fail. (The `> /dev/null` keeps that
+        # shell alive: without a redirect bash exec-replaces itself.) '[v]alheim_server' matches
+        # the real process but not the literal shell argv. Verified against a name that does not
+        # exist: bare form -> 0, bracketed -> 1. Do not "simplify" the brackets away.
         startupProbe:
           exec:
             command: ["sh", "-c", "pgrep -f '[v]alheim_server' > /dev/null"]
           periodSeconds: 10
-          # 120 x 10s = 20 min. A cold SteamCMD install on a fresh valheim-server PVC has to pull
-          # ~2-3GB and lay down BepInEx inside this window or the container is killed and crashloops.
+          # 120 x 10s = 20 min. A cold SteamCMD install on a fresh valheim-server PVC has to
+          # pull the game inside this window or the container is killed and crashloops.
           failureThreshold: 120
         readinessProbe:
           exec:
             command: ["sh", "-c", "pgrep -f '[v]alheim_server' > /dev/null"]
           periodSeconds: 30
           failureThreshold: 3
-        # No CPU limit: CFS throttling shows up in-game as rubber-banding, so CPU is deliberately left unbounded.
+        # No CPU limit: CFS throttling shows up in-game as rubber-banding.
+        # The image runs the game as root (init.sh never drops to the steam user). That is a
+        # property of the image, accepted for a single-operator LAN server in a `baseline` PSA
+        # namespace; a runAsUser here would break the entrypoint's usermod/chown.
         resources:
           requests:
             cpu: "2"
@@ -137,12 +136,12 @@ spec:
           limits:
             memory: "8Gi"
       volumes:
-      - name: config
-        persistentVolumeClaim:
-          claimName: valheim-data
       - name: server
         persistentVolumeClaim:
           claimName: valheim-server
+      - name: saves
+        persistentVolumeClaim:
+          claimName: valheim-data
       - name: mod-scripts
         configMap:
           name: valheim-mods
@@ -150,8 +149,8 @@ spec:
           items:
           - key: install-mods.sh
             path: install-mods.sh
-      # Downloads land here, not on the world PVC, so a failed or partial fetch never litters
-      # valheim-data. Peak usage is Warfare: a 182MB zip plus its 183MB extraction.
+      # Downloads land here, not on a PVC, so a failed or partial fetch never litters one.
+      # The largest artifact is ValheimPlus at 1.1MB.
       - name: mod-tmp
         emptyDir:
-          sizeLimit: 1Gi
+          sizeLimit: 256Mi
