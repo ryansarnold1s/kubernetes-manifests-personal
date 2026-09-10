@@ -3,14 +3,17 @@
 Talos k8s manifests, one directory per workload. Each has its own README with operational
 detail and inline warnings — read it before changing anything in that directory.
 
-- `valheim/` — game server, BepInEx mods installed declaratively via an initContainer. The complex one.
-  The `MODS` table in `valheim/mods-configmap.yaml` is the authoritative list — don't hardcode a count here
+- `valheim/` — game server on `indifferentbroccoli/valheim-server-docker`, BepInExPack + mods installed
+  declaratively via an initContainer that owns the whole BepInEx layer (the image must NOT install
+  BepInEx itself — see `mods-configmap.yaml`). The `MODS` table there is the authoritative list — don't
+  hardcode a count here. Game updates are deliberate via `UPDATE_ON_START`; there is no cron
 - `icarus/` — ICARUS dedicated server, Wine under supervisord. Two files deploy **outside** the
   `icarus` namespace: `storageclass.yaml` is cluster-scoped (`longhorn-single-replica` — generically
   named, another workload may adopt it) and `recurringjob.yaml` targets `longhorn-system`. Read the
   README before applying. Depends on `vm.max_map_count=262144` from `talos/` — below that it fails
-  under Wine with "Ran out of memory allocating 0 bytes" on a host with free memory. Unlike valheim,
-  an absent `UPDATE_CRON` here genuinely means off — don't add an empty-string key "to be safe"
+  under Wine with "Ran out of memory allocating 0 bytes" on a host with free memory.
+  An absent `UPDATE_CRON` here genuinely means off — don't add an empty-string key "to be safe" (the
+  old lloesche valheim image had the opposite trap; valheim no longer uses that image)
 - `mumble/` — voice server
 - `mealie/` — recipe manager. Its database is a `Database` CR on the **shared** `finance-service-cluster`
   in the `finance` namespace, and the owning role lives in that Cluster's `spec.managed.roles` — which is

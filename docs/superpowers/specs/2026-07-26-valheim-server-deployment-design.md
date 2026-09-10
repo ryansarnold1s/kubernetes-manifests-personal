@@ -374,3 +374,14 @@ manifest error, so rollout mistakes are cheap.
 - `ADMINLIST_IDS` intentionally empty; populate with SteamID64s when known. Requires only a
   ConfigMap edit and a pod restart.
 - Capability hardening beyond `SYS_NICE`, if ever verified (§6).
+
+---
+
+**Correction (2026-09-10) — superseded.** The server this spec describes was rebuilt on
+`indifferentbroccoli/valheim-server-docker` with a fresh world after Valheim 1.0 shipped.
+The lloesche image (repository since moved to `community-valheim-tools`) was stuck on build
+0.221.12 and rejected 1.0 clients (network version 36 vs 39), with an open upstream issue
+"Server not updating to 1.0". Everything above about `UPDATE_CRON`, `SERVER_ARGS`, `/config`,
+`/opt/valheim`, supervisord and the bootstrap rsync no longer applies. The world
+`TreeFellMeFirst` and both PVCs were deleted by decision, with no copy kept. See
+`2026-09-10-valheim-1.0-rebuild-design.md`.

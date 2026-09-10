@@ -201,3 +201,14 @@ framework is disabled and can be left in place.
 Installing an actual mod requires getting its `.dll` onto the `valheim-data`
 PVC. Kubernetes offers no bind-mount equivalent, so this needs an init
 container, a helper pod, or a custom image layer. That is a separate design.
+
+---
+
+**Correction (2026-09-10) — superseded.** The staged-copy + bootstrap-rsync mechanism this
+spec designed around belonged to the lloesche image, which was replaced on 2026-09-10 (see
+`2026-09-10-valheim-1.0-rebuild-design.md`). The initContainer now writes straight into the
+live install and installs BepInExPack itself, for reasons that spec records. The mod
+decisions made under this spec and its successors (EpicLoot, Warfare, Armory, OdinHorse,
+BoatAdditions, LazyVikings, Recycle_N_Reclaim, BetterNetworking and the rest) were dropped
+with the old world; none had a post-1.0 release at the time. The recon method in `CLAUDE.md`
+still applies to any future candidate.

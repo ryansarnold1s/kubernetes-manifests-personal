@@ -1,109 +1,128 @@
 # Valheim Dedicated Server
 
-LAN-only Valheim server on the `k8` Talos cluster.
-Design: `../docs/superpowers/specs/2026-07-26-valheim-server-deployment-design.md`,
-BepInEx: `../docs/superpowers/specs/2026-07-26-valheim-bepinex-design.md`
+LAN-only Valheim 1.0 server on the `k8` Talos cluster, on the
+`indifferentbroccoli/valheim-server-docker` image.
+Design: `../docs/superpowers/specs/2026-09-10-valheim-1.0-rebuild-design.md`.
+The two 2026-07-26 specs describe the previous (lloesche-image) server and are history.
 
 ## Joining
 
 **Start Game → Select Character → Join Game → Join IP →** `192.168.130.155:2456`
 
-The server is not listed in the community browser: `SERVER_PUBLIC=false`.
-World: `TreeFellMeFirst`. Password lives in the `valheim-secrets` Secret.
+The server is never listed in the community browser (see `PUBLIC` in `configmap.yaml`).
+World: `TreeFellMeAgain`. Password lives in the `valheim-secrets` Secret.
+Crossplay is off: Steam clients only.
+
+Clients do not need any mod to join. ValheimPlus runs on the server at its defaults with
+`enforceMod` off; a client that wants V+ features installs the same version
+(`mods-configmap.yaml` has it).
 
 ## Layout
 
 | File | Purpose |
 |---|---|
 | `namespace.yaml` | Namespace `valheim` |
-| `configmap.yaml` | Non-secret server config |
+| `configmap.yaml` | Every non-secret env var, with the why |
 | `secret.yaml.template` | Template for the password Secret |
-| `pvc.yaml` | `valheim-data` (/config), `valheim-server` (/opt/valheim) |
-| `deployment.yaml` | The server |
+| `pvc.yaml` | `valheim-data` (`/valheim-saves`, the world), `valheim-server` (`/valheim`, game + BepInEx) |
+| `deployment.yaml` | initContainer `fetch-mods` + game container |
 | `service.yaml` | MetalLB LoadBalancer, UDP 2456-2457 |
-| `mods-configmap.yaml` | Pinned mod manifest + installer script for the `fetch-mods` initContainer |
-| `recurringjob.yaml` | Longhorn daily snapshot |
+| `mods-configmap.yaml` | Pinned BepInExPack + mod table, per-mod config pins, installer script |
+| `recurringjob.yaml` | Longhorn daily snapshot (deploys to `longhorn-system`) |
+| `tests/test-install-mods.sh` | Local bash harness for the installer; run before changing it |
 
 `secret.yaml` is gitignored. Copy the template, set the password, apply.
 
 ## Applying
 
 ```powershell
-Copy-Item secret.yaml.template secret.yaml   # then edit secret.yaml and set a real password
-$env:KUBECONFIG = "C:\Users\RyanArnold\Downloads\kubeconfig"
-kubectl apply -f namespace.yaml -f configmap.yaml -f secret.yaml -f pvc.yaml -f deployment.yaml -f service.yaml -f recurringjob.yaml
+cd valheim/                                   # relative paths from repo root silently no-op
+Copy-Item secret.yaml.template secret.yaml    # first time only; then edit it
+kubectl apply -f namespace.yaml -f configmap.yaml -f secret.yaml -f pvc.yaml -f mods-configmap.yaml -f deployment.yaml -f service.yaml -f recurringjob.yaml
 ```
 
-Use absolute paths (or `cd` into `valheim/` first). Applying with a relative path from the
-wrong working directory can silently no-op, and `kubectl rollout status` will still print a
-success line — but for the *previous* rollout, not this one. Confirm the `apply` output says
-`configured` (or `created`), not `unchanged`, before trusting a rollout status check.
+Confirm every line says `created` or `configured`. `unchanged` means the wrong working
+directory, not success, and a later `rollout status` will happily report the *previous*
+rollout.
 
-`secret.yaml` is gitignored and does not exist on a fresh clone — the `Copy-Item` step above
-is required before the first `apply`, not just on recovery.
-
-**Post-deploy, required — a brand-new `valheim-data` PVC's Longhorn Volume starts unlabeled,
-same as a recreated one.** The RecurringJob applied above will look healthy and produce zero
-snapshots until the volume is labeled. Do this immediately after the PVCs are bound:
+**Post-deploy, required, after any PVC (re)creation:** a new `valheim-data` volume starts
+unlabeled and the RecurringJob will look healthy while producing zero snapshots:
 
 ```powershell
 $pv = kubectl get pvc valheim-data -n valheim -o jsonpath='{.spec.volumeName}'
 kubectl label volumes.longhorn.io -n longhorn-system $pv "recurring-job-group.longhorn.io/valheim=enabled" --overwrite
 ```
 
-Then confirm a snapshot actually appears (see Backups below for the verification command).
-Do not treat a healthy-looking RecurringJob as proof — see the `wger-daily-snapshot` cautionary
-tale in the plan.
+Then confirm a snapshot actually appears (Backups below).
+
+## How the image behaves
+
+Read from its scripts, not its README. Each of these shaped a manifest comment.
+
+- **Two volumes.** `/valheim` is the SteamCMD install dir and holds BepInEx too;
+  `/valheim-saves` is `-savedir`, so the world is `/valheim-saves/worlds_local/`.
+- **`PUBLIC` is dead code.** `start.sh` tests `PUBLIC_ENABLED`, which nothing sets. The
+  server is always private.
+- **BepInExPack is installed by *our* initContainer, not the image.** The image only installs
+  it when `/valheim/BepInEx` is absent, and our plugins directory defeats that check on the
+  first boot. The initContainer also writes `/valheim/.bepinex_version`; without that marker
+  `start.sh` exports the legacy doorstop variable names and BepInEx silently never loads.
+  `BEPINEX_ENABLED=true` is still required: it is what makes `start.sh` export the
+  `LD_PRELOAD`/doorstop env at all.
+- **The image's `MODS` variable stays unset.** Its downloader wipes and re-fetches every mod
+  unverified on every boot and flattens each zip into one directory.
+- **`MAX_PLAYERS` stays unset.** Any value other than 10 silently installs the image's
+  bundled MaxPlayerCount mod.
+- **The game runs as root.** `init.sh` requires `PUID`/`PGID`, usermods the steam user,
+  `chown -R`s both volumes, then starts the game without dropping privileges. Accepted for a
+  single-operator LAN server in a `baseline` namespace. Do not add `runAsUser`; it breaks
+  the entrypoint.
+- **No cron, no zips, no adminlist handling.** Backups are Valheim's native rolling set
+  (`KEEP_BACKUPS` and friends), Longhorn, and CloudCasa. `adminlist.txt` is written by the
+  initContainer from `ADMINLIST_IDS`.
+- **Game updates are deliberate.** `UPDATE_ON_START=false`; SteamCMD only runs when the
+  binary is absent. See Common tasks for the update procedure.
+- **`NO_BUILD_COST=true` is `-setkey nobuildcost`**, a global key persisted into the world
+  save. Removing the env does not remove the key; reversal is `removekey nobuildcost` in the
+  admin F5 console, then a restart.
 
 ## Operating notes
 
-- **Never lower `terminationGracePeriodSeconds` below 120.** Valheim needs ~2 minutes to
-  flush the world on SIGTERM. A shorter value corrupts the world on every restart.
-- **`strategy: Recreate` is required.** RollingUpdate deadlocks on the ReadWriteOnce volume.
-- **Startup and readiness probes only, deliberately no liveness probe.** Both run
-  `pgrep -f '[v]alheim_server'` in-container: `startupProbe` (period 10s, failureThreshold 120
-  = 20 min) covers the cold SteamCMD install and slow first world load, `readinessProbe`
-  (period 30s, failureThreshold 3) tracks whether the game process is up. A liveness probe is
-  deliberately omitted — it would SIGKILL the server mid-save. Supervisord restarts the game
-  process internally; the Deployment restarts the container if the startup probe never succeeds.
-- **Never unbracket the probe pattern.** `pgrep -f` matches full command lines, so the
-  unbracketed `pgrep -f valheim_server` matches the probe's *own* `sh -c` process and returns 0
-  no matter what — a probe that cannot fail. The `> /dev/null` is what causes it: with a
-  redirect, bash keeps the parent shell (argv and all) alive instead of exec-replacing itself.
-  That is why the bare form passes a manual "is the server up?" check and still never fails.
-  `[v]alheim_server` matches the real process but not the literal shell argv. Verify any change
-  against a name that does not exist, not just against a healthy server:
+- **Never lower `terminationGracePeriodSeconds` below 120.** The image sends SIGINT and
+  waits; Valheim needs time to flush the world. The image's compose example says 30s and is
+  wrong for anything but an empty world.
+- **`strategy: Recreate` is required.** RollingUpdate deadlocks on the ReadWriteOnce volumes.
+- **Startup and readiness probes only, deliberately no liveness probe.** A liveness probe
+  would SIGKILL the server mid-save.
+- **Never unbracket the probe pattern.** `pgrep -f` matches full command lines, so an
+  unbracketed `pgrep -f valheim_server` matches the probe's own `sh -c` process and returns
+  0 no matter what. `[v]alheim_server` matches the real process but not the literal shell
+  argv. Verify any change against a name that does not exist, not just a healthy server:
 
   ```powershell
   # want: exit=1
   kubectl exec -n valheim deploy/valheim -- sh -c 'pgrep -f "[Z]ZZNOSUCH" > /dev/null; echo exit=$?'
   ```
 
-  Note the single-quoted outer string — PowerShell would eat a `$?` inside double quotes. The
-  bracketed form is safe to test inline like this. Testing an **unbracketed** candidate is not:
-  your own test command's argv contains the pattern, so the test self-matches exactly the way
-  the probe does and reports success. For those, write the command to a script file inside the
-  container first and run the file, so no ancestor process argv carries the pattern.
+  Single-quoted outer string: PowerShell would eat `$?` inside double quotes. Testing an
+  *unbracketed* candidate inline is not valid either: your own test command's argv contains
+  the pattern, so it self-matches exactly the way the probe does. Write it to a script file
+  in the container and run that instead.
 - **No CPU limit, deliberately.** CFS throttling shows up in-game as rubber-banding.
-- **No `nodeSelector`, `affinity` or `priorityClassName` — and none is needed.** The cluster looks
-  heterogeneous (four nodes at ~8 CPU / 23Gi, three at ~4 CPU / 7.1Gi), but the three small ones
-  are control-plane and carry `node-role.kubernetes.io/control-plane=:NoSchedule`. This pod has
-  only the two default `NoExecute` tolerations, so its eligible set is the four workers, which are
-  identical. **Adding a `nodeAffinity` toward the large nodes would be a no-op** — the taint
-  already enforces it. It would only become necessary if a small node were ever untainted, or if
-  workers of differing size were added.
-- **Requests are well above observed usage** — 2 CPU / 5Gi requested against ~45m CPU / ~2.0Gi
-  observed at idle. Deliberate headroom for world simulation under player load, but it is a real
-  reservation: a quarter of an 8-core worker is held whether or not anyone is playing.
+- **No `nodeSelector`/`affinity`.** The three small nodes are control-plane and tainted, so
+  the four identical workers are already the only candidates.
+- **Requests are headroom, not usage.** 2 CPU / 5Gi requested. Measure under player load
+  before tuning; an empty world idles far below this.
+- **`externalTrafficPolicy: Local` + pod reschedule = brief outage** while MetalLB
+  re-announces from the new node. Expected.
+- **Never write the live server password into a tracked file**, not even as a grep pattern.
+  Derive it from the Secret at runtime if needed.
 
-### Long-term growth check
+### Memory and world growth
 
-🚨 **The memory limit is a world-corruption risk, not just an availability one.** An OOMKill is
-`SIGKILL` — it bypasses `terminationGracePeriodSeconds: 120`, which exists precisely so Valheim
-can flush the world on shutdown. Hitting 8Gi means a save interrupted mid-write, not a clean
-restart. Blast radius is bounded (hourly backup zips, four rolling auto-backups, daily Longhorn
-snapshot, CloudCasa) — worst case is under an hour — but it is the one failure mode here with
-teeth. There is **no monitoring stack in this cluster**, so this is checked by hand:
+An OOMKill is SIGKILL and bypasses the grace period, so the 8Gi memory limit is a
+world-corruption risk, not just an availability one. No monitoring stack exists; check by
+hand, and under player load, not idle:
 
 ```powershell
 $p = kubectl get pod -n valheim -l app=valheim -o jsonpath='{.items[0].metadata.name}'
@@ -114,1133 +133,172 @@ if ($top -match '(\d+)m\s+(\d+)Mi') {
   Write-Output "cpu    : ${cpu}m"
 }
 $zdo = ((kubectl logs -n valheim $p -c valheim --tail=600 | Select-String "ZDOS:") | Select-Object -Last 1) -replace '.*ZDOS:(\d+).*','$1'
-$db  = kubectl exec -n valheim $p -c valheim -- stat -c %s /config/worlds_local/TreeFellMeFirst.db
+$db  = kubectl exec -n valheim $p -c valheim -- stat -c %s /valheim-saves/worlds_local/TreeFellMeAgain.db
 Write-Output "ZDOs   : $zdo"
 Write-Output "world  : $([math]::Round($db/1MB,1)) MiB"
 ```
 
-⚠️ The `-join` and the blank-line filter are load-bearing — `kubectl` returns a string **array**,
-and `--no-headers` can emit a blank line, so parsing it directly yields an empty result.
-
-**Baseline (2026-07-30, idle):** 2009Mi / 8192Mi (24.5%), 45m CPU, 397k ZDOs, 17.5 MiB world.
-Sample it **under player load** too; idle is the floor, not the number that matters.
-
-**Reading (2026-08-08, 4 players in Ashlands):** 2931Mi / 8192Mi (35.8%), ~63m CPU,
-**1.26M ZDOs, 59.7 MiB world.**
-
-🚨 **That is 3.2× the ZDOs and 3.4× the world size in nine days**, and it is the first growth
-that has had a *gameplay* consequence rather than just a memory one: it is what pushed the
-autosave freeze to ~3.2s (see `-saveinterval` above). Memory is still comfortable — the table
-above is about OOM risk and nothing here is close to 5500Mi. **ZDO count now matters on its own,
-independently of memory.** Per-hour growth (~0.20 MB/h averaged over those nine days) is still
-inside the 0.10–0.57 MB/h band measured earlier, so this is sustained exploration, not a leak —
-but "self-limiting" should not be read as "harmless".
-
-⚠️ The freeze scales with world size, so `-saveinterval` will need revisiting as this grows.
-Raising it again only trades crash-loss for comfort; the only real fix is fewer ZDOs.
+The `-join` and blank-line filter are load-bearing: kubectl returns a string array.
 
 | Reading | Meaning |
 |---|---|
-| under ~5500Mi | fine, no action |
-| ~5500–6500Mi sustained | raise the limit — it is not a reservation, so on a 24Gi node this is nearly free |
+| under ~5500Mi | fine |
+| ~5500–6500Mi sustained | raise the limit; it is not a reservation |
 | over ~6500Mi | raise it now, before a save lands on the ceiling |
 
-**Growth is exploration-driven and self-limiting**, which is the reassuring part. Measured across
-the auto-backups: 0.57 MB/h while players were revealing new map, dropping to 0.10 MB/h once they
-were building in already-explored territory. Structures are cheap; new zones are expensive.
-- **Do not add `SYS_NICE` back, and do not label the namespace privileged.** The cluster
-  enforces Pod Security Admission at `baseline` for any namespace without PSA labels, and
-  `valheim` carries none — it runs at that stricter default on purpose. `SYS_NICE` is not in
-  baseline's permitted capability set, so it was dropped. Seven namespaces in this cluster
-  (`cattle-system`, `enshrouded`, `kubevirt`, `longhorn-system`, `metallb-system`, `pihole`,
-  `traefik`) carry `pod-security.kubernetes.io/enforce: privileged` and could add it back —
-  privileged is the norm for infra namespaces here, not a two-off exception; `valheim`
-  deliberately does not run under that label. If something seems to need `SYS_NICE`, fix it
-  another way rather than loosening the namespace.
-- **Unattended auto-update is DISABLED** (`UPDATE_CRON: ""`). Valheim now updates only when the
-  container restarts, i.e. when you run `kubectl rollout restart`. This is deliberate: a Valheim
-  patch routinely breaks BepInEx mods, and mods are installed here. Update on purpose, with time
-  to check the mod stack afterwards. **Do not delete the `UPDATE_CRON` key to "turn it off"** —
-  see the warning in `configmap.yaml`; removing it enables 15-minute update checks.
-- **A separate nightly restart is still active and was NOT disabled**: `RESTART_CRON` defaults to
-  `10 5 * * *` and is not set in `configmap.yaml`, so the image's default applies. Confirmed live
-  in the container's crontab:
-
-  ```
-  10 5 * * * /usr/local/bin/valheim-is-idle && /usr/local/bin/supervisorctl restart valheim-server
-  ```
-
-  This is much lower risk than the auto-update was — it restarts only the game process via
-  supervisord, pulls no new Valheim version, and `RESTART_IF_IDLE` (default `true`) skips it
-  entirely while anyone is online. Left on deliberately for memory hygiene on a long-running
-  server. To disable it, add `RESTART_CRON: ""` to `configmap.yaml` — and note it takes an
-  explicit empty string for the same `${VAR-default}` reason as `UPDATE_CRON`.
-- **Autosave is `-saveinterval 3600` (1 hour), set in `SERVER_ARGS`.** Raised from the stock
-  1800s on 2026-08-08 because the autosave was freezing the entire server for **~3.2s every
-  30 minutes** — measured across 7 of 7 consecutive saves. Up to ~60 minutes of world progress
-  can now be lost on an ungraceful termination, instead of ~30.
-
-  🚨 **There is no `SAVEINTERVAL` env var — this bullet used to claim there was.** It stated
-  the image applied "the image default of 1800s" through one. It does not:
-  `grep -rn saveinterval /usr/local/bin/` inside the container returns **nothing**. 1800s was
-  Valheim's *own* built-in default, and `SERVER_ARGS` is the only route. Do not add a
-  `SAVEINTERVAL` key to `configmap.yaml` expecting it to do anything.
-
-  ⚠️ This halves the frequency and **cannot** shorten the freeze — see `configmap.yaml` for the
-  mechanism (`PrepareSave` clones world state in memory on the main thread; the disk write is
-  already async, so faster storage buys nothing).
-- **`externalTrafficPolicy: Local` + pod reschedule = brief outage.** If the pod moves to a
-  different node (eviction, node drain, etc.), MetalLB has to re-announce the address from
-  the new node. There's a short gap where `192.168.130.155:2456` is unreachable until that
-  completes — this is expected, not a misconfiguration.
-- **Never write the live server password into a tracked file** — not even as a search/grep
-  pattern in a doc or plan. This has already leaked into a tracked file once (`mumble/configmap.yaml`,
-  known and owner-accepted) and been hardcoded into a credential-check step in this repo's own
-  plan once more. Derive it from the `valheim-secrets` Secret at runtime instead, e.g.:
-  `[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String((kubectl get secret valheim-secrets -n valheim -o jsonpath='{.data.server-password}')))`.
-
-## World modifiers (native — no mods needed)
-
-Currently set: **`SERVER_ARGS: "-modifier resources more"`** in `configmap.yaml` — one step
-above normal drop rates.
-
-Valheim has native difficulty/rate modifiers compiled into the server. Verified present in
-this build's `assembly_valheim.dll`:
-
-| Key | Values |
-|---|---|
-| `combat` | `veryeasy` `easy` `normal` `hard` `veryhard` |
-| `deathpenalty` | `casual` `veryeasy` `easy` `normal` `hard` `hardcore` |
-| `resources` | `muchless` `less` `normal` `more` `muchmore` |
-| `raids` | `none` `muchless` `less` `normal` `more` `muchmore` |
-| `portals` | `casual` `normal` `hard` `veryhard` |
-
-Global keys are separate: `-setkey nobuildcost | nomap | passivemobs | playerevents`.
-
-⚠️ **`resources` is a global drop multiplier**, not a mob-loot multiplier. It scales ore veins,
-trees and foraging along with kills. There is no native way to boost mob drops alone.
-
-⚠️ **There is no native durability modifier.** The only durability-related symbols in the
-assembly are internal item fields (`maxDurability`, `useDurabilityDrain`, `durabilityPerLevel`)
-— nothing exposed to the launch parser or the console. Adjusting durability requires a BepInEx
-mod. **That gap is now closed** — ValheimPlus's `[Durability]` section does it, and is set to
-+100% on combat gear and +150% on tools; see "ValheimPlus" below. Do not go looking for a
-`-modifier` for this.
-
-### Changing a modifier
-
-`SERVER_ARGS` is appended **unquoted** to the launch line by the image
-(`/usr/local/bin/valheim-server`), so space-separated args work but a value containing a space
-will not. Edit `configmap.yaml`, then:
-
-```powershell
-kubectl apply -f configmap.yaml
-kubectl rollout restart deploy/valheim -n valheim
-```
-
-**A malformed `-modifier` arg logs a parse error and is otherwise silently ignored — the server
-starts normally and you get no in-game hint.** Always confirm the modifier was actually applied
-rather than assuming the restart worked:
-
-```powershell
-# want one "Setting world modifier: <key>-><value>" line per modifier
-kubectl logs -n valheim deploy/valheim --tail=500 | Select-String "Setting world modifier"
-# want nothing
-kubectl logs -n valheim deploy/valheim --tail=500 | Select-String "Failed to parse|couldn't be parsed"
-```
-
-🚨 **Modifiers ARE persisted into the world save.** This section previously claimed the opposite,
-on the strength of `TreeFellMeFirst.fwl` measuring 56 bytes. That measurement was taken *before
-any modifier had ever been set*, which made "nothing is stored" indistinguishable from "nothing
-has been stored yet". The file is now **1745 bytes** and contains, repeated ~19 times:
-
-```
-resourcerate 150
-preset combat_default:deathpenalty_default:resources_more:raids_default:portals_default
-```
-
-`resources_more` is the `-modifier resources more` from `SERVER_ARGS`, written into the world.
-(The repetition suggests the preset is appended per save rather than replaced — an observation,
-not a documented behaviour.)
-
-⚠️ **The practical consequence is the reverse of what this section used to say:** removing the
-arg from `SERVER_ARGS` does **not** cleanly revert a modifier, because the world keeps its own
-copy. The `resetworldkeys` console command is therefore not obviously unnecessary. *Verified:
-the preset string is in the `.fwl`. Not tested: whether a boot without the arg falls back to the
-persisted value or to vanilla.* Test on a copy before relying on either.
-
-This also means a modifier is **effectively one-way on a world you care about** — the same class
-of stickiness as a mod that registers prefabs. Decide before setting one, not after.
-
-The practical consequence: **whatever is in `SERVER_ARGS` wins after any restart.** A modifier
-set at runtime via the `setworldmodifier` console command is session-local and any restart
-silently replaces it with the ConfigMap value. If you want a change to stick, put it in
-`configmap.yaml`.
+The previous world reached 1.5M ZDOs / 72 MiB and a 3–4s save freeze in six weeks. The
+freeze is `PrepareSave` cloning world state in memory on the main thread; faster storage
+does not help, and raising `SAVE_INTERVAL` only trades crash-loss for comfort.
 
 ## Modding (BepInEx)
 
-`BEPINEX: "true"` is set in `configmap.yaml`. **Fifteen mods are installed**, fetched declaratively
-by the `fetch-mods` initContainer from `mods-configmap.yaml`:
+`mods-configmap.yaml` is the whole story: `MODS` is the pinned table (BepInExPack itself is
+the first row), `MOD_CONFIG` is the per-mod config, and `install-mods.sh` applies both from
+the `fetch-mods` initContainer on every boot.
 
-| Mod | Version | Client install |
-|---|---|---|
-| Jotunn | 2.29.2 | required (framework) |
-| JsonDotNET | 13.0.4 | required (library) |
-| EpicLoot | 0.12.15 | **required** |
-| AzuExtendedPlayerInventory | 2.4.1 | **required — kicks clients without it** |
-| AzuContainerSizes | 1.1.4 | **required — kicks clients without it** |
-| ValheimPlus (Grantapher fork) | 9.17.1 | **required — `enforceMod = true`** |
-| Warfare | 1.8.9 | **required** (custom weapon/animation assets) |
-| Armory | 1.3.1 | **required** (custom assets; depends on Warfare 1.8.9) |
-| OdinsFoodBarrels | 1.2.3 | **required** — *"required on both server and client for config sync"* |
-| XPortal | 1.2.24 | **required** — *"All players must run the same version"* |
-| OdinHorse | 1.6.5 | **required** (custom creature/item assets) |
-| Recycle_N_Reclaim | 1.4.0 | **required — kicks clients without it** |
-| BoatAdditions | 1.4.2 | **required** (custom boat/piece assets) — *does not kick, so nothing enforces it* |
-| LazyVikings | 1.2.3 | recommended (does not kick; automation runs on the ZDO owner) |
-| PlantEverything | 1.20.0 | recommended (works without, minor cosmetic loss) |
-| BetterNetworking_Valheim | 2.3.2 | recommended (does not kick; **server-only is half-effective** — see below) |
-
-**`TrashItems` is deliberately not installed server-side.** It is a client-side inventory-UI mod
-with no server role. Install it per-client if wanted, but test it: AzuExtendedPlayerInventory
-redraws the same inventory screen, and TrashItems pins `BepInExPack 5.4.800` and was last updated
-2024-01, so it predates AzuEPI's current version by roughly two years. If the inventory UI
-misbehaves, suspect it first — and note that Recycle_N_Reclaim's `[2 - Inventory Recycle]` half
-now also draws on this screen; see the Recycle_N_Reclaim section below for how to disable that
-half without removing the mod.
-
-**`RecipePinner` (KadrioS) is recommended client-side, and deliberately not installed on the
-server.** Install `KadrioS-RecipePinner-1.3.0` in r2modman if you want it. It pins recipes and
-build pieces to the HUD and tracks the materials you still need, with pin groups and an optional
-nearby-chest scan.
-
-It has **no server role whatsoever** — verified against the DLL, not the store page. It carries
-zero `ServerSync`, zero RPC registrations, zero `ZRoutedRpc`, zero `ZDOMan`/`ZoneSystem`
-references; the four installed mods used as controls all carry several. It patches `InventoryGui`
-and `Hud`, neither of which exists on a headless server, and saves pins to a local path, so pins
-are per-player and never touch the world. Installing it server-side would load it, patch nothing,
-and add executable code inside the server process for no function.
-
-⚠️ **Check the inventory screen after installing.** It would be the fourth thing drawing on that
-area, after vanilla, AzuEPI's extra rows and Recycle_N_Reclaim's trash slot. Its `InventoryGui`
-use looks like state reading rather than slot redrawing, so it should be much lighter than
-`TrashItems` — but that screen is already busy. Being client-side, anything that goes wrong
-affects one player's UI, not the server.
-
-🚨 **Vanilla clients can no longer join.** AzuExtendedPlayerInventory, AzuContainerSizes *and*
-Recycle_N_Reclaim each run a version check that kicks clients without them, and EpicLoot and
-Warfare need client-side assets. Every player must run the matching set, plus
-`BepInExPack_Valheim 5.4.2333`. r2modman pinned to these exact versions is the low-drift path.
-This reverses what this README said before mods existed — BepInEx alone imposed nothing on
-clients, but these specific mods do.
-
-⚠️ **`JsonDotNET` is the one people skip**, because it reads as a library rather than a mod. Without
-it the client logs `Could not load [Epic Loot] because it has missing dependencies:
-com.ValheimModding.NewtonsoftJsonDetector`, EpicLoot never loads, and Jotunn then refuses the
-connection with **`ErrorVersion`** — which looks like a game-version mismatch and is not one.
-If a client gets `ErrorVersion`, check its BepInEx log for a failed plugin load before suspecting
-the server.
-
-**`BetterNetworking_Valheim` is installed server-side and is worth installing per-client too.**
-It raises Valheim's hardcoded per-peer ZDO send queue cap — the constant behind mobs teleporting
-in the Ashlands. It does **not** kick, so client installs are optional and can be staged.
-
-⚠️ **Server-only is deliberately half a fix.** Compression only works between two BN-equipped
-peers, and creature updates travel **owning client → server → other clients**. The server install
-widens the second hop only. Whoever reaches an area first owns its creatures and sends their
-updates, so the players most worth installing it on are the ones who tend to be out in front.
-
-🚨 **Do not chase this with infrastructure.** The bottleneck is a constant compiled into
-`assembly_valheim.dll`, not a resource limit. Measured 2026-08-08 with four players in Ashlands:
-**0.063 cores**, ~95 KB/s tx on a sub-millisecond gigabit LAN, zero UDP drops, zero receive-queue
-backlog, zero PSI pressure on cpu/io/memory. Nine layers were measured and eliminated. The server
-had everything available and would not use it. Raising CPU, memory, storage tier or touching
-MetalLB will do nothing.
-
-**All players are on the LAN** (confirmed 2026-08-08). This matters for tuning: BN's warning that
-a large queue size "can overload a player's internet" does not apply here, so `Queue Size` can be
-raised without bandwidth risk. Its *other* warning — that a bigger queue "deprioritizes important
-objects" — still applies and is independent of bandwidth, so `_80KB` is **not** automatically the
-right answer. Escalate one step at a time and measure. If a remote player ever joins, the
-bandwidth caution returns.
-
-⚠️ **It predates Ashlands.** Last updated 2023-11-12; its README claims Mistlands compatibility.
-Re-check the BepInEx log for Harmony patch failures after every Valheim update, not just after
-install. Removal is clean — it registers no prefabs, so deleting its `MODS` line and restarting
-fully reverts it with no orphaned ZDOs.
-
-### BetterNetworking client config — the server pushes nothing
-
-🚨 **`MOD_CONFIG` does not reach clients for this mod, and neither does ValheimPlus.** BN ships
-**no config-sync machinery at all** — verified against three installed mods known to have it:
-
-| Mod | `ServerSync` | `ConfigSync` | `SyncedConfigEntry` |
-|---|---|---|---|
-| OdinHorse | 12 | 16 | 1 |
-| Recycle_N_Reclaim | 12 | 15 | 1 |
-| AzuContainerSizes | 11 | 13 | 1 |
-| **BetterNetworking** | **0** | **0** | **0** |
-
-Its single RPC is the `RPC_CompressionVersion` handshake, which negotiates compression — not
-settings. V+ `serverSyncsConfig = true` syncs **V+'s own** config only, never another mod's. So
-the pins in `MOD_CONFIG` govern the **server's** behaviour and nothing else.
-
-**This is correct, not a shortcoming.** A BN setting controls *that peer's own outgoing data*:
-the server's `Queue Size` governs server→clients, and each client's governs that client→server.
-Syncing them would be wrong, which is why the mod's own tuning advice is written per-peer
-("Player B: increase queue size").
-
-**Installing on a client: change nothing.** Every value pinned server-side is BN's own default,
-so a fresh install already matches:
-
-| Setting | Client default | Server pin |
-|---|---|---|
-| `Queue Size` | `_32KB` | `_32KB` ✅ |
-| `Update Rate` | `_100` | `_100` ✅ |
-| `Compression Enabled` | `true` | `true` ✅ |
-| `Log Level` | `message` | `info` — evaluation only, leave clients alone |
-
-The `[Dedicated Server]` section (`Force Crossplay`, `Player Limit`) is server-only and ignored
-on clients, so nobody needs to touch the player-limit setting. Install
-`CW_Jesse-BetterNetworking_Valheim-2.3.2` in r2modman and stop there.
-
-🚨 **Escalating `Queue Size` means hand-editing every client, with no drift detection.** If
-`_32KB` proves insufficient and the group moves to `_48KB` + `Update Rate _75`, each player must
-edit their own `BepInEx/config/CW_Jesse.BetterNetworking.cfg` (r2modman's config editor, or F1
-in-game if they run ConfigurationManager). Nothing pushes it and **nothing on the server can tell
-you who missed it** — one player left on defaults is silent and invisible. This is exactly the
-"correct client config would be convention, not mechanism" objection recorded above for
-CookingStationTweaks; here it was accepted rather than disqualifying, because BN is useful
-server-only and does not kick. Budget for a manual round of config checks if you ever escalate.
-
-🚨 **SkilledCarryWeight must be UNINSTALLED client-side.** Removing it from the server is
-necessary but **not sufficient** — it functions as a client-side mod, so a player who keeps it
-retains local Cart Mass Reduction and the Quick Cart hotkey and can still drag OdinHorse's horse
-cart no matter what the server does. There is no server-side control for this.
-
-- **`BEPINEX` and `VALHEIM_PLUS` are mutually exclusive.** Enabling both fails.
-- **Mod config** lives in `/config/bepinex` on the `valheim-data` PVC, so it survives restarts.
-  It can also be set from the ConfigMap using `BEPINEXCFG_<Section>_<Variable>` keys.
-- **`BepInEx/config` in the live install is a symlink to `/config/bepinex`** (verified with
-  `readlink -f`). Anything a mod zip ships under `config/` therefore only has to be written to
-  the PVC — the installer does this, and it is how Warfare's `TherzieTranslations` YAMLs land.
-- **Mod DLLs go in `/config/bepinex/plugins/<Name>/`**, which the image rsyncs into
-  `/opt/valheim/bepinex/BepInEx/plugins` at container bootstrap. That sync runs **once per boot**,
-  which is exactly why the fetch runs as an initContainer — anything delivered later sits inert
-  until the next restart.
-
-### How the mods get there
-
-`deployment.yaml` runs a `fetch-mods` initContainer before the game container. It reads the
-pinned manifest from `mods-configmap.yaml`, downloads each package, **verifies its SHA256**, and
-extracts it to the PVC. Two package layouts exist and are handled explicitly — some zips ship a
-`plugins/` dir, others put the `.dll` at the root — so the `layout` column is not decoration.
-
-It is **idempotent**: markers in `/config/bepinex/.mod-state` are keyed on version+sha256, so a
-normal restart downloads nothing (verified: re-running the installer reports `0 installed,
-14 already present`). This matters — Warfare alone is 182MB.
-
-A **checksum mismatch fails the pod deliberately.** This is executable code running inside the
-server. Because installs are idempotent, that only ever gates a first install or a version bump,
-so a Thunderstore outage cannot take down an already-provisioned server.
-
-### Adding, upgrading, removing
-
-Edit the `MODS` block in `mods-configmap.yaml`, then apply and restart:
-
-```powershell
-kubectl apply -f mods-configmap.yaml
-kubectl rollout restart deploy/valheim -n valheim
-```
-
-Get a checksum for a new version with:
-
-```powershell
-kubectl exec -n valheim deploy/valheim -- sh -c 'curl -fsSL -o /tmp/m.zip "<url>" && sha256sum /tmp/m.zip'
-```
-
-**Removing a mod is a single step.** Delete its line from `MODS`, apply, restart. The
-initContainer prunes any plugin directory not listed in `MODS` from **both** the staged copy on
-`valheim-data` and the live install on `valheim-server`, and drops its `.mod-state` marker. This
-used to need a manual `rm -rf` in two places, because the image syncs with `rsync -a` and **no
-`--delete`**.
-
-⚠️ **Deleting the `valheim-server` PVC does not remove a mod**, despite being the disposable one.
-The staged copy on `valheim-data` survives and the bootstrap rsync restores it. That PVC also
-holds `bepinex/BepInEx/vplus-data/<World>_mapSync.dat`, the V+ shared-map pool — disposable with
-respect to the world is not the same as lossless.
-
-🚨 **The prune handles files, not world data.** A mod that registered prefabs — EpicLoot,
-Warfare, Armory, OdinsFoodBarrels, OdinHorse, BoatAdditions — has its items or creatures persisted
-as ZDOs in `TreeFellMeFirst.db`, and dropping it orphans them. Only pure runtime-patch mods are
-free to remove.
+- **Add or upgrade:** edit the row, apply, `rollout restart`. Get the checksum from the real
+  download (command in the file's header comment). A **new** mod costs two applies: it
+  writes its `.cfg` on first boot, and `MOD_CONFIG` cannot name a section that does not
+  exist yet. Enumerate the generated file before pinning anything; upstream docs
+  understate the key set and get types wrong.
+- **Remove:** delete the row, apply, restart. The prune refuses more than 2 removals in one
+  boot; a truncated `MODS` block looks exactly like a mass removal. Only mods that register
+  no prefabs are free to remove.
+- **Test the installer before changing it:** `bash valheim/tests/test-install-mods.sh` from
+  the repo root. It runs the script from the ConfigMap against a temp directory with fake
+  zips and exercises install, skip, checksum refusal, prune, the breaker, the config applier
+  on a CRLF file, and the adminlist. `install-mods.sh` must stay the **last** key in the
+  ConfigMap; the harness extracts it by "everything after the key line".
+- **Recon a candidate mod inside the running container first**, per the repo `CLAUDE.md`:
+  sha256, zip layout, config section names, kick behaviour
+  (`RemoveDisconnectedPeerFromVerified`), prefab registration, Thunderstore `date_updated`.
 
 ### ValheimPlus
 
-Installed as an **ordinary BepInEx plugin via the initContainer** — its only dependency is
-`denikson-BepInExPack_Valheim-5.4.2333`, exactly the pack this server runs.
-
-🚨 **Do NOT set `VALHEIM_PLUS=true` in `configmap.yaml`.** The image branches
-`if [ "$VALHEIM_PLUS" = true ]; then ... elif [ "$BEPINEX" = true ]; then` — an if/elif, so
-`VALHEIM_PLUS` wins and the `BEPINEX` branch never runs. Every other mod lives in the BepInEx
-install path and would be silently bypassed. That is what "mutually exclusive" means here; it is
-a statement about the image's two install *modes*, not about V+ being incompatible with BepInEx.
-
-V+ ships with every gameplay section `enabled=false` — only `[ValheimPlus]` and `[Server]` are on,
-and both are meta. So it is inert until you enable something. Two sections are **pinned off** in
-`MOD_CONFIG` because they would fight the mods above:
-
-| Pinned off | Collides with |
-|---|---|
-| `[Inventory]` | AzuEPI (`playerInventoryRows`) and AzuContainerSizes (every chest/cart/boat row+column) |
-| `[Wagon]` | OdinHorse's horse cart (`wagonBaseMass` would stomp its deliberate heaviness back to draggable) |
-
-**28 sections are enabled** for gameplay tuning: Player, Stamina, StaminaUsage, Food, Map, Time,
-FireSource, Turret, Armor, Shields, Durability, Items, Building, StructuralIntegrity, CraftFromChest,
-Workbench, Gathering, Experience, and every production station (Smelter, Furnace, Kiln, Fermenter,
-Beehive, Windmill, SpinningWheel, EitrRefinery, Oven, SapCollector). See `MOD_CONFIG` for the
-exact values.
-
-⚠️ **`[Armor]` and `[Durability]` are different things and are easy to conflate.** `[Armor]`
-raises the armor *value* (damage reduction) and is at **+75%**; `[Durability]` raises how long
-gear lasts before repair. The mismatch is deliberate — see the next paragraph before "fixing" it.
-`[Durability]` is **+100% on combat gear** (`weapons`, `axes`, `bows`, `shields`, `armor`) and
-**+150% on tools** (`pickaxes`, `hammer`, `cultivator`, `hoe`, `torch`).
-
-⚠️ **`[Armor]` does not cover shields.** Its four keys are `helmets`, `chests`, `legs`, `capes` —
-nothing else. Block value lives in a separate **`[Shields]` section**, enabled 2026-08-05 with
-`blockRating = 75` to match. Both of its keys are pinned; the section has exactly two.
-
-⚠️ **Three different numbers say "shields".** `[Shields] blockRating = 75` is how much damage a
-shield stops. `[Durability] shields = 100` is how long it lasts before repair. `[StaminaUsage]
-blocking = -50` is what blocking costs. They are unrelated and are not meant to match.
-
-⚠️ **Tools are deliberately the more generous number.** Combat-gear durability is still adjacent
-to balance — it governs how long you last in a fight before a weapon breaks. Tool durability is
-pure convenience: it changes only how often you walk back to a workbench. `axes` sits with the
-weapons at +100%, not with the tools, because an axe is a weapon that also chops wood. `torch`
-sits with the tools because its durability is burn time.
-
-**Why armor is held below +100% while durability is not.** Armor value is a combat-balance number:
-it compounds with Armory's biome-tier variants and EpicLoot's enchants into a character that is
-hard to kill. Durability is a convenience number — it changes how often you walk back to a
-workbench, not whether you survive — so the same compounding argument carries much less weight,
-and doubling it was chosen deliberately with that distinction in view. The effective figure still
-exceeds +100% on EpicLoot-enchanted and Warfare gear.
-
-⚠️ **`[Armor]` has been changed three times; check the history before moving it again.** It shipped
-at **+100%** (`4fbbbeb`, 2026-07-28), was scaled back to **+50%** the same day (`ca08bb8`) on the
-compounding argument, then raised to **+75%** (2026-08-05) because +50% did not read as a large
-enough difference in play. 75 is a deliberate middle point, not a settled answer — it concedes the
-compounding concern was partly right rather than discarding it. `[Armor]` and `[Shields]` are the
-two numbers to walk back first if the characters start feeling unkillable; `[Durability]` is not,
-and has correctly stayed at 100 through all three moves.
-
-**Workbenches no longer need a roof.** `[Workbench] disableRoofCheck = true` removes vanilla's
-requirement that a bench be sheltered and unexposed before it functions — V+'s own description
-is *"Disables the roof and exposure requirement to use a workbench."* This is distinct from
-`workbenchRange = 40`, which governs how far from a bench you can build; a sheltered bench
-already worked at 40m without it.
-
-It compounds with `[Player] autoRepair`: repair fires on interacting with a workbench, so while
-the roof check stood, auto-repair only worked under a roof.
-
-**Mining yield and skill gain.** `[Gathering]` is at **+100%** on every resource dropped from
-a node broken with a tool, and **every one of the 23 `[Experience]` skills** is at **+200%** —
-all weapons, blocking, both magic schools, and every gathering, movement and crafting skill.
-
-⚠️ **`+200%` is TRIPLE rate, not double.** These keys are percentage modifiers, so the earlier
-`+100%` was already double. Do not read `200` as "200% of vanilla".
-
-These were asked for as "increase tool damage". 🚨 **V+ cannot do that** — verified by
-enumerating all 58 sections and every key containing `damage`: the complete set is monster
-scaling, unarmed, fall, structural and hull. There is no `[Damage]` section and no
-per-weapon-type modifier. Do not go looking for one.
-
-The two settings split the goal:
-- `[Gathering]` is a **yield** change — a rock takes the same swings, you mine fewer rocks
-- `[Experience]` is the only real **damage** route, since skill level scales both tool *and*
-  weapon damage in vanilla. Self-limiting: a skill at 100 stops contributing
-
-⚠️ **`[Experience]` at +200% across the board is a progression change, not a convenience one.**
-Combat difficulty is largely gated by how slowly weapon skills climb; tripling that removes the
-gate outright. Lowering these values later only slows *future* gains — banked XP cannot be rolled
-back, so widen with that in mind.
-
-🚨 **This compounds with the death penalty being off.** `[Player] deathPenaltyMultiplier = -100`
-zeroes skill drain on death, and that 5%-per-death drain was the only thing that ever took banked
-XP back. Skills are now **monotonic at triple rate** — they only ever go up. The two settings
-shipped together; if the death penalty is ever restored, re-read this pairing before *also*
-lowering these values, or the correction lands twice.
-
-Two interactions that are easy to misread:
-- `swim` is effectively a no-op. `[Player] swimStaminaDrain = -100` already zeroes swim stamina
-  drain at every skill level, and that drain was the only thing Swimming affected. Pinned for
-  completeness, not effect
-- `blocking` **compounds** with V+ armor +75% and `[Shields]` +75% block rating. Block strength
-  scales with the skill too, so the real increase exceeds the 75% those settings name
-
-Every key the section defines is now pinned, so — unlike `[Gathering]` and `[Player]` — no
-unpinned V+ default remains here. The re-verify-on-upgrade caveat narrows to **new** keys: a V+
-release adding a skill leaves it unpinned and live. Enumerate the section off the PVC after any
-upgrade and pin whatever appeared.
-
-⚠️ **`[Gathering]` compounds with `-modifier resources more`** in `configmap.yaml`, a native
-global drop multiplier already one step above normal. The effective multiplier is **more than
-2×**. Two independent sources — know which one you are changing.
-
-`dropChance` is deliberately left at `0`: it raises the *chance* on nodes without a guaranteed
-drop (dungeon scrap piles), not the *amount* from ore veins.
-
-#### Auto-deposit and auto-fuel
-
-Every production station pulls fuel from, and deposits output into, nearby containers —
-`autoRange` stays at the V+ default of 10m. **Not every section defines both keys**, so the
-coverage below is uneven by design, not by omission. Adding a key a section doesn't define
-appends a line V+ silently ignores:
-
-| Section | `autoDeposit` | `autoFuel` |
-|---|---|---|
-| Smelter, Furnace, Kiln, Fermenter, Windmill, SpinningWheel, EitrRefinery | ✅ | ✅ |
-| Beehive, SapCollector | ✅ | *(no such key — neither burns fuel)* |
-| Oven | *(no such key)* | ✅ |
-| FireSource | *(no such key — not a producer)* | ✅ |
-
-⚠️ **There is no `[BlastFurnace]` section in V+ 9.17.1** — grep the generated config for `blast`
-and it returns nothing. The Blast Furnace is therefore governed by whichever existing section V+
-matches it to, which the mod does not document. Both `[Smelter]` and `[Furnace]` have the two auto
-keys on, so it is very likely covered either way — but treat that as unverified until someone
-confirms in-game that a Blast Furnace actually pulls coal and deposits Flametal.
-
-⚠️ **`[HotTub]` and `[ShieldGenerator]` also define `autoFuel`, and both are left at `false`.**
-They consume fuel but produce nothing, so they are deliberately outside the "production station"
-set above. Enable them here if you want them auto-fuelled too — nothing prevents it.
-
-🚨 **Five V+ settings read backwards from their names.** Verified against the comments in the
-generated config — getting any of them wrong silently produces the *opposite* effect:
-
-| Setting | Trap |
-|---|---|
-| `productionSpeed` | **Seconds per item, not a percentage.** "Twice as fast" means *halving* it. Setting 30 → 60 makes smelters twice as **slow**. |
-| `baseItemWeightReduction` | **Reduces on negative** despite the name: *"-50 will reduce item weight by 50%, 50 will increase."* |
-| `[Ship] forwardSpeed` | **Percentage modifier**, like `[Armor]` and `[Durability]` — and the opposite of `[Player] baseMaximumWeight`, which is absolute. Set to **50** (2026-08-03) = 50% faster under sail. `backwardSpeed`, `rudderSpeed`, `steerForce` and `waterImpactDamage` are pinned at **0** — vanilla — because enabling the section makes every key in it live. Steering is deliberately unchanged so that if the faster hull feels unwieldy, only one variable moved. |
-| `[Map] exploreRadius` | **Absolute, not a modifier.** The generated cfg calls it *"The radius of the map that you explore when moving"*, and `[Map]` has no *"contains modifiers"* banner — unlike `[Stamina]`, `[StaminaUsage]` and `[Ship]`, which all carry one. Vanilla and V+ both ship **100**, so +50% is **150** (2026-08-04). Writing `50` would **halve** the discovery radius. The section's other four keys were live but unpinned until then; all six are pinned now. |
-| `nightPercent` | **Absolute, not a modifier:** *"0 is all daytime, 100 is all nighttime."* Not a percent change. Set to **23** — with `totalDayTimeInSeconds = 1800` that is 6m54s of night per cycle, against 9 min at the default 30 (was 10 → 3 min until 2026-08-01). Deliberately not 0, so night mobs, light sources and sleeping still matter. **Integer field** — V+ writes floats with an explicit decimal (`65.0`, `0.5`, `7.5`) and this one as a bare `10`, so a fractional value truncates. The total cycle is fixed, so a longer night means a correspondingly shorter day. |
-
-**`autoRepair` and `autoEquipShield` are now enabled.** Both live in `[Player]`, which was pinned
-off while SkilledCarryWeight owned carry weight — enabling it would have put two mods on the same
-property with undocumented patch ordering. SkilledCarryWeight has been removed, so that objection
-is gone and both settings are on. `autoUnequipShield` is a separate key, left at `false`.
-
-Two knock-on effects worth knowing, neither a collision:
-
-- `[Items] baseItemWeightReduction = -75` compounds with the raised cap — lighter items *and*
-  more of them. At `baseMaximumWeight = 850` that is roughly 3400 vanilla-equivalent capacity.
-- `[Armor]` is **+75%**, held below +100% because it multiplies on top of two other sources:
-  Armory's upgraded biome-tier armor variants and EpicLoot's enchanted gear. V+'s own example
-  scale is base armor 14 → 21 at +50%, → 24.5 at +75%, → 28 at +100%, before either of those
-  applies. `autoEquipShield` pairs with `[Shields] blockRating = 75` — the auto-equipped shield
-  is picked by highest block power, which this raises.
-
-**Ores and ingots now go through portals.** `[Items] noTeleportPrevention = true` lifts vanilla's
-ban on carrying teleport-restricted items — V+'s own description is *"Enables you to teleport with
-ores and other usually teleport restricted objects."* Vanilla default is `false`. Together with the
-raised carry cap above, this is the change players are most likely to notice.
-
-⚠️ **It covers items only.** Ores, ingots and dragon eggs pass; **tamed animals and carts do not**.
-That boundary is deliberate — the OdinPlus/TeleportEverything mod does all of it and was evaluated
-and declined, because this single line in an already-enabled section covers most of the want with
-no new mod, no client install and nothing extra to keep updated. Knowingly given up: animals and
-carts through portals, enemy-follow modes, transport fees.
-
-🚨 **Three things can own this behaviour; only one is in use.** Besides this V+ key and the declined
-TeleportEverything mod, the **native `-modifier portals casual`** world modifier lifts the same
-restriction with no mod and no config line at all — it is in the modifier table above, and was
-missed when this key was chosen. The V+ key is kept deliberately, on reversibility grounds:
-`configmap.yaml` records that *"modifiers are saved into the world once set"*, whereas this pin is
-undone by editing `mods-configmap.yaml` and restarting.
-
-✅ **That rationale is now confirmed** — it was flagged as an unresolved contradiction between this
-README and `configmap.yaml`, and the contradiction has been settled in `configmap.yaml`'s favour.
-`TreeFellMeFirst.fwl` contains `preset combat_default:deathpenalty_default:resources_more:…`, so
-modifiers really are written into the world; see "World modifiers" above. The V+ key is the more
-reversible owner, and choosing it was right — for a reason that was only asserted at the time and
-is evidenced now.
-
-⚠️ **Override direction — inferred from patch mechanics, NOT tested.** While `noTeleportPrevention`
-is `true`, a future `-modifier portals hard` is *expected* to be silently overridden, because V+
-patches the teleport check with Harmony at runtime, after the native modifier has been applied. If
-someone sets that modifier and sees no change, **check this key before suspecting a parse error.**
-This has deliberately not been verified: a wrong world modifier is written into the world, so
-testing it on the live server is not free.
-
-### `[Player]` is enabled
-
-V+ owns carry weight outright — `baseMaximumWeight = 850`, `baseMegingjordBuff = 150` (vanilla).
-Both are **absolute values, not percentages**, unlike `[Armor]` and `[Durability]`.
-
-⚠️ **Carry weight no longer scales with skill.** SkilledCarryWeight made it a progression reward;
-850 is roughly what it granted at average skill level 50, so an established character sees no
-change while a new one starts at the old endgame. That was a deliberate trade, not an oversight.
-
-🚨 **Re-verify `[Player]` on any V+ upgrade.** All 26 keys were enumerated at 9.17.1 and every one
-sits at a vanilla-equivalent default, which is what makes enabling the section neutral apart from
-the **five pin lines** in `MOD_CONFIG`. A future release adding a non-neutral default would take
-effect **silently** — a pinned-off section could not do that.
-
-⚠️ **"Five pins" and "four diff lines" below are both correct and are different counts.** Five lines
-are pinned; only four of them differ from V+'s shipped default, because `baseMegingjordBuff = 150`
-is pinned *to* the default. Do not reconcile them into one number — conflating the two is the same
-kind of slip that left a wrong key count in these files for months.
-
-⚠️ **This said "24 keys" until 2026-07-29 and the number was wrong** — it had been asserted
-without anyone enumerating the section. The claim itself held up: all 26 are at V+'s shipped
-default apart from the pins. **Do not re-verify by eye.** `ValheimPlus.dll` embeds, as plain text,
-the default config it writes on first run, so the check is a *diff against the shipped defaults*
-rather than a judgement about what vanilla does — and the same command covers `[Gathering]` and
-`[Experience]`, which carry the same caveat:
+Runs at its defaults. The only pin is the sentinel in `MOD_CONFIG`: `[Fermenter]`
+`enabled=true` with every other key in that section pinned at its generated default, so the
+section being on changes nothing while the non-default `enabled` line proves the applier
+reached the file. Verify it after any restart by reading the file, never by looking for a
+log line (V+ logs nothing for a rejected value):
 
 ```powershell
-$env:KUBECONFIG = "C:\Users\RyanArnold\Downloads\kubeconfig"
-$p = kubectl get pod -n valheim -l app=valheim -o jsonpath='{.items[0].metadata.name}'
-$script = @'
-D=/opt/valheim/bepinex/BepInEx/plugins/ValheimPlus/ValheimPlus.dll
-C=/config/bepinex/valheim_plus.cfg
-T=$(mktemp -d); tr -c '[:print:]\n' '\n' < "$D" > "$T/flat"
-for S in Player Gathering Experience; do
-  echo "######## [$S] ########"
-  awk -v s="[$S]" '$0==s{f=1;next} f&&/^\[/{f=0} f' "$T/flat" | grep -E '^[A-Za-z]+=' | sed 's/=/ = /' | sort > "$T/def"
-  awk -v s="[$S]" '$0==s{f=1;next} f&&/^\[/{f=0} f' "$C" | tr -d '\r' | grep "=" | sort > "$T/live"
-  diff "$T/def" "$T/live" || true
-done
-'@
-kubectl exec -n valheim $p -c valheim -- sh -c "echo $([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($script))) | base64 -d | sh"
+kubectl exec -n valheim deploy/valheim -c valheim -- sh -c 'sed -n "/^\[Fermenter\]/,/^\[/p" /valheim/BepInEx/config/valheim_plus.cfg | head -12'
 ```
 
-Every line the diff reports must be one of the pins in `MOD_CONFIG`. At 9.17.1 `[Player]` showed
-exactly **four diff lines** — `enabled`, `baseMaximumWeight`, `autoRepair`, `autoEquipShield`.
-`baseMegingjordBuff = 150` is the fifth pin and shows **no** diff, because 150 is already the
-shipped default; that is the pin working, not a missing change. `[Gathering]` showed `enabled` plus the 18 material keys with
-`dropChance` untouched at `0`, and `[Experience]` showed `enabled` plus `pickaxes` only.
-
-One key looks alarming and is not: `iHaveArrivedOnSpawn = true` is a **disable toggle** — *"if set
-to false, disables the 'I have arrived!' message"* — so `true` is the neutral state rather than an
-opt-in. It is the only non-pinned key in the section that is not `false`, `0`, or an annotated
-game default.
-
-**V+ owns `valheim_plus.cfg` and rewrites it on every load** — it normalises line endings to LF,
-reformats `enabled=false` into `enabled = false`, and prepends a UTF-8 BOM. That is fine and
-expected; the applier reads whatever V+ last wrote and reapplies the pins before the next load.
-
-`[Server]` defaults to `enforceMod = true` and `serverSyncsConfig = true`. The first makes V+ a
-mandatory client install; the second is actually useful — the server pushes its config to clients,
-so nobody can locally re-enable `[Inventory]` and desync. `maxPlayers = 10` there now governs the
-player cap.
-
-### Per-mod configuration
-
-Mod settings are declared in the `MOD_CONFIG` block of `mods-configmap.yaml`, not hand-edited on
-the volume:
-
-```
-<cfg filename>|<Section>|<Key>|<Value>
-```
-
-Currently set — `Extra Inventory Rows = 5` (AzuEPI's maximum), plus containers at roughly 2x
-vanilla:
-
-| Container | Vanilla | Now | Slots |
-|---|---|---|---|
-| Personal Chest | 2x3 | 4x4 | 6 → 16 |
-| Wood Chest | 2x5 | 4x6 | 10 → 24 |
-| Iron Chest | 4x6 | 6x8 | 24 → 48 |
-| Blackmetal Chest | 4x8 | 8x8 | 32 → 64 |
-| Cart | 3x6 | 5x8 | 18 → 40 |
-| Karve | 2x2 | 4x4 | 4 → 16 |
-| Longboat | 3x6 | 5x8 | 18 → 40 |
-
-Headroom remains: columns cap at 8 everywhere, rows go to 20 (chests) and 30 (carts/ships).
-
-⚠️ **Only ever grow a container.** Every AzuContainerSizes default is also its range minimum, so
-the values above are all increases. Shrinking a container that already holds items leaves those
-items in slots that no longer exist — take a Longhorn snapshot before reducing one.
-
-**Carry weight** — `[Player] baseMaximumWeight = 850`, flat. This replaced SkilledCarryWeight,
-which summed `Coefficient × level` across 24 skills for roughly +550 over a 300 base at average
-level 50. See "`[Player]` is enabled" above.
-
-**Death penalty** — `[Player] deathPenaltyMultiplier = -100`, so dying costs **no skill progress**
-(vanilla drains 5% of every skill). `-100` is the floor: the key is a modifier where "-50 will
-reduce it by 50%", so going lower buys nothing.
-
-⚠️ **Skill loss only — you still drop a gravestone.** The key patches `Skills.LowerAllSkills`
-(verified by class name in `ValheimPlus.dll`); item drops are a separate mechanism and are
-untouched, so the corpse run is unchanged. If someone asks to "turn off the death penalty" and
-means the corpse run, that needs `-modifier deathpenalty casual` in `configmap.yaml` — a different
-tradeoff, because native modifiers **bake permanently into `TreeFellMeFirst.fwl`** while this key
-is undone by editing `mods-configmap.yaml` and restarting. The reversible route was chosen
-deliberately.
-
-🚨 **Zero-width characters can be load-bearing in a mod's `.cfg`.** SkilledCarryWeight prefixed
-keys and sections with U+200B (`E2 80 8B`) to force sort order in its config manager — its real
-key was `<ZWSP>Enabled`, not `Enabled` — so a literal match failed and the applier appended a
-**second, plain `Enabled` line the mod ignored while reporting success.** That mod is gone, so
-nothing installed exercises this path today, but `norm()` still strips zero-width characters
-because the failure mode is silent. **Do not remove those `norm()` calls as dead weight** — they
-also strip the `\r` that `valheim_plus.cfg` depends on, and every V+ pin would break without it.
-
-**The applier normalises four things that would each cause a silent no-op**, all found the hard
-way against real mod configs — every one would have appended a duplicate while logging success:
-
-| Quirk | Seen in | Handling |
-|---|---|---|
-| U+200B zero-width space in keys/sections | SkilledCarryWeight (removed; handling kept) | stripped before compare, preserved on write |
-| UTF-8 BOM at file start | ValheimPlus | stripped before compare |
-| CRLF line endings | ValheimPlus | stripped before compare, `\r` re-appended on write |
-| `key=value` vs `Key = Value` spacing | V+ vs BepInEx | detected per line, original style reproduced |
-
-The integrity check that catches all four is the same: **section and key counts must be unchanged**
-across an apply. A duplicate appended section or key is the signature of a failed match.
-
-```powershell
-kubectl exec -n valheim deploy/valheim -c valheim -- sh -c 'C=/config/bepinex/valheim_plus.cfg; echo "sections=$(grep -c "^\[" $C) keys=$(grep -c "=" $C) player=$(grep -c "^\[Player\]" $C)"'
-```
-
-`player=1` is the check that matters — a `2` means the applier appended a duplicate `[Player]`
-section instead of matching the existing one.
-
-**The image's `BEPINEXCFG_<Section>_<Var>` env mechanism cannot do this.** It only ever writes
-`BepInEx.cfg` — `env2cfg --config "$config_path/BepInEx.cfg"` in `common` — never per-mod files.
-Without `MOD_CONFIG`, these settings exist only as untracked edits on the PVC.
-
-The applier touches **only the keys listed**; everything else in a `.cfg` keeps whatever the mod
-wrote. It handles a key already present, a key missing from an existing section, a missing
-section, and a missing file — that last case matters because a mod that has never run has no
-config yet, and BepInEx honours a partial file and fills in the rest on first load.
-
-It runs on **every boot, so this file wins.** A value changed in-game or via a config manager is
-reverted on the next restart. Change it here, not there.
-
-Settings marked `[Synced with Server]` in a `.cfg` propagate to clients automatically — no client
-action needed for those. Config filenames available to target:
-
-```
-Azumatt.AzuExtendedPlayerInventory.cfg    Azumatt.AzuContainerSizes.cfg
-randyknapp.mods.epicloot.cfg              Therzie.Warfare.cfg
-advize.PlantEverything.cfg                Azumatt.Recycle_N_Reclaim.cfg
-```
-
-Verify a setting landed and survived the mod's own save cycle:
-
-```powershell
-kubectl logs -n valheim deploy/valheim -c fetch-mods | Select-String "\[cfg"
-kubectl exec -n valheim deploy/valheim -c valheim -- grep -B2 "^Extra Inventory Rows" /config/bepinex/Azumatt.AzuExtendedPlayerInventory.cfg
-```
-
-#### Recycle_N_Reclaim
-
-Ten keys are pinned in `MOD_CONFIG`. Section names are **numbered** — `1 - General`,
-`2 - Inventory Recycle`, `3 - Reclaiming`, `4 - UI` — not the bare names the Thunderstore
-page lists. Pinning the bare names appends duplicate sections that the mod ignores, while
-logging success.
-
-🚨 **Values are `On`/`Off`, not `true`/`false`.** Every boolean-looking key here is
-`Setting type: Toggle` — a two-member enum. BepInEx rejects `true`/`false` with
-`Requested value 'true' was not found` and **silently keeps the mod's own default**, while
-the installer still logs a successful `[cfg ]` line. See "When a pin does not take" below.
-
-| Setting | Value | Why |
-|---|---|---|
-| `[3 - Reclaiming] RecyclingRate` | `0.5` | Mod default, pinned so it is a recorded decision rather than drift. The one genuine float here |
-| `ReturnEnchantedResources` (**both** sections) | `Off` | EpicLoot's Sacrifice stays the only conversion path for magic gear |
-| `[3 - Reclaiming] AllowRecyclingUnknownRecipes`, `[2 - Inventory Recycle] ReturnUnknownResources` | `Off` | Three mods here add loot drops; without this a lucky drop skips a biome in materials |
-| `PreventZeroResourceYields`, `UnstackableItemsAlwaysReturnAtLeastOneResource` | `On` | At 50%, a 1-unit item yields 0.5 → nothing, silently eating cheap gear |
-| `[1 - General] Lock Configuration` | `On` | Clients cannot override server config locally |
-| `[2 - Inventory Recycle] Enabled` | `On` | Both halves of the mod are wanted |
-| `[2 - Inventory Recycle] Lock to Admin` | `Off` | The inventory-recycle half is wanted for players, not just admins |
-
-⚠️ **`ReturnEnchantedResources` is pinned twice on purpose.** It exists in both
-`[2 - Inventory Recycle]` and `[3 - Reclaiming]`, covering the discard path and the reclaim
-path independently. Deleting either as a duplicate reopens one of them.
-
-⚠️ **Per-item recycle rates are not achievable.** The mod reads
-`Azumatt.Recycle_N_Reclaim_ExcludeLists.yml`, whose `recycleRates` block overrides the
-global rate per item. `MOD_CONFIG` is INI `key = value` only and cannot manage a YAML
-side-file, so the global `0.5` applies to everything recyclable. Adding per-item rates
-means a new mechanism in `install-mods.sh`.
-
-If the crafting UI misbehaves, toggle `[4 - UI] EnableExperimentalCraftingTabUI` first — it
-ships enabled and appears to *be* the Reclaim tab. If the *inventory* screen misbehaves,
-disable `[2 - Inventory Recycle] Enabled`: that drops the half that contends with
-AzuExtendedPlayerInventory and keeps the Reclaim tab.
-
-#### When a pin does not take
-
-🚨 **A `[cfg ]` line means the installer wrote the file. It never means the mod accepted
-the value.** After any `MOD_CONFIG` change, for any mod, check the game container's log:
-
-```powershell
-kubectl logs -n valheim deploy/valheim -c valheim | Select-String "could not be parsed"
-```
-
-Empty is the pass. Anything there is a pin that was **discarded**, and the mod is running
-its own default instead.
-
-⚠️ **The config file on the PVC will not reveal this.** A rejected value is overwritten with
-the mod's default, correctly formatted, in the right section — the file looks perfectly
-healthy. Reading it back tells you what the mod *is* using, not whether it is what you
-asked for. The log is the only place the difference shows.
-
-**This happened on 2026-07-31.** All nine Toggle keys of Recycle_N_Reclaim were first
-written as `true`/`false`; the installer logged ten successes and BepInEx discarded nine.
-Six of the nine coincidentally matched the mod's defaults and looked fine. Three did not:
-both `ReturnEnchantedResources` keys stayed `On`, leaving the EpicLoot guard inactive on
-both paths, and `Lock to Admin` stayed `On`, making inventory discard admin-only. It took a
-second apply and restart to fix.
-
-Before pinning a new key, read its `# Setting type:` line in the generated `.cfg` on the
-PVC. `Toggle` → `On`/`Off`. Do not infer the type from a key that reads like a boolean.
-
-🚨 **This check does NOT apply to ValheimPlus.** Two config mechanisms are in play here and
-they fail differently:
-
-| | Parsed by | Values | How a bad pin shows up |
-|---|---|---|---|
-| `Azumatt.*.cfg`, `blacks7ar.*.cfg` | **BepInEx** config binding | `On`/`Off` Toggle enums | `could not be parsed` in the game log; the file looks healthy |
-| `valheim_plus.cfg` | **ValheimPlus's own INI parser** | `true`/`false` and plain numbers | **nothing in the log at all** |
-
-Running the log check after a ValheimPlus change is a **false gate** — it comes back empty
-whether the pin landed or not. Verify a V+ change by **reading the value back off the PVC**
-and confirming the section header appears exactly once:
-
-```powershell
-kubectl exec -n valheim deploy/valheim -c valheim -- grep -c '^\[Ship\]' /config/bepinex/valheim_plus.cfg
-```
-
-The `set_cfg` duplicate-section failure mode is real for both mechanisms; only the
-value-rejection failure mode is BepInEx-specific.
-
-#### Recycle_N_Reclaim: verified in-game
-
-✅ **2026-08-01, against the corrected `On`/`Off` values.** All four checks passed:
-
-| Check | Result |
-|---|---|
-| Reclaim a known-recipe item at the correct station | ~50% of components returned |
-| **EpicLoot magic item** (reclaim *and* discard paths) | no enchanting materials returned |
-| **Item whose recipe is not unlocked** | refused |
-| **1-unit item** | returned 1, not 0 |
-| Inventory screen | AzuEPI's 5 rows + quick slots render fine alongside the trash slot |
-
-⚠️ The middle three are **negative** cases — each guard was seen *refusing*, not merely seen
-not misbehaving. That matters more than it looks: run against the original `true`/`false`
-pins, the two progression checks would have passed **for the wrong reason**, because
-`AllowRecyclingUnknownRecipes` and `ReturnUnknownResources` happened to coincide with the
-mod's defaults. Only the EpicLoot checks would have failed. Re-run all four after any
-version bump — and re-run them against the log check above, not just by eye.
-
-The AzuEPI inventory-screen contention accepted when this mod was chosen did **not**
-materialise.
-
-#### LazyVikings
-
-Seventeen keys are pinned. Section names are `NN- Name` — **zero-padded, no space before the
-dash**, e.g. `05- Cooking Station`. That is a third convention in this file, alongside
-Azumatt's `2 - Inventory Recycle` and ValheimPlus's bare `[Time]`.
-
-🚨 **Values are `On`/`Off`, not `true`/`false`** — Toggle enums, same as Recycle_N_Reclaim.
-See "When a pin does not take" above.
-
-**Only two stations are enabled:** `05- Cooking Station` and `09- Iron Cooking Station`, each
-`Enable = On`. Plus `01- ServerSync | Lock Configuration | On`.
-
-🚨 **The other fourteen station sections are pinned `Enable = Off`, and those lines are
-load-bearing.** Eleven of them name a station ValheimPlus already automates — Kilns, Smelters,
-Blast Furnaces (ValheimPlus calls that section `[Furnace]`, not `[BlastFurnace]` — which is why
-this one is easy to miss), Windmills, Fermenters, Beehives, SapCollectors, SpinningWheels,
-EitrRefineries, Stone Ovens and Fireplaces. The remaining three are off for consistency, not
-collision: `08- Hot Tub` — V+'s `[HotTub]` section exists but ships `enabled = false`;
-`17- Steel Kiln` and `18- Steel Slack Tub` — OdinSteelWorks pieces, and that mod is not
-installed here. Turning any of the eleven on puts two mods on the same station. Do not remove
-any of the fourteen as redundant.
-
-**Why this mod exists here at all.** ValheimPlus already pulls from chests at a cooking
-station — press E at a grill with meat in a nearby chest and it works. What V+ lacks is the
-*unattended* half. Its own patches show the asymmetry: `Smelter` has both
-`FindCookableItem_Transpiler` **and** `UpdateSmelter_Patch`, while `CookingStation` has only
-the former, and there is no `[CookingStation]` section in `valheim_plus.cfg` at all.
-LazyVikings supplies exactly that missing engine and nothing else.
-
-⚠️ Automation runs on the **ZDO owner**, so a player without the mod standing near a cooking
-station may see no auto-fill while a player with it does — the same caveat as PlantEverything.
-It does not kick, so installing it is recommended rather than enforced.
-
-#### LazyVikings: what it actually does, and the two surprises
-
-🚨 **`Radius` is 5 metres** (per station, left at the mod's default; acceptable 1–50). That is
-much tighter than anything else here — V+ stations use `autoRange` 10, and V+ crafting uses 30.
-**A chest must be almost touching the cooking station.** If auto-cooking appears not to work,
-check the chest distance *before* suspecting the pins. Raising it is a one-line `MOD_CONFIG`
-change that can ride any future restart.
-
-**It deposits as well as fills.** `Automation` is `Both` (a third setting type — values
-`Deposit`, `Fuel`, `Both`), so cooked food is put **back into a nearby container** rather than
-left on the grill. With `[02- General] Must Have = Off`, it can land in *any* container within
-5 m, not only one already holding that item. This is fuller behaviour than the design asked
-for — if someone reports cooked meat "appearing in the wrong chest", this is why, and it is
-working as configured.
-
-**`[02- General] Leave One = On`** — it never fully drains a chest, deliberately leaving one of
-each material. One lonely raw meat left behind is correct, not a half-failure.
-
-#### LazyVikings: verified in-game
-
-✅ **2026-08-02, immediately after the apply.**
-
-| Check | Result |
-|---|---|
-| `09- Iron Cooking Station` with a chest built directly beside it | raw meat drawn in, cooked **unattended**, cooked meat deposited back into the chest |
-| **Smelter, blast furnace and the other V+-owned stations** | still working as before — the fourteen `Off` pins held |
-
-⚠️ Two honest limits on that record. **`05- Cooking Station` (the regular grill) was not
-separately tested** — it carries identical pins and identical generated settings to `09`, so it
-is expected equivalent, but only `09` was exercised. And **containment was an operator
-observation, not an instrumented measurement** of consumption rate: a subtle double-feed would
-not necessarily have shown up. Good enough to run on; not proof against a slow leak.
+To tune V+ later: enumerate the section in the live file, pin **every** key in it, apply,
+restart, read back. Enabling a section makes every key in it live.
 
 ### Confirm the mod stack is healthy
 
 ```powershell
-kubectl logs -n valheim deploy/valheim -c fetch-mods          # installer result
-kubectl logs -n valheim deploy/valheim -c valheim | Select-String "plugins to load|Loading \["
+kubectl logs -n valheim deploy/valheim -c fetch-mods
+kubectl logs -n valheim deploy/valheim -c valheim | Select-String "BepInEx\]|Jotunn|ValheimPlus|could not be parsed" | Select-Object -First 12
 ```
 
-Expect `14 plugins to load`, a `Loading [...]` line per mod, and `Chainloader startup complete`
-(BepInEx 5.4.23.3).
+Expect `[skip ]` ×3 on a normal restart, the BepInEx banner, a load line each for Jotunn and
+ValheimPlus, and **no** `could not be parsed` (that check covers BepInEx-bound mods only).
 
-### If the server goes unreachable after a framework change
+## Connections
 
-The readiness probe is `pgrep -f '[v]alheim_server'`. BepInEx execs the game binary
-through an `LD_PRELOAD` wrapper — if that ever stops matching, readiness never
-becomes true and the Service drops its endpoints while the pod still reports
-`Running`. Under BepInEx today the match is on
-`/opt/valheim/bepinex/valheim_server.x86_64 -nographics -batchmode ...`, confirmed
-in the live container.
-
-⚠️ **This failure mode only became possible once the probe was fixed.** The
-originally committed probe was unbracketed and matched its own shell, so it always
-returned 0 — readiness could never go false and endpoints could never drop. Any
-"endpoints looked healthy" observation recorded before that fix proves nothing
-about this scenario. Check endpoints, not pod status:
+Valheim logs `Connections N` every 10 min; `Got connection` / `Closing socket` are current.
+When they disagree, trust the sockets. Re-check in the same action as any restart.
 
 ```powershell
-kubectl get endpointslice -n valheim -l kubernetes.io/service-name=valheim -o jsonpath='{range .items[*]}{.endpoints[*].conditions.ready}{"\n"}{end}'
+kubectl logs -n valheim deploy/valheim -c valheim --since=5m | Select-String "Got connection|Closing socket"
+kubectl logs -n valheim deploy/valheim -c valheim --tail=600 | Select-String "Connections \d+" | Select-Object -Last 1
 ```
-
-To disable the framework: remove the `BEPINEX` key from `configmap.yaml`, apply,
-and `kubectl rollout restart deploy/valheim -n valheim`.
 
 ## Backups
 
-Two layers:
+1. **In-app:** Valheim's rolling auto-backups in `/valheim-saves/worlds_local/`
+   (`<world>_backup_auto-<stamp>.db/.fwl`): one at 2h, then three 12h apart.
+   `kubectl exec -n valheim deploy/valheim -c valheim -- ls -la /valheim-saves/worlds_local`
+2. **Longhorn snapshots:** `valheim-daily-snapshot`, cron `0 11 * * *` (UTC; Longhorn ignores
+   the container `TZ`; 04:00 Arizona year-round), retain 7, on `valheim-data` only. Bound by
+   a label on the Longhorn **Volume**, so a recreated PVC needs the label step under Applying.
 
-1. **In-app** — hourly zipped backups in `/config/backups`, 3-day retention, skipped while
-   idle. List them:
-   `kubectl exec -n valheim deploy/valheim -- ls -la /config/backups`
-2. **Longhorn snapshots** — `valheim-daily-snapshot`, cron `0 11 * * *`, retain 7, on the
-   `valheim-data` volume only. **This is 11:00 UTC = 04:00 America/Phoenix** —
-   `longhorn-manager` evaluates RecurringJob crons with no TZ configured, so it always runs
-   in UTC regardless of the ConfigMap's `TZ`; the `11` is a manual UTC-offset conversion, not
-   a timezone-aware `04:00`. Arizona does not observe DST, so this UTC value is stable
-   year-round and never needs a seasonal adjustment. This is unlike `UPDATE_CRON` and
-   `BACKUPS_CRON` above, which run inside the container and do honor `TZ`. Verified working: real snapshots
-   have been observed on the volume, named `valheim--<uuid>` (not `valheim-daily-snapshot-*`).
-   Because `retain: 7` rotates older ones out, a snapshot name you saw before may legitimately
-   be gone later — that alone is not evidence of a problem.
+   ```powershell
+   $pv = kubectl get pvc valheim-data -n valheim -o jsonpath='{.spec.volumeName}'
+   kubectl get snapshots.longhorn.io -n longhorn-system -o json | ConvertFrom-Json |
+     ForEach-Object { $_.items } | Where-Object { $_.spec.volume -eq $pv } |
+     ForEach-Object { $_.metadata.name }
+   ```
 
-⚠️ **The snapshot job binds via a label on the Longhorn Volume, not the PVC.** If
-`valheim-data` is ever deleted and recreated, the new volume will NOT be labeled and
-snapshots silently stop. Re-apply:
-
-```powershell
-$pv = kubectl get pvc valheim-data -n valheim -o jsonpath='{.spec.volumeName}'
-kubectl label volumes.longhorn.io -n longhorn-system $pv "recurring-job-group.longhorn.io/valheim=enabled" --overwrite
-```
-
-Verify snapshots are genuinely being produced — a healthy-looking RecurringJob is not proof:
-
-```powershell
-$pv = kubectl get pvc valheim-data -n valheim -o jsonpath='{.spec.volumeName}'
-kubectl get snapshots.longhorn.io -n longhorn-system -o json | ConvertFrom-Json |
-  ForEach-Object { $_.items } | Where-Object { $_.spec.volume -eq $pv } |
-  ForEach-Object { $_.metadata.name }
-```
-
-Expect names like `valheim--6bff2bbb-...`, up to 7 of them, rotating — not a fixed
-`valheim-daily-snapshot-*` name.
-
-Longhorn snapshots live on the same volume, so they protect against corruption and bad
-writes, not against loss of the volume.
-
-**Off-cluster DR: CloudCasa.** The agent is deployed in `cloudcasa-io` and verified active — it
-exchanges `BACKUP` / `OFFLOAD` / `DELETE_BACKUP` messages with the service, and its logs show real
-backup data in object storage plus retention deletions running. This supersedes the earlier
-"off-cluster DR is not configured" note.
-
-⚠️ **Coverage of this namespace is NOT verifiable from inside the cluster.** CloudCasa keeps policy
-and run history server-side and deletes its CRs after each run, so `kubectl get backups.cloudcasa.io`
-returns nothing even while backups are working — an empty result there proves nothing either way.
-Confirm in the CloudCasa console:
-
-1. **A policy includes the `valheim` namespace.** The namespace was created 2026-07-26; a policy
-   that enumerates namespaces explicitly rather than "all namespaces" predates it and will not
-   cover it. Same failure shape as the `wger` snapshot label above — a healthy-looking backup
-   system that silently excludes this workload.
-2. **It has run successfully since 2026-07-26.**
-3. **It captures PVC data, not just resource manifests.** A namespace backup that only stores YAML
-   would restore a Deployment and an empty PVC. The world is volume data on `valheim-data`.
-
-The mod stack adds ~250MB to that same PVC, so the volume now holds more than just the world.
+   Expect names like `valheim--<uuid>`, up to 7, rotating. To take one on demand, apply a
+   `snapshots.longhorn.io` CR with `spec.volume: <pv-name>` and `spec.createSnapshot: true`.
+3. **Off-cluster:** CloudCasa (`cloudcasa-io`). It deletes its CRs after each run, so an empty
+   `kubectl get backups.cloudcasa.io` proves nothing. Confirm in the console that a policy
+   covers the `valheim` namespace **and** captures PVC data, not just manifests.
 
 ## Restore
 
-**In-app backup** — a running pod holds the ReadWriteOnce `valheim-data` volume attached, so
-you cannot scale to 0 and then `kubectl exec` into the same pod — scaling to 0 terminates the
-only pod, and the exec either fails with "no pod found" or races a `Terminating` pod mid-save.
-The volume must fully detach, then a short-lived helper pod does the unzip:
-
-1. Scale the Deployment to 0 and **wait for the pod to be fully gone** — the volume can take
-   up to the full 120s `terminationGracePeriodSeconds` to detach, and nothing else can mount
-   it until it does. Confirm with:
-
-   ```powershell
-   kubectl scale deploy/valheim -n valheim --replicas=0
-   kubectl wait --for=delete pod -n valheim -l app=valheim --timeout=180s
-   ```
-
-   `kubectl wait --for=delete` returns as soon as the pod object is gone. If it times out,
-   check `kubectl get pod -n valheim -l app=valheim` before proceeding — do not continue
-   while a pod is still `Terminating`.
-
-2. Run a short-lived helper pod that mounts the **`valheim-data`** PVC (not `valheim-server`
-   — that PVC only holds the disposable game install) at `/config`, and unzip the archive
-   from inside it:
-
-   ```powershell
-   kubectl run valheim-restore-helper -n valheim --image=busybox --restart=Never --overrides='{
-     "apiVersion": "v1",
-     "spec": {
-       "containers": [{
-         "name": "restore-helper",
-         "image": "busybox",
-         "command": ["sh", "-c", "cd /config/worlds_local && unzip -o /config/backups/<archive>.zip && sleep 3600"],
-         "volumeMounts": [{ "name": "data", "mountPath": "/config" }]
-       }],
-       "volumes": [{ "name": "data", "persistentVolumeClaim": { "claimName": "valheim-data" } }]
-     }
-   }'
-   ```
-
-   Substitute `<archive>` with the file found via the `ls` command under Backups above. Wait
-   for the pod to reach `Running`/`Completed` (`kubectl get pod -n valheim valheim-restore-helper`),
-   then confirm the unzip succeeded, e.g.:
-
-   ```powershell
-   kubectl logs -n valheim valheim-restore-helper
-   kubectl exec -n valheim valheim-restore-helper -- ls -la /config/worlds_local
-   ```
-
-3. Delete the helper pod once you've confirmed the restore:
-
-   ```powershell
-   kubectl delete pod -n valheim valheim-restore-helper
-   ```
-
-   ⚠️ **The helper pod must be fully gone before scaling the Deployment back up.**
-   `valheim-data` is ReadWriteOnce — the server pod cannot attach the volume while the helper
-   pod still holds it. Confirm with `kubectl get pod -n valheim valheim-restore-helper`
-   (expect `NotFound`) before step 4.
-
-4. Scale the Deployment back to 1:
-
-   ```powershell
-   kubectl scale deploy/valheim -n valheim --replicas=1
-   ```
-
-**Longhorn snapshot** — the volume must be detached before a revert, which only happens with
-the pod scaled to 0:
+**In-app auto-backup.** The world PVC is ReadWriteOnce, so the server pod must be fully gone
+before a helper can mount it:
 
 ```powershell
 kubectl scale deploy/valheim -n valheim --replicas=0
-```
-
-Then, once the Volume shows `Detached` in the Longhorn UI, revert to the chosen snapshot
-either from the Longhorn UI (Volume → Snapshots → Revert) or by editing the Volume CR
-directly. Scale back to 1 once the revert completes:
-
-```powershell
+kubectl wait --for=delete pod -n valheim -l app=valheim --timeout=180s
+kubectl run valheim-restore-helper -n valheim --image=busybox --restart=Never --overrides='{
+  "apiVersion": "v1",
+  "spec": {
+    "containers": [{
+      "name": "restore-helper", "image": "busybox",
+      "command": ["sh", "-c", "cd /saves/worlds_local && cp TreeFellMeAgain_backup_auto-<stamp>.db TreeFellMeAgain.db && cp TreeFellMeAgain_backup_auto-<stamp>.fwl TreeFellMeAgain.fwl && ls -la && sleep 600"],
+      "volumeMounts": [{ "name": "data", "mountPath": "/saves" }]
+    }],
+    "volumes": [{ "name": "data", "persistentVolumeClaim": { "claimName": "valheim-data" } }]
+  }
+}'
+kubectl logs -n valheim valheim-restore-helper
+kubectl delete pod -n valheim valheim-restore-helper
+kubectl get pod -n valheim valheim-restore-helper     # expect NotFound before the next line
 kubectl scale deploy/valheim -n valheim --replicas=1
 ```
 
-**Pulling the world off the volume** (e.g. before any destructive step, or to back it up
-off-cluster). **Precondition: the server pod must still be running** — `kubectl cp` copies
-through a live pod's API server proxy and fails against a scaled-to-0 Deployment or a
-`Terminating` pod:
+**Longhorn snapshot.** Scale to 0, wait for the Volume to show `Detached`, revert from the
+Longhorn UI (Volume → Snapshots → Revert), scale back to 1.
+
+**Pull the world off the volume** (pod must be running; `kubectl cp` goes through it):
 
 ```powershell
-kubectl cp valheim/$(kubectl get pod -n valheim -l app=valheim -o jsonpath='{.items[0].metadata.name}'):/config/worlds_local ./worlds_local-backup
+kubectl cp valheim/$(kubectl get pod -n valheim -l app=valheim -o jsonpath='{.items[0].metadata.name}'):/valheim-saves/worlds_local ./worlds_local-backup -c valheim
 ```
 
 ## Access control
 
-`SERVER_PUBLIC=false` is not access control — it only hides the server from the browser.
-Anything that can route to `192.168.130.155:2456` and knows the password can join. There is
-no source-IP allowlist; the router decides reachability.
-
-NetworkPolicy cannot help here — this cluster runs Flannel, which does not enforce it. To
-add a real allowlist, use `spec.loadBalancerSourceRanges` in `service.yaml` (enforced by
-kube-proxy). If you do, list any VPN tunnel subnet explicitly, or VPN clients on `10.x` or
-`100.64.x` will be locked out.
+Private-only hides the server from the browser; it is not access control. Anything that can
+route to `192.168.130.155:2456` with the password can join. NetworkPolicy cannot help
+(Flannel). For a real allowlist use `spec.loadBalancerSourceRanges` in `service.yaml`, and
+list any VPN subnet explicitly.
 
 ## Common tasks
 
-Add admins — edit `ADMINLIST_IDS` in `configmap.yaml` (space-separated SteamID64), then:
+Add admins: edit `ADMINLIST_IDS` in `configmap.yaml`, then
 
 ```powershell
 kubectl apply -f configmap.yaml
 kubectl rollout restart deploy/valheim -n valheim
 ```
 
-Stop the server without deleting anything:
+Update the game to a new Valheim release, deliberately:
 
-```powershell
-kubectl scale deploy/valheim -n valheim --replicas=0
-```
+1. Check each row of `MODS` on Thunderstore for a release after the game patch.
+2. Set `UPDATE_ON_START: "true"` in `configmap.yaml`, apply, `rollout restart`, watch the
+   game log for the new `Valheim version:` line and the mod load lines.
+3. Set it back to `"false"`, apply. (The next restart is then a normal one.)
 
-Follow logs:
-
-```powershell
-kubectl logs -n valheim deploy/valheim --follow
-```
+Stop without deleting anything: `kubectl scale deploy/valheim -n valheim --replicas=0`.
+Follow logs: `kubectl logs -n valheim deploy/valheim -c valheim --follow`.
 
 ## Rollback
 
-Remove the workload while keeping the world intact:
+Remove the workload, keep the world: `kubectl delete -f deployment.yaml -f service.yaml`.
+Both PVCs stay bound. Re-apply to restore service.
 
-```powershell
-kubectl delete -f deployment.yaml -f service.yaml
-```
-
-This leaves both PVCs bound, so the world survives any manifest mistake. Re-apply to
-restore service.
-
-To tear down completely — **this destroys the world** — delete the PVCs explicitly:
+Tear down completely — **this destroys the world**:
 
 ```powershell
 kubectl delete -f deployment.yaml -f service.yaml -f recurringjob.yaml
 kubectl delete -f pvc.yaml   # DESTRUCTIVE: storageClass longhorn has reclaimPolicy Delete
 kubectl delete -f namespace.yaml
 ```
-
-Take a manual Longhorn snapshot or copy `/config/worlds_local` off the volume first — see
-"Pulling the world off the volume" under Restore above for the exact `kubectl cp` command.
