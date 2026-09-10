@@ -71,8 +71,12 @@ Read from its scripts, not its README. Each of these shaped a manifest comment.
   `start.sh` exports the legacy doorstop variable names and BepInEx silently never loads.
   `BEPINEX_ENABLED=true` is still required: it is what makes `start.sh` export the
   `LD_PRELOAD`/doorstop env at all.
-- **The image's `MODS` variable stays unset.** Its downloader wipes and re-fetches every mod
-  unverified on every boot and flattens each zip into one directory.
+- **The image's `MODS` variable stays unset.** Set, its downloader would wipe and re-fetch
+  every mod unverified on every boot and flatten each zip into one directory. The downloader
+  still *runs* every boot (`start.sh` calls `install_mods` whenever `BEPINEX_ENABLED=true`);
+  with `MODS` unset all it does is recreate an empty `BepInEx/plugins/thunderstore/`. That
+  directory is the image's: the installer's prune skips it and does not count it toward the
+  breaker.
 - **`MAX_PLAYERS` stays unset.** Any value other than 10 silently installs the image's
   bundled MaxPlayerCount mod.
 - **The game runs as root.** `init.sh` requires `PUID`/`PGID`, usermods the steam user,
@@ -103,7 +107,7 @@ Read from its scripts, not its README. Each of these shaped a manifest comment.
 
   ```powershell
   # want: exit=1
-  kubectl exec -n valheim deploy/valheim -- sh -c 'pgrep -f "[Z]ZZNOSUCH" > /dev/null; echo exit=$?'
+  kubectl exec -n valheim deploy/valheim -c valheim -- sh -c 'pgrep -f "[Z]ZZNOSUCH" > /dev/null; echo exit=$?'
   ```
 
   Single-quoted outer string: PowerShell would eat `$?` inside double quotes. Testing an
@@ -168,23 +172,35 @@ the `fetch-mods` initContainer on every boot.
   no prefabs are free to remove.
 - **Test the installer before changing it:** `bash valheim/tests/test-install-mods.sh` from
   the repo root. It runs the script from the ConfigMap against a temp directory with fake
-  zips and exercises install, skip, checksum refusal, prune, the breaker, the config applier
-  on a CRLF file, and the adminlist. `install-mods.sh` must stay the **last** key in the
-  ConfigMap; the harness extracts it by "everything after the key line".
+  zips and exercises install, skip, checksum refusal, prune (including the image-owned
+  `thunderstore` directory it must skip), the breaker, the config applier on a CRLF file,
+  and the adminlist. `install-mods.sh` must stay the **last** key in the ConfigMap; the
+  harness extracts it by "everything after the key line".
 - **Recon a candidate mod inside the running container first**, per the repo `CLAUDE.md`:
   sha256, zip layout, config section names, kick behaviour
   (`RemoveDisconnectedPeerFromVerified`), prefab registration, Thunderstore `date_updated`.
 
 ### ValheimPlus
 
-Runs at its defaults. The only pin is the sentinel in `MOD_CONFIG`: `[Fermenter]`
-`enabled=true` with every other key in that section pinned at its generated default, so the
-section being on changes nothing while the non-default `enabled` line proves the applier
-reached the file. Verify it after any restart by reading the file, never by looking for a
-log line (V+ logs nothing for a rejected value):
+Runs at its defaults. Its config is
+`/valheim/BepInEx/config/org.bepinex.plugins.valheim_plus.cfg`, an ordinary BepInEx file
+(`Key = Value`, `# Setting type:` headers) that V+ 10 creates on its first boot.
+
+**Never place a legacy `valheim_plus.cfg` beside it**, by hand or through a `MOD_CONFIG` line
+(the applier creates any file a line names). That is the V+ ≤9.x INI file; V+ 10 treats one
+found next to its BepInEx config as an override that wins on every launch, makes settings
+read-only in-game, and logs a deprecation warning.
+
+`MOD_CONFIG` is empty until that first boot. The sentinel is then added from the file V+
+actually generated: `[Fermenter]` `enabled = true` with every other key in that section
+pinned at its generated default, so the section being on changes nothing while the
+non-default `enabled` line proves the applier reached the file. Enumerate the keys from the
+live file; 10.0.2's `[Fermenter]` differs from 9.x's. Verify the pin after any restart by
+reading the file back, never by the absence of a log line (whether V+ 10 logs
+`could not be parsed` for a rejected value is not yet verified):
 
 ```powershell
-kubectl exec -n valheim deploy/valheim -c valheim -- sh -c 'sed -n "/^\[Fermenter\]/,/^\[/p" /valheim/BepInEx/config/valheim_plus.cfg | head -12'
+kubectl exec -n valheim deploy/valheim -c valheim -- sh -c 'sed -n "/^\[Fermenter\]/,/^\[/p" /valheim/BepInEx/config/org.bepinex.plugins.valheim_plus.cfg | grep -v "^#"'
 ```
 
 To tune V+ later: enumerate the section in the live file, pin **every** key in it, apply,
@@ -197,8 +213,10 @@ kubectl logs -n valheim deploy/valheim -c fetch-mods
 kubectl logs -n valheim deploy/valheim -c valheim | Select-String "BepInEx\]|Jotunn|ValheimPlus|could not be parsed" | Select-Object -First 12
 ```
 
-Expect `[skip ]` ×3 on a normal restart, the BepInEx banner, a load line each for Jotunn and
-ValheimPlus, and **no** `could not be parsed` (that check covers BepInEx-bound mods only).
+Expect `[skip ]` ×3 and `(0 to remove)` on a normal restart, the BepInEx banner, a load line
+each for Jotunn and ValheimPlus, and **no** `could not be parsed`. That absence is not proof
+for V+ pins: whether V+ 10 logs it for a rejected value is unverified, so V+ is verified by
+reading the file back (above).
 
 ## Connections
 
