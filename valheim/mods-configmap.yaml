@@ -46,8 +46,12 @@ data:
   # ValheimPlus 10.0.2 declares BepInExPack 5.4.2350; Jotunn 2.30.0 declares 5.4.2333, which
   # 5.4.2350 satisfies. All three shipped Valheim 1.0 releases on 2026-09-09/10.
   #
-  # CLIENT INSTALL: ValheimPlus is pinned at its defaults with enforceMod off, so a client
-  # without it can still join. Players who want V+ features install the same version.
+  # CLIENT INSTALL: every client needs BepInExPack 5.4.2350 and ValheimPlus 10.0.2. V+ runs at
+  # its shipped defaults, which include [Server] enforceMod=true, so a client without the same
+  # V+ version is REFUSED; serverSyncsConfig=true pushes this server's V+ config to clients.
+  # Verified from upstream Grantapher/ValheimPlus valheim_plus.cfg on 2026-09-10. To allow
+  # mod-free joining instead, pin valheim_plus.cfg|Server|enforceMod|false in MOD_CONFIG.
+  # Install Jotunn 2.30.0 on clients too, to match.
   MODS: |
     BepInExPack_Valheim  5.4.2350  https://thunderstore.io/package/download/denikson/BepInExPack_Valheim/5.4.2350/               37a91c000b4e88f2ed7a4bd7d812239852d2e36cbf0ff0a9f5faacfba46b105f  pack
     Jotunn               2.30.0    https://thunderstore.io/package/download/ValheimModding/Jotunn/2.30.0/                        f7f218ac3f97b27a7e65d62b5ebe7c29b93129bf3e56cf41b6870bef1ef161fd  plugins
