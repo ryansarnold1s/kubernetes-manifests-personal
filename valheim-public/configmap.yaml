@@ -1,0 +1,66 @@
+# Non-secret env for the indifferentbroccoli/valheim-server-docker image, VANILLA. Names are the
+# image's, read from /home/steam/server/{init,start}.sh in v1.0.11 -- the scripts are the truth,
+# not the README. See ../valheim/configmap.yaml for the modded twin; the two differ on purpose.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: valheim-public-config
+  namespace: valheim-public
+  labels:
+    app: valheim-public
+data:
+  # Must not contain the server password: Valheim refuses to start if it does.
+  SERVER_NAME: "Deathsquito Vanilla"
+  WORLD_NAME: "TreeFellMeVanilla"
+  PORT: "2456"
+  TZ: "America/Phoenix"
+  # false = Steam networking. Friends arrive through the router port-forward, which is what
+  # Join IP expects. true would route through PlayFab and add relay latency.
+  CROSSPLAY_ENABLED: "false"
+  # The variable start.sh ACTUALLY reads for -public (it ignores PUBLIC, which ../valheim sets).
+  # false keeps the server out of the community browser: strangers would otherwise find it and
+  # start guessing the password, which is the only gate.
+  PUBLIC_ENABLED: "false"
+  SAVE_INTERVAL: "1800"
+  # Load-bearing: start.sh passes -savedir "${SAVE_DIR}", the valheim-public-data mountPath in
+  # deployment.yaml (both containers) and the image's init.sh chown all hardcode the same path.
+  # Change this alone and the world is written off the PVC and lost on restart.
+  SAVE_DIR: "/valheim-saves"
+  # Valheim's native rolling backups in worlds_local/: one at 2h, then three 12h apart.
+  KEEP_BACKUPS: "4"
+  BACKUPS_SHORT: "7200"
+  BACKUPS_LONG: "43200"
+  SERVER_PRESET: "Normal"
+  # Every -setkey toggle pinned false. A -setkey persists a global key INTO THE WORLD SAVE, so a
+  # default flipping upstream would change the world permanently, not just for one boot.
+  NO_BUILD_COST: "false"
+  NO_MAP: "false"
+  PLAYER_EVENTS: "false"
+  PASSIVE_MOBS: "false"
+  FIRE_HAZARDS: "false"
+  # ⚠️ THE VANILLA TRIO. start.sh turns BepInEx on if ANY ONE of these is wrong:
+  #   BEPINEX_ENABLED true  -> loads BepInEx
+  #   MODS non-empty        -> forces BepInEx on and runs the image's unverified downloader
+  #   MAX_PLAYERS != "10"   -> forces BepInEx on and installs its bundled MaxPlayerCount mod
+  # MAX_PLAYERS is pinned even though the image ENV already says 10: "unset" is only safe while
+  # that image default holds. 10 is Valheim's vanilla cap; raising it means a mod.
+  BEPINEX_ENABLED: "false"
+  MODS: ""
+  MAX_PLAYERS: "10"
+  # true = SteamCMD runs on EVERY boot (init.sh:27). No mods to break, and friends' clients
+  # auto-update, so a restart after a patch is the whole update procedure. Opposite of
+  # ../valheim on purpose.
+  UPDATE_ON_START: "true"
+  BETA: "public"
+  # Required by init.sh, which exits without them. It usermods the steam user and chown -Rs both
+  # volumes, then runs the game as root regardless.
+  PUID: "10000"
+  PGID: "10000"
+  # Space-separated SteamID64s, written to /valheim-saves/adminlist.txt by the write-adminlist
+  # initContainer on every boot. Admin grants the F5 console kick/ban -- the tools for a griefer
+  # on a server strangers can reach. 76561197963378853 = Ryan.
+  ADMINLIST_IDS: "76561197963378853"
+  # Deliberately absent:
+  #   PUBLIC              -- dead code in this image; PUBLIC_ENABLED above is the real knob
+  #   BEPINEXPACK_VERSION -- only read inside the BepInEx branch
+  #   MODIFIER_*          -- plain Normal preset

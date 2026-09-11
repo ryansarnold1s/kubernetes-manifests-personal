@@ -1,0 +1,34 @@
+# /valheim-saves -- worlds_local/ (world + Valheim's rolling auto-backups) and adminlist.txt.
+# The irreplaceable data. storageClass longhorn has reclaimPolicy Delete: deleting this PVC
+# destroys the world.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: valheim-public-data
+  namespace: valheim-public
+  labels:
+    app: valheim-public
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi
+---
+# /valheim -- the SteamCMD game install. Disposable: deleting it forces a clean reinstall on the
+# next boot and does not touch the world.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: valheim-public-server
+  namespace: valheim-public
+  labels:
+    app: valheim-public
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi

@@ -1,0 +1,139 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: valheim-public
+  namespace: valheim-public
+  labels:
+    app: valheim-public
+spec:
+  replicas: 1
+  strategy:
+    # Recreate: RollingUpdate deadlocks on the ReadWriteOnce Longhorn volumes.
+    type: Recreate
+  selector:
+    matchLabels:
+      app: valheim-public
+  template:
+    metadata:
+      labels:
+        app: valheim-public
+    spec:
+      # The image traps SIGTERM, sends SIGINT to the game and waits for the world save. 120s,
+      # not the image compose example's 30s.
+      terminationGracePeriodSeconds: 120
+      # --- Hardening. This pod parses internet traffic as root (a property of the image), on a
+      # Flannel network where NetworkPolicy is NOT enforced. These are what the image tolerates:
+      # Nothing in this pod talks to the Kubernetes API; a token would only help an attacker.
+      automountServiceAccountToken: false
+      # No Docker-link env vars describing other Services.
+      enableServiceLinks: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      # No fsGroup: init.sh chown -Rs both volumes itself on every start.
+      initContainers:
+      # Writes adminlist.txt from ADMINLIST_IDS on every boot. This is the only job left of the
+      # modded server's fetch-mods container: the image itself does nothing with admins.
+      # No `$(` anywhere in this script: Kubernetes expands $(VAR) in command strings.
+      - name: write-adminlist
+        image: indifferentbroccoli/valheim-server-docker:v1.0.11@sha256:3702926c5e174e4e28189136b512a034cacb9b57636c5d29d978e9a97c6e2f98
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -euo pipefail
+          out=/valheim-saves/adminlist.txt
+          {
+            echo "// List admin players ID  ONE per line"
+            for id in ${ADMINLIST_IDS}; do echo "$id"; done
+          } > "$out.tmp"
+          mv "$out.tmp" "$out"
+          echo "[admin] wrote $out:"
+          cat "$out"
+        env:
+        - name: ADMINLIST_IDS
+          valueFrom:
+            configMapKeyRef:
+              name: valheim-public-config
+              key: ADMINLIST_IDS
+        volumeMounts:
+        - name: saves
+          mountPath: /valheim-saves
+        # Runs as root like the game (the volume is chowned to 10000 after the first boot, so
+        # writing it needs root's DAC override). drop: ALL would remove that; NET_RAW is safe.
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["NET_RAW"]
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "32Mi"
+          limits:
+            memory: "64Mi"
+      containers:
+      # The container name `valheim` matches ../valheim so tests/verify-public.sh works on both.
+      - name: valheim
+        image: indifferentbroccoli/valheim-server-docker:v1.0.11@sha256:3702926c5e174e4e28189136b512a034cacb9b57636c5d29d978e9a97c6e2f98
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: game
+          containerPort: 2456
+          protocol: UDP
+        - name: query
+          containerPort: 2457
+          protocol: UDP
+        envFrom:
+        - configMapRef:
+            name: valheim-public-config
+        env:
+        - name: SERVER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: valheim-public-secrets
+              key: server-password
+        volumeMounts:
+        - name: server
+          mountPath: /valheim
+        - name: saves
+          mountPath: /valheim-saves
+        # Deliberately no livenessProbe: it would SIGKILL the server mid-world-save.
+        #
+        # The pattern MUST stay bracketed as '[v]alheim_server'. A bare `pgrep -f valheim_server`
+        # matches the probe's own `sh -c` process and returns 0 unconditionally. The `> /dev/null`
+        # keeps that shell alive so the bracket is what prevents the self-match. Verified by
+        # tests/verify-public.sh against a name that does not exist.
+        startupProbe:
+          exec:
+            command: ["sh", "-c", "pgrep -f '[v]alheim_server' > /dev/null"]
+          periodSeconds: 10
+          # 20 min: UPDATE_ON_START=true runs SteamCMD on every boot, and a cold install on an
+          # empty valheim-public-server PVC must finish inside this window.
+          failureThreshold: 120
+        readinessProbe:
+          exec:
+            command: ["sh", "-c", "pgrep -f '[v]alheim_server' > /dev/null"]
+          periodSeconds: 30
+          failureThreshold: 3
+        # init.sh needs root (usermod, chown -R), so runAsNonRoot and drop: ALL are out. These two
+        # are what remain. If a future image needs a raw socket or a setuid helper, the boot will
+        # fail loudly at init.sh -- remove the offending line here, not the whole block.
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["NET_RAW"]
+        # No CPU limit: CFS throttling shows up in-game as rubber-banding.
+        resources:
+          requests:
+            cpu: "2"
+            memory: "5Gi"
+          limits:
+            memory: "8Gi"
+      volumes:
+      - name: server
+        persistentVolumeClaim:
+          claimName: valheim-public-server
+      - name: saves
+        persistentVolumeClaim:
+          claimName: valheim-public-data

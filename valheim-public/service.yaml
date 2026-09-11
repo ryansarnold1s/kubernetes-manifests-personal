@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: valheim-public
+  namespace: valheim-public
+  labels:
+    app: valheim-public
+  annotations:
+    # .157 is the next free address after icarus (.156); pool vlan130-pool is .150-.199. A
+    # REQUEST, not a guarantee: if it is taken MetalLB silently assigns another, and the router
+    # port-forward then points at nothing. tests/verify-public.sh checks the granted address.
+    metallb.io/loadBalancerIPs: 192.168.130.157
+spec:
+  type: LoadBalancer
+  # Keeps the real client IP visible to the game, which is what makes a `ban` mean anything on a
+  # server strangers can reach.
+  externalTrafficPolicy: Local
+  #
+  # ⚠️ INTERNET-EXPOSED. The router forwards WAN UDP 2456-2457 here. There are deliberately NO
+  # loadBalancerSourceRanges: by decision the password is the only gate (friends' residential
+  # IPs change). If that changes, loadBalancerSourceRanges is the enforcement point -- NOT
+  # NetworkPolicy, which Flannel silently ignores.
+  ports:
+  - name: game
+    port: 2456
+    targetPort: 2456
+    protocol: UDP
+  - name: query
+    port: 2457
+    targetPort: 2457
+    protocol: UDP
+  selector:
+    app: valheim-public

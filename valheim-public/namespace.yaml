@@ -1,0 +1,9 @@
+# Deliberately no pod-security.kubernetes.io labels: the cluster default is baseline, and that is
+# the ceiling for this image -- init.sh needs root for usermod and chown -R, so restricted is
+# impossible. Do not add `enforce: privileged` either; nothing here needs more than baseline.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: valheim-public
+  labels:
+    app: valheim-public

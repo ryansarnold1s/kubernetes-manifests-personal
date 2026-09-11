@@ -1,0 +1,16 @@
+# This job does nothing until the Longhorn Volume backing valheim-public-data carries the label
+# recurring-job-group.longhorn.io/valheim-public=enabled -- a new or recreated PVC's volume
+# starts unlabeled. See README.md (Applying) for the label command.
+# 11:15 UTC = 04:15 Arizona, 15 minutes after the LAN server's job so the two never contend.
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: valheim-public-daily-snapshot
+  namespace: longhorn-system
+spec:
+  cron: "15 11 * * *"
+  task: snapshot
+  groups:
+  - valheim-public
+  retain: 7
+  concurrency: 1
