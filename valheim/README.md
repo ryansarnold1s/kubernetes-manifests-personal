@@ -13,7 +13,7 @@ The server is never listed in the community browser (see `PUBLIC` in `configmap.
 World: `TreeFellMeAgain`. Password lives in the `valheim-secrets` Secret.
 Crossplay is off: Steam clients only.
 
-Every client needs BepInExPack and ValheimPlus 10.0.2, the same version as the server.
+Every client needs BepInExPack and ValheimPlus 10.1.0, the same version as the server.
 ValheimPlus's `[Server]` section is pinned with `enforceMod = true`, so a client without the same
 V+ version is refused, and with `serverSyncsConfig = true`, so connecting clients receive the
 server's V+ config. Both are also V+ 10.0.2's own defaults. Install Jotunn 2.30.0 on clients too, to

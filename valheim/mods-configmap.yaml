@@ -46,10 +46,10 @@ data:
   # Checksums captured from the real downloads on 2026-09-10. Layouts verified with unzip -l,
   # not assumed from the store page.
   #
-  # ValheimPlus 10.0.2 declares BepInExPack 5.4.2350; Jotunn 2.30.0 declares 5.4.2333, which
+  # ValheimPlus 10.1.0 declares BepInExPack 5.4.2350; Jotunn 2.30.0 declares 5.4.2333, which
   # 5.4.2350 satisfies. All three shipped Valheim 1.0 releases on 2026-09-09/10.
   #
-  # CLIENT INSTALL: every client needs BepInExPack 5.4.2350 and ValheimPlus 10.0.2. MOD_CONFIG
+  # CLIENT INSTALL: every client needs BepInExPack 5.4.2350 and ValheimPlus 10.1.0. MOD_CONFIG
   # pins V+'s [Server] section with enforceMod = true, so a client without the same V+ version
   # is REFUSED, and serverSyncsConfig = true, which pushes this server's V+ config to clients.
   # Both are also V+ 10.0.2's own defaults (verified 2026-09-10 from the V+ source, tag
@@ -59,7 +59,7 @@ data:
   MODS: |
     BepInExPack_Valheim  5.4.2350  https://thunderstore.io/package/download/denikson/BepInExPack_Valheim/5.4.2350/               37a91c000b4e88f2ed7a4bd7d812239852d2e36cbf0ff0a9f5faacfba46b105f  pack
     Jotunn               2.30.0    https://thunderstore.io/package/download/ValheimModding/Jotunn/2.30.0/                        f7f218ac3f97b27a7e65d62b5ebe7c29b93129bf3e56cf41b6870bef1ef161fd  plugins
-    ValheimPlus          10.0.2    https://thunderstore.io/package/download/Grantapher/ValheimPlus_Grantapher_Temporary/10.0.2/  6fece0e93ffe3604210fa04dd58a2773d22c4334ee1f0069ac6a6977d89acb1c  bepinex
+    ValheimPlus          10.1.0    https://thunderstore.io/package/download/Grantapher/ValheimPlus_Grantapher_Temporary/10.1.0/  8f9c59ff4f324b0ac6119e25b32859b27214f9892f7e95ca118c1127dbd4709a  bepinex
   # Per-mod config, declared here instead of hand-edited on the PVC. One line per key:
   #   <file under BepInEx/config>|<section>|<key>|<value>
   #
