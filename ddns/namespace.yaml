@@ -1,0 +1,14 @@
+# restricted: the updater is a static Go binary that needs no root, no capabilities and no
+# writable filesystem, so the strictest profile costs nothing. enforce rejects non-compliant
+# Pods; warn makes `kubectl apply` of a non-compliant DEPLOYMENT print a warning (enforce alone
+# only acts on Pods, so a bad Deployment would apply silently and then never create a pod).
+# Kept apart from valheim-public on purpose: the Cloudflare token must never share a namespace
+# with the internet-facing root process.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ddns
+  labels:
+    app: cloudflare-ddns
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted

@@ -1,0 +1,33 @@
+# Env for favonia/cloudflare-ddns v1.17.0. Names from its README at tag v1.17.0.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudflare-ddns-config
+  namespace: ddns
+  labels:
+    app: cloudflare-ddns
+data:
+  # From a mounted file, not an env var, so the token never shows in `kubectl describe pod`.
+  CLOUDFLARE_API_TOKEN_FILE: "/run/secrets/cloudflare/token"
+  # The only managed name. Add names here comma-separated; each needs its own router forward.
+  IP4_DOMAINS: "valheim.arnoldtech.io"
+  # The pod's egress as Cloudflare sees it -- the home WAN IP (checked 2026-09-11).
+  IP4_PROVIDER: "cloudflare.trace"
+  # No AAAA: the game Service is IPv4 only, and an AAAA pointing anywhere else would send
+  # IPv6-preferring clients into nothing.
+  IP6_PROVIDER: "none"
+  # ⚠️ MUST stay false. A proxied (orange-cloud) record resolves to Cloudflare anycast, and
+  # Cloudflare's proxy does not carry Valheim's UDP. Friends would resolve fine and never connect.
+  PROXIED: "false"
+  # Friends follow a WAN IP change within ~5 min of the updater noticing it.
+  TTL: "300"
+  UPDATE_CRON: "@every 5m"
+  UPDATE_ON_START: "true"
+  # ⚠️ MUST stay false. true deletes the record whenever the pod stops -- every restart, node
+  # drain or image bump would take the server off DNS.
+  DELETE_ON_STOP: "false"
+  # The updater only touches records whose comment matches the regex, and writes that comment on
+  # records it creates. A hand-made record of the same name is left alone.
+  RECORD_COMMENT: "managed by ddns/cloudflare-ddns (kubernetes-manifests-personal)"
+  MANAGED_RECORDS_COMMENT_REGEX: "^managed by ddns/cloudflare-ddns"
+  TZ: "America/Phoenix"

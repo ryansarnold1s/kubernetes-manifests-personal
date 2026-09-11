@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflare-ddns
+  namespace: ddns
+  labels:
+    app: cloudflare-ddns
+spec:
+  replicas: 1
+  # Recreate: two updaters racing on the same record is harmless but pointless.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: cloudflare-ddns
+  template:
+    metadata:
+      labels:
+        app: cloudflare-ddns
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        # Makes the mounted token file group-owned by 1000 -- see defaultMode below.
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: cloudflare-ddns
+        # linux/amd64 platform digest of tag 1.17.0 (the tag's index digest is 61013368...).
+        image: favonia/cloudflare-ddns:1.17.0@sha256:0770cab737e58544f9b7a880ceaec41554797de2cc8eccdde7e77b788893c154
+        imagePullPolicy: IfNotPresent
+        envFrom:
+        - configMapRef:
+            name: cloudflare-ddns-config
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: token
+          mountPath: /run/secrets/cloudflare
+          readOnly: true
+        # No probes: the updater has no health endpoint, and it exits on a fatal error, which the
+        # Deployment restarts.
+        resources:
+          requests:
+            cpu: "10m"
+            memory: "32Mi"
+          limits:
+            memory: "64Mi"
+      volumes:
+      - name: token
+        secret:
+          secretName: cloudflare-ddns-token
+          # 0440, NOT 0400: the file is owned by root and group-owned by fsGroup 1000. 0400 would
+          # leave it readable by root only, and the updater (uid 1000) could not read its token.
+          defaultMode: 0440
