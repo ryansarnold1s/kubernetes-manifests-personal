@@ -127,8 +127,10 @@ kubectl logs -n valheim-public deploy/valheim-public -c valheim --tail=600 | Sel
 
 Same three layers as `../valheim/README.md` (Valheim's rolling backups in `worlds_local/`,
 Longhorn `valheim-public-daily-snapshot` at 11:15 UTC retaining 7, CloudCasa). Every command
-there works here with `valheim` → `valheim-public`, `valheim-data` → `valheim-public-data`,
-`app=valheim` → `app=valheim-public` and `TreeFellMeAgain` → `TreeFellMeVanilla`.
+there works here with `valheim` → `valheim-public` (namespace, Deployment, label), `valheim-data`
+→ `valheim-public-data` and `TreeFellMeAgain` → `TreeFellMeVanilla` — **except** the container
+name `-c valheim` and the saves path `/valheim-saves`, which are identical on both servers and
+must **not** be substituted.
 
 ## Rollback
 
