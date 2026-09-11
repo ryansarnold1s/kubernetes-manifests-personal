@@ -7,6 +7,11 @@ detail and inline warnings — read it before changing anything in that director
   declaratively via an initContainer that owns the whole BepInEx layer (the image must NOT install
   BepInEx itself — see `mods-configmap.yaml`). The `MODS` table there is the authoritative list — don't
   hardcode a count here. Game updates are deliberate via `UPDATE_ON_START`; there is no cron
+- `valheim-public/` — **vanilla** Valheim reachable from the internet (router forward UDP 2456–2457 →
+  `192.168.130.157`), password-only. Same image as `valheim/`. `BEPINEX_ENABLED=false`, `MODS=""` and
+  `MAX_PLAYERS="10"` are each load-bearing — any one wrong makes `start.sh` turn BepInEx on. The
+  image's real listing knob is `PUBLIC_ENABLED`, not `PUBLIC`. `UPDATE_ON_START=true`: a restart *is*
+  the game update. Never reuse the LAN password here. `tests/verify-public.sh` after every rollout
 - `icarus/` — ICARUS dedicated server, Wine under supervisord. Two files deploy **outside** the
   `icarus` namespace: `storageclass.yaml` is cluster-scoped (`longhorn-single-replica` — generically
   named, another workload may adopt it) and `recurringjob.yaml` targets `longhorn-system`. Read the
@@ -19,6 +24,10 @@ detail and inline warnings — read it before changing anything in that director
   in the `finance` namespace, and the owning role lives in that Cluster's `spec.managed.roles` — which is
   defined in the *finance-manager* repo, not this one. Two files in `mealie/` deploy outside the `mealie`
   namespace; read the README before applying
+- `ddns/` — `favonia/cloudflare-ddns` keeping `valheim.arnoldtech.io` (DNS-only) on the home WAN IP,
+  in a `restricted` namespace. Its token can edit the whole `arnoldtech.io` zone and is **not** the
+  cert-manager token. `PROXIED` must stay `false` (Cloudflare's proxy drops game UDP) and
+  `DELETE_ON_STOP` `false` (or every restart deletes the record)
 - `docs/superpowers/{specs,plans}` — design specs and implementation plans. When a shipped decision turns
   out wrong, append a correction rather than rewriting history; several already carry them
 - `talos/` — **not** a workload directory. It holds Talos machine-config patches applied with

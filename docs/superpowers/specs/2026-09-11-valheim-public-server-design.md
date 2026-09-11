@@ -301,3 +301,15 @@ verified.
   (token scope, `PROXIED=false`, `DELETE_ON_STOP=false`).
 - `icarus/service.yaml` and `icarus/README.md` are untouched. Their "if ever exposed" notes
   now have a worked example to point to, but they are not changed by this work.
+
+---
+
+**Correction (2026-09-11, implementation plan) — two details in §3 and §5 were wrong.**
+
+1. **The token file mode is `0440`, not `0400`.** With `fsGroup: 1000` the mounted Secret file is
+   owned by root and group-owned by 1000; `0400` leaves it readable by root only, and the
+   updater runs as uid 1000. `0440` grants the group read.
+2. **The updater is pinned by its linux/amd64 platform digest**,
+   `sha256:0770cab737e58544f9b7a880ceaec41554797de2cc8eccdde7e77b788893c154`, not the tag's
+   multi-arch index digest `61013368…` quoted in §3 — the same convention as the valheim image
+   pin.

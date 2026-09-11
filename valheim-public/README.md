@@ -1,0 +1,144 @@
+# Valheim Public (Vanilla) Server
+
+Vanilla Valheim 1.0 for friends over the internet, beside the modded LAN server in `../valheim/`.
+Same image, no BepInEx, no mods, its own world and IP.
+Design: `../docs/superpowers/specs/2026-09-11-valheim-public-server-design.md`.
+
+## Joining
+
+- **From the internet:** Start Game → Select Character → Join Game → Join IP →
+  `valheim.arnoldtech.io:2456`, then the password.
+- **From the LAN:** Join IP → `192.168.130.157:2456`. The name does **not** work on the LAN:
+  pihole answers every `*.arnoldtech.io` name with Traefik's `.150`.
+
+World `TreeFellMeVanilla`, server name `Deathsquito Vanilla`. Steam clients only (crossplay
+off). Not listed in the community browser. The password lives in the `valheim-public-secrets`
+Secret and is shared with friends out of band.
+
+## What keeps it vanilla
+
+`start.sh` turns BepInEx on if **any one** of these is wrong. All three are pinned in
+`configmap.yaml`:
+
+| Key | Value | If wrong |
+|---|---|---|
+| `BEPINEX_ENABLED` | `false` | Loads BepInEx |
+| `MODS` | `""` | Forces BepInEx on and runs the image's unverified mod downloader |
+| `MAX_PLAYERS` | `10` | Forces BepInEx on and installs the bundled MaxPlayerCount mod |
+
+`PUBLIC_ENABLED` is the image's real listing knob; `PUBLIC`, which `../valheim` sets, is dead
+code. `bash valheim-public/tests/verify-public.sh` proves the running process is vanilla.
+
+## Layout
+
+| File | Purpose |
+|---|---|
+| `namespace.yaml` | Namespace `valheim-public` (baseline, the ceiling for a root image) |
+| `configmap.yaml` | Every non-secret env var, with the why |
+| `secret.yaml.template` | Template for the password Secret |
+| `pvc.yaml` | `valheim-public-data` (world), `valheim-public-server` (game install) |
+| `deployment.yaml` | initContainer `write-adminlist` + game container |
+| `service.yaml` | MetalLB LoadBalancer `192.168.130.157`, UDP 2456-2457 |
+| `recurringjob.yaml` | Longhorn daily snapshot (deploys to `longhorn-system`) |
+| `tests/verify-public.sh` | Read-only live checks; run after every rollout |
+
+The DNS record is kept by `../ddns/`.
+
+## Applying
+
+```powershell
+cd valheim-public/                            # relative paths from repo root silently no-op
+Copy-Item secret.yaml.template secret.yaml    # first time only; then set a NEW password
+kubectl apply -f namespace.yaml -f configmap.yaml -f secret.yaml -f pvc.yaml -f deployment.yaml -f service.yaml -f recurringjob.yaml
+```
+
+Every line must say `created` or `configured`; `unchanged` means the wrong directory.
+
+The Deployment apply also prints `Warning: would violate PodSecurity "restricted:latest"` naming
+only `capabilities.drop=["ALL"]` and `runAsNonRoot=true`. That is expected: the cluster warns at
+`restricted` but enforces `baseline`, and this image needs root for `init.sh`. Do not "fix" it by
+weakening anything else. Any **other** item in that warning is a real problem.
+
+The password: new, at least 5 characters, not inside `SERVER_NAME`, and **never** the LAN
+server's, which sits in plaintext in the mumble ConfigMap.
+
+**Post-deploy, required, after any PVC (re)creation** — a new volume starts unlabeled and the
+RecurringJob looks healthy while producing nothing:
+
+```powershell
+$pv = kubectl get pvc valheim-public-data -n valheim-public -o jsonpath='{.spec.volumeName}'
+kubectl label volumes.longhorn.io -n longhorn-system $pv "recurring-job-group.longhorn.io/valheim-public=enabled" --overwrite
+```
+
+Then, from the repo root: `bash valheim-public/tests/verify-public.sh` must exit 0.
+
+## Outside the cluster
+
+- **Router:** WAN UDP 2456 and 2457 → `192.168.130.157`, same ports. Nothing is forwarded to
+  the LAN server.
+- **DNS:** `valheim.arnoldtech.io`, DNS-only, kept current by `../ddns/`.
+- **CloudCasa:** a policy must cover namespace `valheim-public` and capture PVC data.
+
+## Game updates
+
+Friends' Steam clients update themselves; this server updates only when it restarts
+(`UPDATE_ON_START=true` runs SteamCMD on every boot). On patch day, check nobody is on, then
+restart — in the same action:
+
+```powershell
+kubectl logs -n valheim-public deploy/valheim-public -c valheim --since=5m | Select-String "Got connection|Closing socket"
+kubectl rollout restart deploy/valheim-public -n valheim-public
+kubectl rollout status  deploy/valheim-public -n valheim-public --timeout=1500s
+```
+
+Until someone restarts it, patched clients are refused with an incompatible-version error.
+
+## Operating notes
+
+- **Never lower `terminationGracePeriodSeconds` below 120**, never switch off `Recreate`, never
+  add a liveness probe, never add a CPU limit. Same reasons as `../valheim/README.md`.
+- **Never unbracket the probe pattern.** `verify-public.sh` checks the negative case.
+- **A first boot on a fresh `valheim-public-server` PVC can crash-loop on a transient SteamCMD
+  `Missing configuration` error and heal itself** within the 20-minute startup window. Wait;
+  do not delete anything. See `../valheim/README.md`.
+- **`externalTrafficPolicy: Local` + pod reschedule = brief outage** while MetalLB re-announces.
+- **Hardening:** no service-account token, no service links, RuntimeDefault seccomp,
+  `allowPrivilegeEscalation: false`, `NET_RAW` dropped. `runAsNonRoot` and `drop: ALL` are
+  impossible: `init.sh` needs root for `usermod` and `chown -R`.
+
+## Access control and accepted risks
+
+- **The password is the only gate.** Rotate it by editing `secret.yaml`, applying, restarting,
+  and telling friends. For a single griefer, an admin runs `ban <name>` in the F5 console.
+- To tighten later, `spec.loadBalancerSourceRanges` in `service.yaml` is the enforcement point.
+  **Never NetworkPolicy** — Flannel ignores it.
+- **The game runs as root and parses internet traffic**, on a cluster network where a
+  compromised pod can reach every in-cluster Service (including the shared finance Postgres).
+  Each service's own authentication is the barrier. Accepted 2026-09-11; see the spec §8.
+
+## Connections
+
+```powershell
+kubectl logs -n valheim-public deploy/valheim-public -c valheim --since=5m | Select-String "Got connection|Closing socket"
+kubectl logs -n valheim-public deploy/valheim-public -c valheim --tail=600 | Select-String "Connections \d+" | Select-Object -Last 1
+```
+
+## Backups and restore
+
+Same three layers as `../valheim/README.md` (Valheim's rolling backups in `worlds_local/`,
+Longhorn `valheim-public-daily-snapshot` at 11:15 UTC retaining 7, CloudCasa). Every command
+there works here with `valheim` → `valheim-public`, `valheim-data` → `valheim-public-data`,
+`app=valheim` → `app=valheim-public` and `TreeFellMeAgain` → `TreeFellMeVanilla`.
+
+## Rollback
+
+Remove the workload, keep the world: `kubectl delete -f deployment.yaml -f service.yaml`. Also
+remove the router forward, so the WAN port does not point at an address MetalLB may reassign.
+
+Tear down completely — **this destroys the world**:
+
+```powershell
+kubectl delete -f deployment.yaml -f service.yaml -f recurringjob.yaml
+kubectl delete -f pvc.yaml   # DESTRUCTIVE: storageClass longhorn has reclaimPolicy Delete
+kubectl delete -f namespace.yaml
+```
