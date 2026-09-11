@@ -144,3 +144,22 @@ kubectl delete -f deployment.yaml -f service.yaml -f recurringjob.yaml
 kubectl delete -f pvc.yaml   # DESTRUCTIVE: storageClass longhorn has reclaimPolicy Delete
 kubectl delete -f namespace.yaml
 ```
+
+## Verified
+
+2026-09-11, at deployment. Two rows are **untested**, not passed — they are listed so the gap
+is visible rather than assumed.
+
+| Check | Result |
+|---|---|
+| `tests/verify-public.sh` | 21 checks, 0 failed |
+| Same script against the modded `valheim/` server | 6 failed, exit 1 — the proof each of those checks can fail |
+| `../ddns/tests/verify-ddns.sh` | pass; the proxied apex as negative control exits 1 |
+| Join from outside the LAN, by **hostname** `valheim.arnoldtech.io:2456` | **pass** — a friend connected 16:35, handshake, `Network version check their:40 mine:40`, character spawned. Valheim's Join IP box does accept a DNS name, so nobody needs the raw IP |
+| Join from the LAN by `192.168.130.157:2456` | pass (operator, 15:53) |
+| Join **before** the router forward existed | **not run.** The forward was added before the test, and the substitute (reading the game's UDP peer addresses) does not work: `/proc/net/udp` and `/proc/net/udp6` hold only unconnected listeners even with players on, because Valheim's Steam networking keeps no connected socket. So nothing here proves the packets crossed the WAN — what stands is a second Steam account completing a handshake on an address never handed out on the LAN, plus the friend's own account. Testimony corroborated by logs, not a network-path proof |
+| Wrong password refused | **not tested** — declined at deployment. The password is the only access control on this server; until someone tries a wrong one, "the gate works" is an assumption |
+| Game container `securityContext` | kept — `allowPrivilegeEscalation: false` + `NET_RAW` dropped survived boot. The plan's fallback of weakening it was never needed |
+| First boot | crash-looped twice on SteamCMD `Missing configuration`, then installed on the third attempt, exactly as `../valheim/README.md` records. Nothing was changed in response |
+| CloudCasa covers `valheim-public` with PVC data | **pending** — not yet confirmed in the console. Until it is, the world's only protection is Longhorn snapshots on the same cluster |
+| First Longhorn snapshot | pending the 11:15 UTC run. The Volume label is verified by `tests/verify-public.sh`; no on-demand snapshot was taken, because a snapshot here cannot be purged by deleting its CR |
