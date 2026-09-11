@@ -53,8 +53,11 @@ data:
   # pins V+'s [Server] section with enforceMod = true, so a client without the same V+ version
   # is REFUSED, and serverSyncsConfig = true, which pushes this server's V+ config to clients.
   # Both are also V+ 10.0.2's own defaults (verified 2026-09-10 from the V+ source, tag
-  # 0.10.0.2, ServerConfiguration.cs). To allow mod-free joining instead, change the
-  # [Server] enforceMod pin in MOD_CONFIG to false.
+  # 0.10.0.2, ServerConfiguration.cs). CORRECTION 2026-09-11: the server now runs ValheimPlus
+  # 10.1.0 (see MODS below); that defaults claim was verified against 0.10.0.2 and has not been
+  # re-verified against 10.1.0. The pins in MOD_CONFIG are explicit either way, so behaviour is
+  # unaffected regardless of what 10.1.0's own defaults turn out to be. To allow mod-free
+  # joining instead, change the [Server] enforceMod pin in MOD_CONFIG to false.
   # Install Jotunn 2.30.0 on clients too, to match.
   MODS: |
     BepInExPack_Valheim  5.4.2350  https://thunderstore.io/package/download/denikson/BepInExPack_Valheim/5.4.2350/               37a91c000b4e88f2ed7a4bd7d812239852d2e36cbf0ff0a9f5faacfba46b105f  pack

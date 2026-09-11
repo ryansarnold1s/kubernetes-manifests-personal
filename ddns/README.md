@@ -43,6 +43,10 @@ negative control).
   fine and never connects.
 - **`DELETE_ON_STOP=false`.** Otherwise every pod restart deletes the record.
 - **`MANAGED_RECORDS_COMMENT_REGEX`** limits the updater to records carrying its own comment.
+- **Don't edit the record's comment in the Cloudflare dashboard.** The comment is load-bearing:
+  once it stops matching `MANAGED_RECORDS_COMMENT_REGEX`, the record silently falls out of
+  management — no error in the log, updates just stop, and the name goes stale at the next WAN
+  IP change. `tests/verify-ddns.sh` is what catches it.
 
 ## Adding a name
 

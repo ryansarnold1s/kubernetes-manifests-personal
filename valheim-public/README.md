@@ -40,7 +40,7 @@ code. `bash valheim-public/tests/verify-public.sh` proves the running process is
 | `deployment.yaml` | initContainer `write-adminlist` + game container |
 | `service.yaml` | MetalLB LoadBalancer `192.168.130.157`, UDP 2456-2457 |
 | `recurringjob.yaml` | Longhorn daily snapshot (deploys to `longhorn-system`) |
-| `tests/verify-public.sh` | Read-only live checks; run after every rollout |
+| `tests/verify-public.sh` | Read-only live checks; run after every rollout. It is a post-rollout check, not an anytime health check: the log-based rows read `kubectl logs`, and on a long-running pod the boot lines they look for eventually rotate out, so those rows can fail with no real problem present |
 
 The DNS record is kept by `../ddns/`.
 
@@ -134,12 +134,20 @@ must **not** be substituted.
 
 ## Rollback
 
-Remove the workload, keep the world: `kubectl delete -f deployment.yaml -f service.yaml`. Also
-remove the router forward, so the WAN port does not point at an address MetalLB may reassign.
+Remove the workload, keep the world:
+
+```powershell
+cd valheim-public/                            # relative paths from repo root silently no-op
+kubectl delete -f deployment.yaml -f service.yaml
+```
+
+Also remove the router forward, so the WAN port does not point at an address MetalLB may
+reassign.
 
 Tear down completely — **this destroys the world**:
 
 ```powershell
+cd valheim-public/                            # relative paths from repo root silently no-op
 kubectl delete -f deployment.yaml -f service.yaml -f recurringjob.yaml
 kubectl delete -f pvc.yaml   # DESTRUCTIVE: storageClass longhorn has reclaimPolicy Delete
 kubectl delete -f namespace.yaml
@@ -152,12 +160,12 @@ is visible rather than assumed.
 
 | Check | Result |
 |---|---|
-| `tests/verify-public.sh` | 21 checks, 0 failed |
-| Same script against the modded `valheim/` server | 6 failed, exit 1 — the proof each of those checks can fail |
+| `tests/verify-public.sh` | 22 checks, 0 failed |
+| Same script against the modded `valheim/` server | **≥6 failed, exit 1** — the proof each of those checks can fail. Six are stable every run: `cmdline: no -setkey`, `log: no BepInEx`, `process env: no BepInEx doorstop preload`, `no /valheim/BepInEx directory`, `no service-account token mounted`, `no service-link env vars`. Re-run 2026-09-11: 8 failed — the two extra, `log: SteamCMD was not skipped` and `log: SteamCMD ran this boot`, depend on which boot the LAN server's log currently covers (`UPDATE_ON_START=false` there, so the log can be arbitrarily stale relative to SteamCMD activity) and are not stable across runs. The plan only ever claimed "at least these six" |
 | `../ddns/tests/verify-ddns.sh` | pass; the proxied apex as negative control exits 1 |
 | Join from outside the LAN, by **hostname** `valheim.arnoldtech.io:2456` | **pass** — a friend connected 16:35, handshake, `Network version check their:40 mine:40`, character spawned. Valheim's Join IP box does accept a DNS name, so nobody needs the raw IP |
 | Join from the LAN by `192.168.130.157:2456` | pass (operator, 15:53) |
-| Join **before** the router forward existed | **not run.** The forward was added before the test, and the substitute (reading the game's UDP peer addresses) does not work: `/proc/net/udp` and `/proc/net/udp6` hold only unconnected listeners even with players on, because Valheim's Steam networking keeps no connected socket. So nothing here proves the packets crossed the WAN — what stands is a second Steam account completing a handshake on an address never handed out on the LAN, plus the friend's own account. Testimony corroborated by logs, not a network-path proof |
+| Join **before** the router forward existed | **not run.** The forward was added before the test, and the substitute (reading the game's UDP peer addresses) does not work: `/proc/net/udp` and `/proc/net/udp6` hold only unconnected listeners even with players on, because Valheim's Steam networking keeps no connected socket. So nothing here proves the packets crossed the WAN — what stands is a second Steam account completing a handshake on an address never handed out on the LAN, plus the friend's own account. Testimony corroborated by logs, not a network-path proof. Reconciling with the hostname-join row above: the 16:35 connection's SteamID (`…274743071`) is distinct from the operator's own (`…963378853`), so a genuine third party did connect over that address — real corroboration, but still not the missing control, which is proof the port was **closed** before the forward existed. The server did not independently prove WAN traversal |
 | Wrong password refused | **not tested** — declined at deployment. The password is the only access control on this server; until someone tries a wrong one, "the gate works" is an assumption |
 | Game container `securityContext` | kept — `allowPrivilegeEscalation: false` + `NET_RAW` dropped survived boot. The plan's fallback of weakening it was never needed |
 | First boot | crash-looped twice on SteamCMD `Missing configuration`, then installed on the third attempt, exactly as `../valheim/README.md` records. Nothing was changed in response |

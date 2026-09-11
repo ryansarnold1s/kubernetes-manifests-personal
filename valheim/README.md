@@ -16,7 +16,9 @@ Crossplay is off: Steam clients only.
 Every client needs BepInExPack and ValheimPlus 10.1.0, the same version as the server.
 ValheimPlus's `[Server]` section is pinned with `enforceMod = true`, so a client without the same
 V+ version is refused, and with `serverSyncsConfig = true`, so connecting clients receive the
-server's V+ config. Both are also V+ 10.0.2's own defaults. Install Jotunn 2.30.0 on clients too, to
+server's V+ config. Both are also V+ 0.10.0.2's own defaults (verified 2026-09-10; not re-verified
+against the 10.1.0 bump on 2026-09-11 — the pins are explicit either way, so behaviour is
+unaffected regardless of what 10.1.0's own defaults are). Install Jotunn 2.30.0 on clients too, to
 match the server. Versions and download links are in `mods-configmap.yaml`.
 
 ## Layout
@@ -195,7 +197,8 @@ the `fetch-mods` initContainer on every boot.
 ### ValheimPlus
 
 Runs with the pre-1.0 server's tuning, restored 2026-09-10: all 184 of the old pins, plus every
-other key in those sections and in `[Server]` at its 10.0.2 default, 275 pins in `MOD_CONFIG`. Its config is
+other key in those sections and in `[Server]` at its 0.10.0.2 default (as generated on
+2026-09-10; not re-verified after the 2026-09-11 bump to 10.1.0), 275 pins in `MOD_CONFIG`. Its config is
 `/valheim/BepInEx/config/org.bepinex.plugins.valheim_plus.cfg`, an ordinary BepInEx file
 (`Key = Value`, `# Setting type:` headers) that V+ 10 creates on its first boot.
 
@@ -205,8 +208,8 @@ found next to its BepInEx config as an override that wins on every launch, makes
 read-only in-game, and logs a deprecation warning.
 
 `MOD_CONFIG` pins every key of every enabled section. `[Fermenter]` is the sentinel: its restored
-values (1200 s duration, 12 items, auto-deposit and auto-fuel on) all differ from V+ 10.0.2's
-defaults, so reading them back proves the applier reached the file. `[Inventory]` and `[Wagon]`
+values (1200 s duration, 12 items, auto-deposit and auto-fuel on) all differ from V+ 0.10.0.2's
+defaults (not re-verified against 10.1.0), so reading them back proves the applier reached the file. `[Inventory]` and `[Wagon]`
 stay off as before; the mods they used to collide with are gone, so enabling them is now a free
 choice. One 1.0 behaviour change: `Building.noWeatherDamage` covers rain and water erosion only. Verify after any
 restart by reading the file back, never by the absence of a log line (whether V+ 10 logs

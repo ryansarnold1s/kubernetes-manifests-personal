@@ -49,6 +49,19 @@ lacks "cmdline: no -setkey"            "-setkey"          "$CMD"
 lacks "cmdline: no -modifier"          "-modifier"        "$CMD"
 lacks "cmdline: no -crossplay"         "-crossplay"       "$CMD"
 
+# The password gate is the only access control on this server. Grepping for "-password " only
+# proves the FLAG is present, which is also true with an empty value -- so this reads the
+# null-separated /proc/<pid>/cmdline directly and reports the LENGTH of the argument that
+# follows -password, never the value itself. 0 (or empty, if -password is absent entirely)
+# fails the check; any positive count passes. Verified this can fail: the same pipeline against
+# a flag that does not exist, and against a nonexistent pid, both report 0 -- see the fix report.
+PWLEN=$(in_pod 'p=$(pgrep -f "[v]alheim_server.x86_64" | head -1); [ -n "$p" ] && tr "\0" "\n" < /proc/$p/cmdline | grep -A1 -x -F -- "-password" | sed -n "2p" | tr -d "\n" | wc -c')
+if [ -n "$PWLEN" ] && [ "$PWLEN" -gt 0 ] 2>/dev/null; then
+  ok "cmdline: -password has a non-empty value ($PWLEN chars)"
+else
+  bad "cmdline: -password has a non-empty value (got ${PWLEN:-<none>} chars)"
+fi
+
 ENVP=$(in_pod 'p=$(pgrep -f "[v]alheim_server.x86_64" | head -1); [ -n "$p" ] && tr "\0" "\n" < /proc/$p/environ | grep "^LD_PRELOAD="')
 lacks "process env: no BepInEx doorstop preload" "doorstop" "$ENVP"
 expect "no /valheim/BepInEx directory" absent "$(in_pod 'test -e /valheim/BepInEx && echo present || echo absent')"
