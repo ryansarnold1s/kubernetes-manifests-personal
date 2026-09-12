@@ -110,6 +110,16 @@ Until someone restarts it, patched clients are refused with an incompatible-vers
 
 - **The password is the only gate.** Rotate it by editing `secret.yaml`, applying, restarting,
   and telling friends. For a single griefer, an admin runs `ban <name>` in the F5 console.
+- ⚠️ **The password in use as of 2026-09-11 is known-weak, and the operator chose to keep it.**
+  It is 7 characters and is character-for-character one of the operator's own public DNS zone
+  names — a name that appears in a tracked file in this repo
+  (`../docs/superpowers/specs/2026-08-12-mealie-deployment-design.md`), resolves publicly, and
+  appears in issued certificates. Anyone who has seen this infrastructure can guess it, and it
+  is the only thing between the internet and this world. It was additionally printed into an
+  assistant session transcript on 2026-09-11 while inspecting the running process. Rotation was
+  offered twice and declined; this note exists so the risk is written down rather than
+  forgotten. **Rotate before widening who has the address**, and prefer a value that appears
+  nowhere in this repo.
 - To tighten later, `spec.loadBalancerSourceRanges` in `service.yaml` is the enforcement point.
   **Never NetworkPolicy** — Flannel ignores it.
 - **The game runs as root and parses internet traffic**, on a cluster network where a
