@@ -19,13 +19,30 @@ metadata:
     app: gameops
 rules:
 - apiGroups: [""]
-  resources: ["pods", "pods/log", "configmaps", "services", "persistentvolumeclaims"]
+  resources: ["pods", "configmaps", "services", "persistentvolumeclaims"]
   verbs: ["get", "list", "watch"]
+# pods/log is split out because `watch` is not a verb that subresource supports -- granting it
+# read as a capability the app had and silently did nothing. Narrowed to what is actually used.
+#
+# VERIFYING THIS: use `kubectl auth can-i --list`, NOT `kubectl auth can-i <verb> pods/log`.
+# The single-question form is unreliable for subresources on this cluster -- it answers from the
+# plain `pods` grant, so it reports "yes" for `watch pods/log`, for `watch pods/exec` (granted
+# nowhere), and even for `get pods/nonsense` (which does not exist). Controls that established
+# this: an unbound ServiceAccount answers "no" to all three, and `create pods/exec` correctly
+# answers "no". The --list form enumerates real rules and correctly shows `pods [get list watch]`
+# alongside `pods/log [get]`.
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get"]
 - apiGroups: ["apps"]
   resources: ["deployments"]
   verbs: ["get", "list", "watch"]
+# `recurringjobs` was granted for a schedule display that was never built. The snapshot-group
+# fact the dashboard DOES show comes from the Volume object's own labels, not from a
+# RecurringJob read, so nothing here referenced it. Re-add it deliberately if that feature
+# arrives -- an unused grant is not harmful, but it misrepresents what this app touches.
 - apiGroups: ["longhorn.io"]
-  resources: ["volumes", "snapshots", "recurringjobs"]
+  resources: ["volumes", "snapshots"]
   verbs: ["get", "list", "watch"]
 - apiGroups: ["metrics.k8s.io"]
   resources: ["pods"]
