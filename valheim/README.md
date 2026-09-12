@@ -153,9 +153,13 @@ if ($top -match '(\d+)m\s+(\d+)Mi') {
   Write-Output "cpu    : ${cpu}m"
 }
 $zdo = ((kubectl logs -n valheim $p -c valheim --tail=600 | Select-String "ZDOS:") | Select-Object -Last 1) -replace '.*ZDOS:(\d+).*','$1'
-$db  = kubectl exec -n valheim $p -c valheim -- stat -c %s /valheim-saves/worlds_local/TreeFellMeAgain.db
+# Valheim 1.0 stores a world as a DIRECTORY of chunk files (_main.N.db2, _main.N.chunks,
+# *.chunk), NOT a single <world>.db. The pre-1.0 line here was
+# `stat -c %s .../TreeFellMeAgain.db`, which since 1.0 matches nothing and printed an empty
+# size with no error -- corrected 2026-09-11 after it was caught reporting nothing live.
+$kib = kubectl exec -n valheim $p -c valheim -- sh -c "du -sk /valheim-saves/worlds_local/TreeFellMeAgain | cut -f1"
 Write-Output "ZDOs   : $zdo"
-Write-Output "world  : $([math]::Round($db/1MB,1)) MiB"
+Write-Output "world  : $([math]::Round($kib/1024,1)) MiB"
 ```
 
 The `-join` and blank-line filter are load-bearing: kubectl returns a string array.
@@ -166,7 +170,8 @@ The `-join` and blank-line filter are load-bearing: kubectl returns a string arr
 | ~5500–6500Mi sustained | raise the limit; it is not a reservation |
 | over ~6500Mi | raise it now, before a save lands on the ceiling |
 
-The previous world reached 1.5M ZDOs / 72 MiB and a 3–4s save freeze in six weeks. The
+The previous world reached 1.5M ZDOs / 72 MiB (that figure is the pre-1.0 single-file format;
+1.0's chunk directory is not directly comparable) and a 3–4s save freeze in six weeks. The
 freeze is `PrepareSave` cloning world state in memory on the main thread; faster storage
 does not help, and raising `SAVE_INTERVAL` only trades crash-loss for comfort.
 
