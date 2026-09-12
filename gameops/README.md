@@ -86,7 +86,7 @@ one image pull, no restarts.
 | `name` | `valheim`, `valheim-public` | same | PASS |
 | `gameVersion` | `l-1.0.12` both | `l-1.0.12` both | PASS |
 | `modded` | `true`/`false` | `true`/`false` | PASS |
-| `drift.status` | `ok` for valheim | **`drift`** for valheim (`"Jotunn: pinned 2.30.0, loaded nothing"`) | **BUG — see below** |
+| `drift.status` | `ok` for valheim | **`drift`** for valheim (`"Jotunn: pinned 2.30.0, loaded nothing"`) | **BUG — found here, FIXED in 0.1.1; see the correction below** |
 | `address` | `.155` / `.157` | `.155` / `.157` | PASS |
 | `volume.snapshotGroupLabelled` | `true` both | `true` both | PASS |
 | `updateOnStart` | `false`/`true` | `false`/`true` | PASS |
@@ -106,6 +106,31 @@ prints (it logs `Loading [Jotunn 2.30.0]` instead, via BepInEx's own loader line
 The regex never matches, so `parseLoadedMods` never lists Jotunn, and the drift alert fires
 permanently for a server that is actually configured correctly. Filed for follow-up; not fixed
 as part of this deploy-and-verify task.
+
+**CORRECTION — fixed the same day, before this branch closed.** The sentence immediately above
+("filed for follow-up; not fixed") was true when written and false within the hour. Leaving it
+standing alone would tell a future reader — who, per this repo's convention, reads this README
+*before* touching anything here — a confident lie contradicted by both the commit log and the
+live cluster. The bug was fixed in the `gameops` repo at `aa206a5` and rolled out here as image
+`0.1.1` (`b4df1ab`). `JOTUNN_RE` is now `/Loading \[Jotunn ([\d.]+)\]/`, anchored on the BepInEx
+loader line **specifically**: the same log carries a dozen unrelated `Jotunn.Main` /
+`Jotunn.Managers.*` lines, and a looser pattern (a bare `Jotunn ([\d.]+)`) matches one of those
+and captures garbage instead of the version. Re-verified against the live cluster after the
+rollout — `valheim` returns `loadedMods` `[BepInExPack_Valheim 5.4.2350, ValheimPlus 0.10.1.0,
+Jotunn 2.30.0]` with `drift.status: "ok"` and no differences, **and** `valheim-public` still
+returns an empty `loadedMods` with `ok`. That second reading is the one that matters: a regex fix
+confirmed only on the case it was meant to repair is half-verified, because it cannot show the
+pattern has not started matching things it shouldn't.
+
+Every other `drift` reading in this section — including the post-restart one further down — is
+pre-fix behaviour, kept as the record of what was actually observed rather than rewritten.
+
+**The deeper defect was the test, not the regex.** `api/test/logs.spec.ts` asserted the parser's
+output with `expect.arrayContaining`, a *subset* assertion that cannot fail when an entry is
+MISSING. The fixture had contained the real `Loading [Jotunn 2.30.0]` line all along, so the suite
+ran the broken parser against the truth and passed anyway. It now asserts the complete array with
+`toEqual`. If you are ever tempted to loosen an assertion here to make a test pass, this is the
+paragraph to re-read: the loose assertion is how a wrong value reached production.
 
 Route-shadowing check (outside the cluster): `curl -sI https://gameops.arnoldtech.io/api/servers`
 → `Content-Type: application/json; charset=utf-8`. Not shadowed by the SPA fallback.
