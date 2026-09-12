@@ -146,6 +146,11 @@ TLS handshake; a Chrome-based visual check of the rendered cards was not availab
 environment — no browser extension connected — so "cards render" is evidenced by the served
 `index.html`/JS/CSS bundle and the JSON payload above, not a screenshot.)
 
+**Closed by the operator, same day:** the gap above is no longer open — the operator loaded
+`https://gameops.arnoldtech.io` on the LAN and confirmed the cards render. Every other claim in
+this section was machine-checked; this was the one that needed a human to look at it, and it now
+has one.
+
 **Step 6 — the "unknown" path, retargeted:** per operator correction, this restarted
 `deploy/valheim` (the modded LAN server) instead of `valheim-public` (internet-facing, players
 not visible to the operator). Connection check and restart were issued in one action:
