@@ -1,0 +1,12 @@
+# restricted: this app needs no root, no capabilities and no writable filesystem, unlike the
+# game servers (whose image needs root for usermod/chown). enforce rejects a non-compliant
+# Pod; warn makes a non-compliant DEPLOYMENT print a warning at apply time, which enforce
+# alone would not do.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gameops
+  labels:
+    app: gameops
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted

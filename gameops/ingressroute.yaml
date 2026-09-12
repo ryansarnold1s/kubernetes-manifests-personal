@@ -1,0 +1,21 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: gameops
+  namespace: gameops
+  annotations:
+    # The ingressClass the kubernetescrd provider watches -- NOT the `traefik` IngressClass
+    # object used by plain Ingresses.
+    kubernetes.io/ingress.class: traefik-external
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: Host(`gameops.arnoldtech.io`)
+    services:
+    - name: gameops
+      port: 3000
+  # Empty on purpose: Traefik falls back to TLSStore/default in ns traefik, which holds the
+  # *.arnoldtech.io wildcard. Do NOT add a secretName and do NOT create a Certificate.
+  tls: {}

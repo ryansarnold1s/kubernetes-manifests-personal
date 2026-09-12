@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gameops
+  namespace: gameops
+  labels:
+    app: gameops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gameops
+  template:
+    metadata:
+      labels:
+        app: gameops
+    spec:
+      serviceAccountName: gameops
+      # The app DOES need its token (it reads the API) -- unlike the game servers, which have
+      # automountServiceAccountToken: false precisely because they never talk to Kubernetes.
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      imagePullSecrets:
+      # Namespaced; created by the operator in this namespace by hand. Never committed.
+      - name: gitea-registry-secret
+      containers:
+      - name: gameops
+        image: gitea.arnoldtech.io/arnold-tech/gameops:0.1.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 3000
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: http
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: http
+          periodSeconds: 30
+          failureThreshold: 3
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            memory: "256Mi"
