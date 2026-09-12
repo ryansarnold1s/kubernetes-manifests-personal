@@ -71,49 +71,54 @@ a login first.
 
 ## Known gaps and follow-ups
 
-None of these block use. They are recorded here because the implementation workspace that
-tracked them is deleted when the branch closes, and an undocumented known gap becomes an
-unknown one.
+The list that stood here after the first release has been worked through; what each item was and
+how it was resolved is below, because "why is the code shaped like this" is the question these
+notes exist to answer.
 
-**Worth doing first**
+**Still open**
 
-- **Player names can flip a vanilla server to `unknown`.** `parseLoadedMods` tells "vanilla" from
-  "boot lines rotated away" by looking for BepInEx's runtime log-tag shape (`[Info :Something]`).
-  Character names reach the log verbatim via `Got character ZDOID from <name>`, so a name shaped
-  like `[Info :x]` matches. Bounded: it can only cause false *uncertainty*, never a false
-  all-clear, and it clears when that line rotates out. Still untrusted input reaching a parser —
-  it deserves a deliberate fix, not one improvised at branch close.
-- **`lastSave.at` is parsed and transported but never rendered**, so a server whose save loop
-  stopped keeps showing a stale, healthy-looking duration. Spec §5 asks for time *and* duration.
-  Not done in passing because the value is a bare `MM/DD/YYYY HH:MM:SS` in container-local time
-  with no zone, read by a pod that may not share that clock; showing it raw implies a precision it
-  cannot back, and the honest form (relative age) needs a decision about whose clock is
-  authoritative.
-- **The three-state `pinnedMods` logic is a nested ternary.** Three separate attempted fixes
-  collapsed those states into two, each time producing a dishonest card. A comment is a weaker
-  guard than structure: a named helper with three explicit returns would make the collapse awkward
-  rather than merely discouraged.
-
-**Smaller**
-
-- `cpuMillicores` and `updateOnStart` are fetched by the API and never displayed (spec §5 names
-  both). Either show them or drop them from both type files — carrying them is the worst of both.
-- `readPodLog` hardcodes `container: 'valheim'`. A third server whose container is named
-  differently gets no log-derived data at all. It degrades honestly to `unknown`, but silently.
-- `parseMemoryToMiB` returns a confident `0` on unparseable input, while `parseCpuToNanocores`
-  returns `NaN` → `null` → `unknown`. The second is right; the first contradicts this app's whole
-  contract. Neither has a unit test.
-- `sameVersion` over-normalizes: `0.0.1` compares equal to `1`, `0.1.0` to `1.0`. No mod version in
-  use can hit it today.
-- `ServersModule` re-declares `KubeService` instead of importing a shared module, so a second
-  consumer would quietly get its own lazily-cached client.
-- RBAC grants `recurringjobs`, which nothing reads (the snapshot-group fact comes from the Volume's
-  own labels), and `watch` on `pods/log`, which that subresource does not support. Both harmless
-  and read-only; drop them together if you touch the role.
-- `web`'s test script passes `--passWithNoTests`, so a green `npm test` does not prove a test ran.
-- Nothing pins `api/src/types.ts` to `web/src/api.ts`. They match today and must be hand-synced.
-- Committed log fixtures contain real player SteamID64s. Accepted while this repo is private —
+- **Committed log fixtures contain real player SteamID64s.** Accepted while this repo is private —
   revisit if that changes.
+- **`sameVersion` cannot distinguish every over-normalized pair in principle.** The rule is now
+  bounded to the real quirk (a 4-segment .NET `System.Version` against a 3-segment semver pin), so
+  the known false all-clears are gone. A future mod reporting some *other* version shape could
+  still need its own case; the guard is deliberately narrow so that failure would surface as drift
+  rather than as a silent match.
+- **A character name containing a literal newline** is the one injection shape the line-start
+  anchor below would not stop. Unverified and unlikely — Valheim's own name validation probably
+  prevents it — but it was never tested, so it is written down rather than assumed away.
+
+**Resolved, and why the code looks the way it does**
+
+- **Untrusted input could forge BepInEx evidence.** `parseLoadedMods` distinguishes "vanilla" from
+  "boot lines rotated away" by looking for BepInEx's runtime log-tag shape, and player character
+  names reach the log verbatim via `Got character ZDOID from <name>`, so a player named
+  `[Info :x]` could flip a genuinely vanilla server to `unknown`. Fixed by anchoring the tag to
+  **start of line**: character-name lines are always timestamp-prefixed, so player text can never
+  occupy column 0. Line-start alone was not enough — the vanilla log has 52 unrelated lines
+  starting with a bracket (`[UnityMemory]`, `[S_API]`) — so the BepInEx log-level keyword is still
+  required as well.
+- **`lastSave` showed a duration but no time**, so a server whose save loop had stopped looked
+  healthy indefinitely. Now renders a relative age via `web/src/lastSave.ts`, which interprets the
+  log timestamp as **UTC-7** — the valheim container runs `TZ: "America/Phoenix"`, which observes
+  no DST, so the offset is fixed. That hardcoding is the thing to revisit if that TZ ever changes.
+  It deliberately never uses the browser's timezone.
+- **`parseMemoryToMiB` returned a confident `0`** on unparseable input, contradicting this app's
+  central contract. Both it and `parseCpuToNanocores` now return `null` → `unknown`, and both are
+  tested. (`parseCpuToNanocores('')` had the same bug hiding in it — `Number('')` is `0`.)
+- **`readPodLog` hardcoded `container: 'valheim'`**, so a third server with a differently-named
+  container would get no log-derived data. The name is now derived from the Deployment and used for
+  the memory-limit and restart-count lookups too.
+- **`ServersModule` re-declared `KubeService`**, so a second consumer would have silently got its
+  own lazily-cached Kubernetes client. There is now a shared `KubeModule`.
+- **`cpuMillicores` and `updateOnStart` were fetched and never displayed** (spec §5 names both).
+  Both now render, `unknown` when null.
+- **RBAC granted two things nothing used** — `longhorn.io/recurringjobs` and `watch` on `pods/log`
+  (a verb that subresource does not support). Both removed; see the note in `rbac.yaml` about
+  verifying subresource permissions with `auth can-i --list` rather than `auth can-i <verb>`.
+- **`web`'s test script passed `--passWithNoTests`**, so a green run proved nothing. Removed.
+- **Nothing pinned `api/src/types.ts` to `web/src/api.ts`**, which are hand-synced. A test now
+  fails when they diverge.
 
 ## Verified (2026-09-12)
 
