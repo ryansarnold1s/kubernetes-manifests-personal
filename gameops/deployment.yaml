@@ -33,7 +33,7 @@ spec:
         # Bump this tag for every change -- never rebuild and re-push the SAME tag. With
         # imagePullPolicy IfNotPresent the kubelet keeps the cached layer for a tag it has
         # already seen, so a same-tag rebuild rolls out and changes nothing, silently.
-        image: gitea.arnoldtech.io/arnold-tech/gameops:0.1.1
+        image: gitea.arnoldtech.io/arnold-tech/gameops:0.1.4
         imagePullPolicy: IfNotPresent
         ports:
         - name: http
