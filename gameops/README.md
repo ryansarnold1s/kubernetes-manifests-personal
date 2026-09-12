@@ -69,6 +69,52 @@ a login first.
   handler this app never invokes. **If anyone ever adds a route that accepts uploads, these
   become live and must be re-triaged before that route ships.**
 
+## Known gaps and follow-ups
+
+None of these block use. They are recorded here because the implementation workspace that
+tracked them is deleted when the branch closes, and an undocumented known gap becomes an
+unknown one.
+
+**Worth doing first**
+
+- **Player names can flip a vanilla server to `unknown`.** `parseLoadedMods` tells "vanilla" from
+  "boot lines rotated away" by looking for BepInEx's runtime log-tag shape (`[Info :Something]`).
+  Character names reach the log verbatim via `Got character ZDOID from <name>`, so a name shaped
+  like `[Info :x]` matches. Bounded: it can only cause false *uncertainty*, never a false
+  all-clear, and it clears when that line rotates out. Still untrusted input reaching a parser —
+  it deserves a deliberate fix, not one improvised at branch close.
+- **`lastSave.at` is parsed and transported but never rendered**, so a server whose save loop
+  stopped keeps showing a stale, healthy-looking duration. Spec §5 asks for time *and* duration.
+  Not done in passing because the value is a bare `MM/DD/YYYY HH:MM:SS` in container-local time
+  with no zone, read by a pod that may not share that clock; showing it raw implies a precision it
+  cannot back, and the honest form (relative age) needs a decision about whose clock is
+  authoritative.
+- **The three-state `pinnedMods` logic is a nested ternary.** Three separate attempted fixes
+  collapsed those states into two, each time producing a dishonest card. A comment is a weaker
+  guard than structure: a named helper with three explicit returns would make the collapse awkward
+  rather than merely discouraged.
+
+**Smaller**
+
+- `cpuMillicores` and `updateOnStart` are fetched by the API and never displayed (spec §5 names
+  both). Either show them or drop them from both type files — carrying them is the worst of both.
+- `readPodLog` hardcodes `container: 'valheim'`. A third server whose container is named
+  differently gets no log-derived data at all. It degrades honestly to `unknown`, but silently.
+- `parseMemoryToMiB` returns a confident `0` on unparseable input, while `parseCpuToNanocores`
+  returns `NaN` → `null` → `unknown`. The second is right; the first contradicts this app's whole
+  contract. Neither has a unit test.
+- `sameVersion` over-normalizes: `0.0.1` compares equal to `1`, `0.1.0` to `1.0`. No mod version in
+  use can hit it today.
+- `ServersModule` re-declares `KubeService` instead of importing a shared module, so a second
+  consumer would quietly get its own lazily-cached client.
+- RBAC grants `recurringjobs`, which nothing reads (the snapshot-group fact comes from the Volume's
+  own labels), and `watch` on `pods/log`, which that subresource does not support. Both harmless
+  and read-only; drop them together if you touch the role.
+- `web`'s test script passes `--passWithNoTests`, so a green `npm test` does not prove a test ran.
+- Nothing pins `api/src/types.ts` to `web/src/api.ts`. They match today and must be hand-synced.
+- Committed log fixtures contain real player SteamID64s. Accepted while this repo is private —
+  revisit if that changes.
+
 ## Verified (2026-09-12)
 
 Built `gitea.arnoldtech.io/arnold-tech/gameops:0.1.0`, pushed, deployed to the live cluster, and
