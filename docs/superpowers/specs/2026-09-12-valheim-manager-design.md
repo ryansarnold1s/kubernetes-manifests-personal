@@ -184,6 +184,23 @@ up/down with restart count, players connected, game version, mod drift state, CP
 against limits, volume usage, last save, snapshot health, and the join address. A server card
 expands to show the pinned-versus-loaded mod table and the recent connection events.
 
+> **CORRECTION (2026-09-12, during implementation — not built, deliberately).** "The recent
+> connection events" cannot be delivered and was dropped. The API exposes a player **count** and
+> the source that count came from (`sockets` or `counter`), never the individual joins and
+> disconnects. Reconstructing an event list would mean shipping raw game-server log lines to an
+> unauthenticated LAN page — those lines carry player SteamID64s, so it is a privacy decision
+> dressed as a UI feature, and §4's read-only-and-minimal posture argues against it. The mod
+> table on expand **was** built. This correction previously existed only in the design canvas
+> (`design/canvas.json` in the gameops repo), which left the binding spec promising a feature
+> nobody can build; it is recorded here so the next reader meets it in the authority rather than
+> in an artifact they may never open.
+>
+> Three smaller drifts from this spec are known, unfixed, and tracked as follow-ups rather than
+> silently accepted: `cpuMillicores` and `updateOnStart` are fetched by the API but never
+> rendered (§5 names both), and "last save" renders only the duration, not the time (§5 asks for
+> both) — `lastSave.at` is a bare container-local timestamp with no timezone, so presenting it
+> honestly needs a decision about whose clock it is, which is why it was not done in passing.
+
 Visual design is deliberately out of scope for this spec. It is done at implementation with the
 `/design` skill, using the operator's chosen references (`tasteskill.dev`, `impeccable.style`).
 What this spec fixes is the **information architecture** above — what is shown, and what each
