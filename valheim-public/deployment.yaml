@@ -5,6 +5,9 @@ metadata:
   namespace: valheim-public
   labels:
     app: valheim-public
+    # Discovery label for gameops (../gameops). Deployment metadata only -- never
+    # spec.selector.matchLabels, which is immutable.
+    game: valheim
 spec:
   replicas: 1
   strategy:

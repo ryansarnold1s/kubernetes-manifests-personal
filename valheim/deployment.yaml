@@ -5,6 +5,10 @@ metadata:
   namespace: valheim
   labels:
     app: valheim
+    # Discovery label for gameops (../gameops). It is on the Deployment's OWN metadata, never
+    # in spec.selector.matchLabels -- that field is immutable and changing it forces a delete
+    # and recreate of the Deployment.
+    game: valheim
 spec:
   replicas: 1
   strategy:
